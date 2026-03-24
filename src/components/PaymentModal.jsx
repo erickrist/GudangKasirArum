@@ -275,7 +275,7 @@ const PaymentModal = ({ transaction, customer, onConfirm, onCancel }) => {
           {paymentData.status === 'HUTANG' && (
             <div className="mt-2 p-2 bg-orange-100 border border-orange-200 rounded">
               <p className="text-sm text-orange-800">
-                <span className="font-semibold">Hutang yang Ditambahkan:</span> Rp {calculateDebtChange().toLocaleString('id-ID')}
+                {/* //**<span className="font-semibold">Hutang yang Ditambahkan:</span> Rp {calculateDebtChange().toLocaleString('id-ID')} */}
               </p>
               <p className="text-xs text-orange-700 mt-1">
                 Total Sisa Nota Pembeli: Rp {(customer.remainingDebt + calculateDebtChange()).toLocaleString('id-ID')}

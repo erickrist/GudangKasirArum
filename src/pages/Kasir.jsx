@@ -118,9 +118,9 @@ const Kasir = ({ onShowToast }) => {
     const stockUpdates = [];
     for (const item of cart) {
       let pcsToReduce = item.qty;
-      if (item.unitType === 'KARTON') {
-        pcsToReduce = item.qty * item.pcsPerCarton;
-      }
+      if (['KARTON', 'BALL', 'IKAT'].includes(item.unitType)) {
+        pcsToReduce = item.qty * (item.pcsPerCarton || 1);
+        }
 
       const newStock = item.stockPcs - pcsToReduce;
 
@@ -191,14 +191,21 @@ const Kasir = ({ onShowToast }) => {
           customerUpdates.returnAmount = Math.max(0, selectedCustomer.returnAmount - returnUsed);
         }
 
+        // ==========================================
+        // FIX LOGIKA HUTANG (Mencegah Timpa Menimpa)
+        // ==========================================
         if (paymentData.status === 'HUTANG') {
+          // Jika statusnya HUTANG: Belanjaan sekarang menambah saldo hutang lama.
+          // Nilai "debtPaid" (dari centang Tagih) diabaikan ke database karena itu cuma visual untuk nota.
           const debtToAdd = subtotal - returnUsed;
           customerUpdates.remainingDebt = (selectedCustomer.remainingDebt || 0) + debtToAdd;
+        } else if (paymentData.status === 'LUNAS') {
+          // Jika statusnya LUNAS: Baru nilai "debtPaid" dipakai untuk MENGURANGI hutang lama.
+          if (paymentData.collectDebt && debtPaid > 0) {
+            customerUpdates.remainingDebt = Math.max(0, (selectedCustomer.remainingDebt || 0) - debtPaid);
+          }
         }
-
-        if (paymentData.collectDebt && debtPaid > 0) {
-          customerUpdates.remainingDebt = Math.max(0, (selectedCustomer.remainingDebt || 0) - debtPaid);
-        }
+        // ==========================================
 
         if (Object.keys(customerUpdates).length > 0) {
           const updateResult = await updateDocument('customers', selectedCustomer.id, customerUpdates);
