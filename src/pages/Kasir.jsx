@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Minus, Trash2, ShoppingCart, User, X, AlertCircle as AlertCircle } from 'lucide-react';
+import { Plus, Minus, Trash2, ShoppingCart, User, X, AlertCircle as AlertCircle, Search, Store } from 'lucide-react';
 import { useCollection, addDocument, updateDocument, updateStockBatch } from '../hooks/useFirestore';
 import Loading from '../components/common/Loading';
 import EmptyState from '../components/common/EmptyState';
@@ -120,7 +120,7 @@ const Kasir = ({ onShowToast }) => {
       let pcsToReduce = item.qty;
       if (['KARTON', 'BALL', 'IKAT'].includes(item.unitType)) {
         pcsToReduce = item.qty * (item.pcsPerCarton || 1);
-        }
+      }
 
       const newStock = item.stockPcs - pcsToReduce;
 
@@ -191,21 +191,14 @@ const Kasir = ({ onShowToast }) => {
           customerUpdates.returnAmount = Math.max(0, selectedCustomer.returnAmount - returnUsed);
         }
 
-        // ==========================================
-        // FIX LOGIKA HUTANG (Mencegah Timpa Menimpa)
-        // ==========================================
         if (paymentData.status === 'HUTANG') {
-          // Jika statusnya HUTANG: Belanjaan sekarang menambah saldo hutang lama.
-          // Nilai "debtPaid" (dari centang Tagih) diabaikan ke database karena itu cuma visual untuk nota.
           const debtToAdd = subtotal - returnUsed;
           customerUpdates.remainingDebt = (selectedCustomer.remainingDebt || 0) + debtToAdd;
         } else if (paymentData.status === 'LUNAS') {
-          // Jika statusnya LUNAS: Baru nilai "debtPaid" dipakai untuk MENGURANGI hutang lama.
           if (paymentData.collectDebt && debtPaid > 0) {
             customerUpdates.remainingDebt = Math.max(0, (selectedCustomer.remainingDebt || 0) - debtPaid);
           }
         }
-        // ==========================================
 
         if (Object.keys(customerUpdates).length > 0) {
           const updateResult = await updateDocument('customers', selectedCustomer.id, customerUpdates);
@@ -255,57 +248,80 @@ const Kasir = ({ onShowToast }) => {
   const subtotal = calculateSubtotal();
 
   return (
-    <div>
+    <div className="pb-10">
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2">
-          <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-800">Pilih Produk</h3>
+        {/* BAGIAN KIRI: DAFTAR PRODUK */}
+        <div className="lg:col-span-2 space-y-6">
+          
+          <div className="bg-white p-4 rounded-2xl border flex items-center shadow-sm">
+            <div className="relative flex-1">
+              <Search className="absolute left-4 top-3 w-4 h-4 text-gray-400" />
               <input
                 type="text"
-                placeholder="Cari produk..."
+                placeholder="Cari nama atau kategori produk..."
                 value={searchProduct}
                 onChange={(e) => setSearchProduct(e.target.value)}
-                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+                className="w-full pl-11 pr-4 py-2.5 bg-gray-50 border-none rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-teal-500"
               />
             </div>
+          </div>
+
+          <div className="bg-white rounded-[32px] shadow-sm border p-6 min-h-[500px]">
+            <h3 className="text-lg font-black text-gray-800 uppercase tracking-tighter flex items-center gap-2 mb-6">
+              <Store className="w-5 h-5 text-teal-600"/> Etalase Produk
+            </h3>
 
             {filteredProducts.length === 0 ? (
-              <EmptyState
-                title="Produk tidak ditemukan"
-                description="Coba kata kunci lain atau tambahkan produk baru"
-              />
+              <div className="mt-10">
+                <EmptyState
+                  title="Produk tidak ditemukan"
+                  description="Coba kata kunci lain untuk mencari produk"
+                />
+              </div>
             ) : (
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 max-h-[500px] overflow-y-auto">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 max-h-[600px] overflow-y-auto custom-scrollbar pr-2">
                 {filteredProducts.map((product) => (
                   <button
                     key={product.id}
                     onClick={() => addToCart(product)}
                     disabled={product.stockPcs < 1}
-                    className={`text-left p-4 border rounded-lg hover:shadow-md transition-shadow ${
+                    className={`text-left border rounded-2xl overflow-hidden hover:shadow-lg transition-all duration-300 flex flex-col ${
                       product.stockPcs < 1
-                        ? 'opacity-50 cursor-not-allowed'
-                        : 'hover:border-teal-500'
+                        ? 'opacity-50 cursor-not-allowed border-gray-200 grayscale'
+                        : 'hover:border-teal-400 border-gray-200 bg-white'
                     }`}
                   >
+                    {/* LOGIKA GAMBAR: Jika ada URL gambar, tampilkan. Jika tidak, tidak dirender sama sekali */}
                     {product.image && (
                       <img
                         src={product.image}
                         alt={product.name}
-                        className="w-full h-24 object-cover rounded mb-2"
+                        className="w-full h-32 object-cover border-b border-gray-100"
                       />
                     )}
-                    <h4 className="font-semibold text-sm text-gray-800 mb-1">{product.name}</h4>
-                    <p className="text-xs text-gray-500 mb-2">{product.category}</p>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm font-semibold text-teal-600">
-                        Rp {product.price.toLocaleString('id-ID')}
-                      </span>
-                      <span className="text-xs text-gray-500">Stok: {product.stockPcs}</span>
+                    
+                    <div className="p-4 flex-1 flex flex-col">
+                      <h4 className="font-black text-gray-800 text-sm mb-1 uppercase tracking-tight line-clamp-2 leading-snug">
+                        {product.name}
+                      </h4>
+                      <p className="text-[9px] font-bold text-teal-600 uppercase tracking-widest mb-3 bg-teal-50 inline-block px-2 py-1 rounded-md self-start">
+                        {product.category}
+                      </p>
+                      
+                      <div className="mt-auto flex justify-between items-end border-t border-dashed border-gray-100 pt-3">
+                        <div>
+                          <span className="text-sm font-black text-teal-600 block">
+                            Rp {product.price.toLocaleString('id-ID')}
+                          </span>
+                          <span className={`text-[10px] font-bold uppercase tracking-widest block mt-1 ${product.stockPcs < 10 ? 'text-red-500' : 'text-gray-400'}`}>
+                            Stok: {product.stockPcs}
+                          </span>
+                        </div>
+                        <span className="text-[9px] font-black bg-gray-100 text-gray-600 px-2 py-1 rounded uppercase tracking-wider">
+                          {product.unitType}
+                        </span>
+                      </div>
                     </div>
-                    <span className="text-xs bg-teal-100 text-teal-700 px-2 py-1 rounded mt-2 inline-block">
-                      {product.unitType}
-                    </span>
                   </button>
                 ))}
               </div>
@@ -313,42 +329,50 @@ const Kasir = ({ onShowToast }) => {
           </div>
         </div>
 
+        {/* BAGIAN KANAN: KERANJANG */}
         <div className="lg:col-span-1">
-          <div className="bg-white rounded-lg shadow-md p-6 sticky top-4">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-800">Keranjang</h3>
-              <ShoppingCart className="w-5 h-5 text-teal-600" />
+          <div className="bg-white rounded-[32px] shadow-sm border p-6 sticky top-28">
+            <div className="flex items-center justify-between mb-6 border-b border-gray-100 pb-4">
+              <h3 className="text-lg font-black text-gray-800 uppercase tracking-tighter">Keranjang</h3>
+              <div className="bg-teal-50 p-2 rounded-xl">
+                <ShoppingCart className="w-5 h-5 text-teal-600" />
+              </div>
             </div>
 
+            {/* PEMBELI SECTION */}
             {selectedCustomer ? (
-              <div className="bg-teal-50 rounded-lg p-3 mb-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <User className="w-4 h-4 text-teal-600" />
+              <div className="bg-gray-50 border border-gray-100 rounded-2xl p-4 mb-6">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-3">
+                    <div className="bg-white p-2 rounded-lg shadow-sm">
+                      <User className="w-4 h-4 text-teal-600" />
+                    </div>
                     <div className="min-w-0">
-                      <p className="text-sm font-semibold text-gray-800 truncate">{selectedCustomer.name}</p>
-                      <p className="text-xs text-gray-600">{selectedCustomer.phone}</p>
+                      <p className="text-sm font-black text-gray-800 uppercase tracking-tight truncate">{selectedCustomer.name}</p>
+                      <p className="text-[10px] font-bold text-gray-500 tracking-widest">{selectedCustomer.phone || 'Tidak ada no HP'}</p>
                     </div>
                   </div>
                   <button
                     onClick={() => setShowCustomerModal(true)}
-                    className="text-xs text-teal-600 hover:text-teal-700 whitespace-nowrap ml-2"
+                    className="text-[10px] font-black uppercase tracking-widest bg-white border border-gray-200 text-gray-600 px-2 py-1 rounded hover:bg-teal-50 hover:text-teal-600 hover:border-teal-200 transition-colors"
                   >
                     Ubah
                   </button>
                 </div>
 
                 {(selectedCustomer.returnAmount > 0 || selectedCustomer.remainingDebt > 0) && (
-                  <div className="mt-2 pt-2 border-t border-teal-200 space-y-1">
+                  <div className="mt-3 pt-3 border-t border-dashed border-gray-200 space-y-1.5">
                     {selectedCustomer.returnAmount > 0 && (
-                      <p className="text-xs text-green-600">
-                        <span className="font-medium">Saldo Retur:</span> Rp {selectedCustomer.returnAmount.toLocaleString('id-ID')}
-                      </p>
+                      <div className="flex justify-between items-center">
+                        <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Saldo Retur</span>
+                        <span className="text-xs font-black text-green-600">Rp {selectedCustomer.returnAmount.toLocaleString('id-ID')}</span>
+                      </div>
                     )}
                     {selectedCustomer.remainingDebt > 0 && (
-                      <p className="text-xs text-orange-600">
-                        <span className="font-medium">Sisa Hutang:</span> Rp {selectedCustomer.remainingDebt.toLocaleString('id-ID')}
-                      </p>
+                      <div className="flex justify-between items-center">
+                        <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Sisa Hutang</span>
+                        <span className="text-xs font-black text-orange-600">Rp {selectedCustomer.remainingDebt.toLocaleString('id-ID')}</span>
+                      </div>
                     )}
                   </div>
                 )}
@@ -356,17 +380,18 @@ const Kasir = ({ onShowToast }) => {
             ) : (
               <button
                 onClick={() => setShowCustomerModal(true)}
-                className="w-full bg-teal-100 text-teal-700 px-4 py-3 rounded-lg mb-4 hover:bg-teal-200 transition-colors text-sm font-medium"
+                className="w-full bg-teal-50 border border-teal-100 text-teal-700 px-4 py-4 rounded-2xl mb-6 hover:bg-teal-100 transition-colors text-xs font-black uppercase tracking-widest flex items-center justify-center gap-2"
               >
-                + Pilih Pembeli
+                <Plus className="w-4 h-4" /> Pilih / Tambah Pembeli
               </button>
             )}
 
-            <div className="space-y-3 mb-4 max-h-[300px] overflow-y-auto">
+            {/* DAFTAR ITEM KERANJANG */}
+            <div className="space-y-3 mb-6 max-h-[350px] overflow-y-auto custom-scrollbar pr-2">
               {cart.length === 0 ? (
-                <div className="text-center text-gray-400 py-8">
-                  <ShoppingCart className="w-12 h-12 mx-auto mb-2" />
-                  <p className="text-sm">Keranjang kosong</p>
+                <div className="text-center py-10">
+                  <ShoppingCart className="w-12 h-12 mx-auto mb-3 text-gray-200" />
+                  <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Keranjang Kosong</p>
                 </div>
               ) : (
                 cart.map((item) => (
@@ -381,18 +406,19 @@ const Kasir = ({ onShowToast }) => {
               )}
             </div>
 
-            <div className="border-t border-gray-200 pt-4 space-y-2">
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-600">Subtotal:</span>
-                <span className="font-semibold text-gray-800">
+            {/* TOTAL & CHECKOUT */}
+            <div className="border-t border-gray-100 pt-6 space-y-4">
+              <div className="flex justify-between items-center px-2">
+                <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Subtotal</span>
+                <span className="font-bold text-gray-600">
                   Rp {subtotal.toLocaleString('id-ID')}
                 </span>
               </div>
 
-              <div className="bg-teal-50 p-3 rounded-lg">
+              <div className="bg-teal-50 border border-teal-100 p-4 rounded-2xl">
                 <div className="flex justify-between items-center">
-                  <span className="font-semibold text-gray-800">Total</span>
-                  <span className="text-xl font-bold text-teal-600">
+                  <span className="font-black text-teal-800 uppercase tracking-tight">Total Akhir</span>
+                  <span className="text-xl font-black text-teal-600">
                     Rp {subtotal.toLocaleString('id-ID')}
                   </span>
                 </div>
@@ -401,7 +427,7 @@ const Kasir = ({ onShowToast }) => {
               <button
                 onClick={handleCheckout}
                 disabled={cart.length === 0 || !selectedCustomer}
-                className="w-full bg-teal-600 text-white py-3 rounded-lg font-semibold hover:bg-teal-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
+                className="w-full bg-teal-600 text-white py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-teal-700 transition-all shadow-xl shadow-teal-100 disabled:bg-gray-200 disabled:text-gray-400 disabled:shadow-none disabled:cursor-not-allowed text-sm"
               >
                 Proses Pembayaran
               </button>
@@ -410,60 +436,65 @@ const Kasir = ({ onShowToast }) => {
         </div>
       </div>
 
+      {/* MODAL PILIH PEMBELI */}
       {showCustomerModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full max-h-[80vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold">Pilih Pembeli</h3>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
+          <div className="bg-white rounded-[32px] p-8 max-w-md w-full max-h-[85vh] overflow-y-auto custom-scrollbar shadow-2xl">
+            <div className="flex justify-between items-center mb-6 border-b border-gray-100 pb-4">
+              <h3 className="text-xl font-black text-gray-800 flex items-center gap-2">
+                <User className="w-5 h-5 text-teal-600"/> Pilih Pembeli
+              </h3>
               <button
                 onClick={() => {
                   setShowCustomerModal(false);
                   setSearchCustomer('');
                 }}
-                className="text-gray-500 hover:text-gray-700"
+                className="bg-gray-50 p-2 rounded-xl text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="flex gap-2 mb-4">
-              <input
-                type="text"
-                placeholder="Cari pembeli..."
-                value={searchCustomer}
-                onChange={(e) => setSearchCustomer(e.target.value)}
-                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
-              />
+            <div className="flex gap-2 mb-6">
+              <div className="relative flex-1">
+                <Search className="absolute left-4 top-3.5 w-4 h-4 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Cari nama atau no HP..."
+                  value={searchCustomer}
+                  onChange={(e) => setSearchCustomer(e.target.value)}
+                  className="w-full pl-11 pr-4 py-3 bg-gray-50 border-none rounded-2xl font-bold text-sm outline-none focus:ring-2 focus:ring-teal-500"
+                />
+              </div>
               <button
                 onClick={() => {
                   setShowCustomerModal(false);
                   setShowAddCustomerModal(true);
                   setSearchCustomer('');
                 }}
-                className="bg-teal-600 text-white px-3 py-2 rounded-lg hover:bg-teal-700 transition-colors"
+                className="bg-teal-600 text-white px-4 py-3 rounded-2xl hover:bg-teal-700 transition-colors shadow-md shadow-teal-100 flex items-center justify-center"
               >
                 <Plus className="w-5 h-5" />
               </button>
             </div>
 
             {filteredCustomers.length === 0 ? (
-              <div className="text-center py-8">
-                <User className="w-12 h-12 mx-auto mb-3 text-gray-300" />
-                <p className="text-gray-500 mb-4 text-sm">Pembeli tidak ditemukan</p>
+              <div className="text-center py-10 bg-gray-50 rounded-2xl border border-dashed border-gray-200">
+                <User className="w-10 h-10 mx-auto mb-3 text-gray-300" />
+                <p className="text-gray-500 mb-4 text-xs font-bold">Pembeli tidak ditemukan</p>
                 <button
                   onClick={() => {
                     setShowCustomerModal(false);
                     setShowAddCustomerModal(true);
                     setSearchCustomer('');
                   }}
-                  className="w-full bg-teal-600 text-white px-4 py-2 rounded-lg hover:bg-teal-700 transition-colors flex items-center justify-center gap-2 text-sm"
+                  className="bg-white border border-teal-200 text-teal-600 px-4 py-2 rounded-xl hover:bg-teal-50 transition-colors flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest mx-auto shadow-sm"
                 >
-                  <Plus className="w-4 h-4" />
-                  Tambah Pembeli Baru
+                  <Plus className="w-3 h-3" /> Tambah Pembeli Baru
                 </button>
               </div>
             ) : (
-              <div className="space-y-2 mb-4">
+              <div className="space-y-3 mb-6">
                 {filteredCustomers.map((customer) => (
                   <button
                     key={customer.id}
@@ -472,22 +503,32 @@ const Kasir = ({ onShowToast }) => {
                       setShowCustomerModal(false);
                       setSearchCustomer('');
                     }}
-                    className={`w-full text-left p-3 border rounded-lg hover:border-teal-500 transition-colors text-sm ${
-                      selectedCustomer?.id === customer.id ? 'border-teal-500 bg-teal-50' : ''
+                    className={`w-full text-left p-4 border rounded-2xl transition-all duration-300 ${
+                      selectedCustomer?.id === customer.id 
+                        ? 'border-teal-500 bg-teal-50 shadow-sm' 
+                        : 'border-gray-200 hover:border-teal-300 bg-white hover:shadow-md'
                     }`}
                   >
-                    <h4 className="font-semibold text-gray-800">{customer.name}</h4>
-                    <p className="text-xs text-gray-600">{customer.phone || '-'}</p>
+                    <h4 className="font-black text-gray-800 text-sm uppercase tracking-tight">{customer.name}</h4>
+                    <p className="text-[10px] font-bold text-gray-500 tracking-widest mt-0.5">{customer.phone || 'Tanpa No HP'}</p>
+                    
                     {customer.address && (
-                      <p className="text-xs text-gray-500 mt-1 line-clamp-2">{customer.address}</p>
+                      <p className="text-[10px] text-gray-500 mt-2 line-clamp-2 bg-gray-50 p-2 rounded-lg leading-relaxed">{customer.address}</p>
                     )}
+                    
                     {(customer.returnAmount > 0 || customer.remainingDebt > 0) && (
-                      <div className="text-xs mt-2 space-y-1">
+                      <div className="text-[10px] font-black uppercase tracking-widest mt-3 pt-3 border-t border-dashed border-gray-200 space-y-1.5">
                         {customer.returnAmount > 0 && (
-                          <p className="text-green-600">Retur: Rp {customer.returnAmount.toLocaleString('id-ID')}</p>
+                          <div className="flex justify-between">
+                            <span className="text-gray-400">Retur</span>
+                            <span className="text-green-600">Rp {customer.returnAmount.toLocaleString('id-ID')}</span>
+                          </div>
                         )}
                         {customer.remainingDebt > 0 && (
-                          <p className="text-orange-600">Hutang: Rp {customer.remainingDebt.toLocaleString('id-ID')}</p>
+                          <div className="flex justify-between">
+                            <span className="text-gray-400">Hutang</span>
+                            <span className="text-orange-600">Rp {customer.remainingDebt.toLocaleString('id-ID')}</span>
+                          </div>
                         )}
                       </div>
                     )}
@@ -495,16 +536,6 @@ const Kasir = ({ onShowToast }) => {
                 ))}
               </div>
             )}
-
-            <button
-              onClick={() => {
-                setShowCustomerModal(false);
-                setSearchCustomer('');
-              }}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm"
-            >
-              Tutup
-            </button>
           </div>
         </div>
       )}

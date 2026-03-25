@@ -76,8 +76,9 @@ const Nota = ({ transaction, onClose }) => {
           style={{ fontFamily: 'monospace', fontSize: '14px' }}
         >
           <div className="text-center mb-6 border-b-2 border-gray-800 pb-4">
-            <h1 className="text-2xl font-bold text-teal-600 mb-1">FROZEN FOOD</h1>
-            <p className="text-sm text-gray-600">Sistem Gudang & Kasir</p>
+            <h1 className="text-2xl font-bold text-teal-600 mb-1">ARSEN FROZEN FOOD</h1>
+            <p className="text-sm text-gray-600">Ciampea, Bogor 16620</p>
+            <p className="text-sm text-gray-600"> 081410503012</p>
           </div>
 
           <div className="mb-4 space-y-1 text-sm">
@@ -121,7 +122,7 @@ const Nota = ({ transaction, onClose }) => {
                     <td className="text-center py-2 px-1">{item.qty}</td>
                     <td className="text-center py-2 px-1">
                       {item.unitType}
-                      {item.unitType === 'KARTON' && (
+                      {['KARTON', 'BALL', 'IKAT'].includes(item.unitType) && (
                         <span className="text-sm block">
                           ({item.qty * item.pcsPerCarton}pcs)
                         </span>

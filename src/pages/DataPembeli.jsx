@@ -1,37 +1,41 @@
-import { useState } from 'react';
-import { Plus, CreditCard as Edit2, Trash2, Users, Phone, MapPin } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { Plus, CreditCard as Edit2, Trash2, Users, Phone, MapPin, Search, ChevronLeft, ChevronRight, Info } from 'lucide-react';
 import { useCollection, addDocument, updateDocument, deleteDocument } from '../hooks/useFirestore';
 import Loading from '../components/common/Loading';
 import EmptyState from '../components/common/EmptyState';
 
 const DataPembeli = ({ onShowToast }) => {
-  const { data: customers, loading } = useCollection('customers');
+  const { data: customers, loading } = useCollection('customers', 'name'); // Diurutkan berdasarkan nama (jika disupport)
+  
+  // --- UI & FORM STATES ---
   const [showModal, setShowModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [modalMode, setModalMode] = useState('add');
   const [selectedCustomer, setSelectedCustomer] = useState(null);
+  
   const [formData, setFormData] = useState({
     name: '',
     phone: '',
-    address: '',
-    remainingDebt: 0,
-    returnAmount: 0,
+    address: ''
   });
 
+  // --- FILTER & PAGINATION STATES ---
+  const [searchTerm, setSearchTerm] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+
   const resetForm = () => {
-    setFormData({
-      name: '',
-      phone: '',
-      address: '',
-      remainingDebt: 0,
-      returnAmount: 0,
-    });
+    setFormData({ name: '', phone: '', address: '' });
   };
 
   const handleOpenModal = (mode, customer = null) => {
     setModalMode(mode);
     if (mode === 'edit' && customer) {
-      setFormData(customer);
+      setFormData({
+        name: customer.name || '',
+        phone: customer.phone || '',
+        address: customer.address || ''
+      });
       setSelectedCustomer(customer);
     } else {
       resetForm();
@@ -42,14 +46,18 @@ const DataPembeli = ({ onShowToast }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
+    // Hanya kirim Nama, Telepon, dan Alamat
     const customerData = {
-      ...formData,
-      remainingDebt: parseFloat(formData.remainingDebt) || 0,
-      returnAmount: parseFloat(formData.returnAmount) || 0,
+      name: formData.name,
+      phone: formData.phone,
+      address: formData.address,
     };
 
     let result;
     if (modalMode === 'add') {
+      // Jika tambah baru, otomatis set hutang dan deposit jadi 0 (tidak dari form)
+      customerData.remainingDebt = 0;
+      customerData.returnAmount = 0;
       result = await addDocument('customers', customerData);
     } else {
       result = await updateDocument('customers', selectedCustomer.id, customerData);
@@ -80,94 +88,156 @@ const DataPembeli = ({ onShowToast }) => {
     }
   };
 
+  // --- FILTERING & PAGINATION LOGIC ---
+  const filteredCustomers = useMemo(() => {
+    return customers.filter(c => 
+      (c.name || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
+      (c.phone || '').includes(searchTerm)
+    );
+  }, [customers, searchTerm]);
+
+  const paginatedCustomers = filteredCustomers.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
+  const renderPagination = () => {
+    const totalPages = Math.ceil(filteredCustomers.length / itemsPerPage);
+    return (
+      <div className="flex flex-col md:flex-row justify-between items-center p-4 bg-gray-50/50 border-t gap-4 rounded-b-[32px]">
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Tampilkan:</span>
+          <select 
+            value={itemsPerPage} 
+            onChange={(e) => { setItemsPerPage(Number(e.target.value)); setCurrentPage(1); }}
+            className="bg-white border border-gray-200 text-gray-700 text-xs font-bold rounded-lg focus:ring-teal-500 focus:border-teal-500 px-3 py-2 outline-none shadow-sm cursor-pointer"
+          >
+            <option value={5}>5 Baris</option>
+            <option value={10}>10 Baris</option>
+            <option value={20}>20 Baris</option>
+            <option value={50}>50 Baris</option>
+            <option value={1000000}>Semua Data</option>
+          </select>
+        </div>
+        
+        <div className="flex items-center gap-4">
+          <span className="text-xs font-bold text-gray-500">
+            Halaman <span className="text-teal-600 font-black">{currentPage}</span> dari <span className="text-gray-800 font-black">{totalPages || 1}</span>
+            <span className="ml-2 text-[10px] uppercase tracking-widest">({filteredCustomers.length} Total Data)</span>
+          </span>
+          <div className="flex gap-2">
+            <button 
+              onClick={() => setCurrentPage(p => Math.max(1, p - 1))} 
+              disabled={currentPage === 1}
+              className="p-2 rounded-xl bg-white border border-gray-200 text-gray-600 disabled:opacity-30 hover:bg-gray-50 hover:text-teal-600 transition-all shadow-sm"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <button 
+              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} 
+              disabled={currentPage === totalPages || totalPages === 0}
+              className="p-2 rounded-xl bg-white border border-gray-200 text-gray-600 disabled:opacity-30 hover:bg-gray-50 hover:text-teal-600 transition-all shadow-sm"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   if (loading) return <Loading />;
 
   return (
-    <div>
-      <div className="flex justify-between items-center mb-6">
+    <div className="pb-10 min-h-screen">
+      {/* HEADER */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-white p-6 rounded-3xl border shadow-sm gap-4 mb-6">
         <div>
-          <h3 className="text-lg font-semibold text-gray-800">Daftar Pembeli</h3>
-          <p className="text-sm text-gray-500 mt-1">Kelola data pembeli dan informasi kontak</p>
+          <h3 className="text-lg font-black text-gray-800 uppercase tracking-tighter flex items-center gap-2">
+            <Users className="w-5 h-5 text-teal-600" /> Database Pembeli
+          </h3>
+          <p className="text-xs text-gray-500 mt-1 font-bold">Kelola nama, kontak, dan alamat pelanggan Anda.</p>
         </div>
         <button
           onClick={() => handleOpenModal('add')}
-          className="flex items-center gap-2 bg-teal-600 text-white px-4 py-2 rounded-lg hover:bg-teal-700 transition-colors"
+          className="w-full md:w-auto flex justify-center items-center gap-2 bg-teal-600 text-white px-6 py-3 rounded-2xl hover:bg-teal-700 transition-colors font-black text-sm shadow-md uppercase tracking-widest"
         >
-          <Plus className="w-5 h-5" />
-          Tambah Pembeli
+          <Plus className="w-4 h-4" /> Tambah Pembeli
         </button>
       </div>
 
-      {customers.length === 0 ? (
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <EmptyState
-            title="Belum Ada Data Pembeli"
-            description="Mulai tambahkan data pembeli untuk memudahkan transaksi"
-            icon={Users}
+      {/* SEARCH BAR */}
+      <div className="bg-white p-4 rounded-2xl border flex items-center shadow-sm mb-6">
+        <div className="relative flex-1">
+          <Search className="absolute left-4 top-3 w-4 h-4 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Cari berdasarkan nama atau nomor telepon..."
+            value={searchTerm}
+            onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+            className="w-full pl-11 pr-4 py-2.5 bg-gray-50 border-none rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-teal-500"
           />
         </div>
+      </div>
+
+      {/* MAIN TABLE */}
+      {customers.length === 0 ? (
+        <div className="bg-white rounded-[32px] shadow-sm p-10 border">
+          <EmptyState title="Belum Ada Data Pembeli" description="Mulai tambahkan data pembeli untuk memudahkan transaksi" icon={Users} />
+        </div>
+      ) : filteredCustomers.length === 0 ? (
+        <div className="bg-white rounded-[32px] border shadow-sm p-10 text-center">
+          <Users className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+          <p className="text-gray-500 font-bold">Pembeli tidak ditemukan</p>
+        </div>
       ) : (
-        <div className="bg-white rounded-lg shadow-md overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Nama</th>
-                  <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Telepon</th>
-                  <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Alamat</th>
-                  <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Sisa Nota</th>
-                  <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Retur</th>
-                  <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Aksi</th>
+        <div className="bg-white rounded-[32px] border shadow-sm flex flex-col">
+          <div className="overflow-x-auto custom-scrollbar">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="bg-gray-50/50 border-b">
+                  <th className="p-5 font-black text-gray-400 uppercase text-[10px] whitespace-nowrap">Nama & Kontak</th>
+                  <th className="p-5 font-black text-gray-400 uppercase text-[10px]">Alamat</th>
+                  <th className="p-5 font-black text-orange-400 uppercase text-[10px]">Hutang Aktif</th>
+                  <th className="p-5 font-black text-purple-400 uppercase text-[10px]">Saldo Deposit</th>
+                  <th className="p-5 font-black text-gray-400 uppercase text-[10px] text-right">Aksi</th>
                 </tr>
               </thead>
-              <tbody>
-                {customers.map((customer) => (
-                  <tr key={customer.id} className="border-b border-gray-100 hover:bg-gray-50">
-                    <td className="py-3 px-4">
-                      <div className="flex items-center gap-2">
-                        <div className="w-10 h-10 bg-teal-100 rounded-full flex items-center justify-center">
+              <tbody className="divide-y divide-gray-100">
+                {paginatedCustomers.map((customer) => (
+                  <tr key={customer.id} className="hover:bg-gray-50 transition-colors group">
+                    <td className="p-5">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-teal-50 rounded-full flex items-center justify-center flex-shrink-0">
                           <Users className="w-5 h-5 text-teal-600" />
                         </div>
-                        <span className="font-medium text-gray-800">{customer.name}</span>
+                        <div>
+                          <span className="font-black text-gray-800 uppercase block">{customer.name}</span>
+                          <span className="text-[10px] font-bold text-gray-500 flex items-center gap-1 mt-0.5">
+                            <Phone className="w-3 h-3" /> {customer.phone || 'Tidak ada nomor'}
+                          </span>
+                        </div>
                       </div>
                     </td>
-                    <td className="py-3 px-4">
-                      <div className="flex items-center gap-2 text-sm text-gray-600">
-                        <Phone className="w-4 h-4" />
-                        {customer.phone || '-'}
+                    <td className="p-5">
+                      <div className="flex items-start gap-2 text-xs font-bold text-gray-600 max-w-xs">
+                        <MapPin className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-gray-400" />
+                        <span className="line-clamp-2">{customer.address || '-'}</span>
                       </div>
                     </td>
-                    <td className="py-3 px-4">
-                      <div className="flex items-center gap-2 text-sm text-gray-600">
-                        <MapPin className="w-4 h-4" />
-                        {customer.address || '-'}
-                      </div>
-                    </td>
-                    <td className="py-3 px-4">
-                      <span className={`text-sm font-semibold ${customer.remainingDebt > 0 ? 'text-red-600' : 'text-gray-600'}`}>
+                    <td className="p-5">
+                      <span className={`px-3 py-1.5 rounded-lg text-xs font-black ${customer.remainingDebt > 0 ? 'bg-orange-50 text-orange-600 border border-orange-100' : 'text-gray-400'}`}>
                         Rp {(customer.remainingDebt || 0).toLocaleString('id-ID')}
                       </span>
                     </td>
-                    <td className="py-3 px-4">
-                      <span className={`text-sm font-semibold ${customer.returnAmount > 0 ? 'text-orange-600' : 'text-gray-600'}`}>
+                    <td className="p-5">
+                      <span className={`px-3 py-1.5 rounded-lg text-xs font-black ${customer.returnAmount > 0 ? 'bg-purple-50 text-purple-600 border border-purple-100' : 'text-gray-400'}`}>
                         Rp {(customer.returnAmount || 0).toLocaleString('id-ID')}
                       </span>
                     </td>
-                    <td className="py-3 px-4">
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handleOpenModal('edit', customer)}
-                          className="text-teal-600 hover:text-teal-700 transition-colors"
-                        >
+                    <td className="p-5 text-right">
+                      <div className="flex justify-end gap-2">
+                        <button onClick={() => handleOpenModal('edit', customer)} className="p-2 text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-xl transition-all">
                           <Edit2 className="w-4 h-4" />
                         </button>
-                        <button
-                          onClick={() => {
-                            setSelectedCustomer(customer);
-                            setShowDeleteModal(true);
-                          }}
-                          className="text-red-600 hover:text-red-700 transition-colors"
-                        >
+                        <button onClick={() => { setSelectedCustomer(customer); setShowDeleteModal(true); }} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all">
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
@@ -177,85 +247,50 @@ const DataPembeli = ({ onShowToast }) => {
               </tbody>
             </table>
           </div>
+          {renderPagination()}
         </div>
       )}
 
+      {/* --- MODAL ADD / EDIT --- */}
       {showModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full">
-            <h3 className="text-lg font-semibold mb-4">
-              {modalMode === 'add' ? 'Tambah Pembeli' : 'Edit Pembeli'}
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
+          <div className="bg-white rounded-[32px] p-8 max-w-md w-full shadow-2xl">
+            <h3 className="text-xl font-black text-gray-800 mb-6 flex items-center gap-2 border-b pb-4">
+              {modalMode === 'add' ? <><Plus className="w-5 h-5 text-teal-600"/> Tambah Pembeli</> : <><Edit2 className="w-5 h-5 text-teal-600"/> Edit Profil Pembeli</>}
             </h3>
+            
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Nama Lengkap</label>
-                <input
-                  type="text"
-                  required
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent"
-                />
+                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 ml-2">Nama Lengkap</label>
+                <input type="text" required value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} className="w-full px-4 py-3 bg-gray-50 border-none rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-teal-500" placeholder="Ketik nama pembeli..." />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Nomor Telepon</label>
-                <input
-                  type="tel"
-                  value={formData.phone}
-                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent"
-                />
+                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 ml-2">Nomor Telepon (Opsional)</label>
+                <input type="tel" value={formData.phone} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} className="w-full px-4 py-3 bg-gray-50 border-none rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-teal-500" placeholder="08..." />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Alamat</label>
-                <textarea
-                  value={formData.address}
-                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                  rows="3"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent"
-                />
+                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 ml-2">Alamat (Opsional)</label>
+                <textarea value={formData.address} onChange={(e) => setFormData({ ...formData, address: e.target.value })} rows="3" className="w-full px-4 py-3 bg-gray-50 border-none rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-teal-500 resize-none custom-scrollbar" placeholder="Alamat lengkap pengiriman..." />
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Sisa Nota (Rp)</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={formData.remainingDebt}
-                  onChange={(e) => setFormData({ ...formData, remainingDebt: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Retur Barang (Rp)</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={formData.returnAmount}
-                  onChange={(e) => setFormData({ ...formData, returnAmount: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent"
-                />
-              </div>
+              {/* KETERANGAN READ-ONLY JIKA EDIT */}
+              {modalMode === 'edit' && (
+                <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100 flex gap-3 mt-4">
+                   <Info className="w-5 h-5 text-blue-500 flex-shrink-0" />
+                   <p className="text-[10px] font-bold text-blue-800 leading-relaxed uppercase tracking-wider">
+                     Perubahan nominal <strong>Hutang</strong> dan <strong>Deposit (Retur)</strong> dikunci dari form ini untuk keamanan. Gunakan menu Dashboard atau Kasir untuk mengelola Saldo/Hutang.
+                   </p>
+                </div>
+              )}
 
               <div className="flex gap-3 pt-4">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowModal(false);
-                    resetForm();
-                  }}
-                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-                >
+                <button type="button" onClick={() => { setShowModal(false); resetForm(); }} className="flex-1 px-4 py-4 rounded-2xl font-black text-gray-400 hover:bg-gray-100 transition-colors text-sm uppercase tracking-widest">
                   Batal
                 </button>
-                <button
-                  type="submit"
-                  className="flex-1 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors"
-                >
-                  {modalMode === 'add' ? 'Tambah' : 'Simpan'}
+                <button type="submit" className="flex-1 px-4 py-4 bg-teal-600 text-white rounded-2xl font-black hover:bg-teal-700 transition-all shadow-xl shadow-teal-100 text-sm uppercase tracking-widest">
+                  {modalMode === 'add' ? 'Simpan Baru' : 'Update Data'}
                 </button>
               </div>
             </form>
@@ -263,28 +298,20 @@ const DataPembeli = ({ onShowToast }) => {
         </div>
       )}
 
+      {/* --- MODAL DELETE --- */}
       {showDeleteModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full">
-            <h3 className="text-lg font-semibold mb-4">Hapus Pembeli?</h3>
-            <p className="text-gray-600 mb-6">
-              Apakah Anda yakin ingin menghapus data pembeli <strong>{selectedCustomer?.name}</strong>? Tindakan ini tidak dapat dibatalkan.
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
+          <div className="bg-white rounded-[32px] p-8 max-w-sm w-full shadow-2xl text-center">
+            <h3 className="text-xl font-black text-gray-800 mb-2">Hapus Pembeli?</h3>
+            <p className="text-sm text-gray-500 mb-6 font-bold leading-relaxed">
+              Yakin ingin menghapus <strong>{selectedCustomer?.name}</strong>? Tindakan ini tidak dapat dibatalkan.
             </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => {
-                  setShowDeleteModal(false);
-                  setSelectedCustomer(null);
-                }}
-                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-              >
-                Batal
+            <div className="flex flex-col gap-2">
+              <button onClick={handleDelete} className="w-full bg-red-600 text-white py-4 rounded-2xl font-black text-sm shadow-xl shadow-red-100 uppercase tracking-widest">
+                Ya, Hapus
               </button>
-              <button
-                onClick={handleDelete}
-                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-              >
-                Hapus
+              <button onClick={() => { setShowDeleteModal(false); setSelectedCustomer(null); }} className="w-full py-4 font-black text-gray-400 text-sm hover:bg-gray-50 rounded-2xl transition-colors uppercase tracking-widest">
+                Batal
               </button>
             </div>
           </div>
