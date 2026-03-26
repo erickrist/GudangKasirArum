@@ -2,8 +2,11 @@ import { useState, useRef, useMemo } from 'react';
 import { 
   Plus, CreditCard as Edit2, Trash2, Package, CircleArrowUp as ArrowUpCircle, 
   CircleArrowDown as ArrowDownCircle, Upload, Download, Search, 
-  History, Calendar, Table as TableIcon, FileText, ChevronLeft, ChevronRight, ListFilter
+  History, Calendar, Table as TableIcon, FileText, ChevronLeft, ChevronRight, ListFilter, AlertTriangle, X, TrendingUp
 } from 'lucide-react';
+import { 
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar
+} from 'recharts';
 import { useCollection, addDocument, updateDocument, deleteDocument } from '../hooks/useFirestore';
 import Loading from '../components/common/Loading';
 import EmptyState from '../components/common/EmptyState';
@@ -18,12 +21,15 @@ const StockOpname = ({ onShowToast }) => {
   const { data: stockLogs, loading: loadingStockLogs } = useCollection('stock_logs', 'createdAt');
 
   // --- UI STATES ---
-  const [activeTab, setActiveTab] = useState('products'); // 'products' atau 'history'
+  const [activeTab, setActiveTab] = useState('products'); 
+  const [chartPeriod, setChartPeriod] = useState('daily');
   
   // Modals
   const [showModal, setShowModal] = useState(false);
   const [showStockModal, setShowStockModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showClearHistoryModal, setShowClearHistoryModal] = useState(false);
+  const [showClearProductsModal, setShowClearProductsModal] = useState(false);
   
   const [modalMode, setModalMode] = useState('add');
   const [stockMode, setStockMode] = useState('in');
@@ -108,6 +114,27 @@ const StockOpname = ({ onShowToast }) => {
     return combinedLogs.sort((a, b) => getSafeDate(b.createdAt) - getSafeDate(a.createdAt));
   }, [stockLogs, transactions]);
 
+  // --- DATA UNTUK GRAFIK ---
+  const stockChartData = useMemo(() => {
+    const dataMap = {};
+    allStockHistory.forEach(log => {
+      const date = getSafeDate(log.createdAt);
+      let key = chartPeriod === 'daily' ? date.toLocaleDateString('id-ID', { weekday: 'short' }) :
+                chartPeriod === 'weekly' ? `Mgg ${Math.ceil(((date - new Date(date.getFullYear(), 0, 1)) / 86400000 + date.getDay() + 1) / 7)}` :
+                chartPeriod === 'monthly' ? date.toLocaleDateString('id-ID', { month: 'short' }) :
+                date.getFullYear().toString();
+
+      if (!dataMap[key]) dataMap[key] = { label: key, masuk: 0, keluar: 0 };
+      
+      if (log.type === 'MASUK') {
+         dataMap[key].masuk += (Number(log.totalPcs) || 0);
+      } else {
+         dataMap[key].keluar += (Number(log.totalPcs) || 0);
+      }
+    });
+    return Object.values(dataMap).slice(-12);
+  }, [allStockHistory, chartPeriod]);
+
   // --- FILTERING ---
   const filteredProducts = useMemo(() => {
     return products.filter(product => 
@@ -158,8 +185,25 @@ const StockOpname = ({ onShowToast }) => {
     };
 
     let result;
-    if (modalMode === 'add') result = await addDocument('products', productData);
-    else result = await updateDocument('products', selectedProduct.id, productData);
+    if (modalMode === 'add') {
+      result = await addDocument('products', productData);
+    } else {
+      result = await updateDocument('products', selectedProduct.id, productData);
+      
+      if (result.success && productData.stockPcs !== selectedProduct.stockPcs) {
+        const diff = productData.stockPcs - selectedProduct.stockPcs;
+        await addDocument('stock_logs', {
+          productId: selectedProduct.id,
+          productName: productData.name,
+          type: diff > 0 ? 'in' : 'out',
+          amount: Math.abs(diff),
+          unitType: 'PCS',
+          totalPcs: Math.abs(diff),
+          note: 'Edit Barang (Penyesuaian Stok Manual)',
+          createdAt: new Date()
+        });
+      }
+    }
 
     if (result.success) {
       onShowToast(modalMode === 'add' ? 'Produk berhasil ditambahkan' : 'Produk berhasil diperbarui', 'success');
@@ -179,6 +223,33 @@ const StockOpname = ({ onShowToast }) => {
       setSelectedProduct(null);
     } else {
       onShowToast('Gagal menghapus produk', 'error');
+    }
+  };
+
+  const handleClearAllHistory = async () => {
+    try {
+      for (const log of stockLogs) {
+        await deleteDocument('stock_logs', log.id);
+      }
+      onShowToast('Seluruh histori stok manual berhasil dihapus', 'success');
+      setShowClearHistoryModal(false);
+    } catch (error) {
+      onShowToast('Gagal menghapus histori', 'error');
+    }
+  };
+
+  const handleClearAllProducts = async () => {
+    try {
+      for (const p of products) {
+        await deleteDocument('products', p.id);
+      }
+      for (const log of stockLogs) {
+        await deleteDocument('stock_logs', log.id);
+      }
+      onShowToast('Semua data barang dan stok berhasil dibersihkan', 'success');
+      setShowClearProductsModal(false);
+    } catch (error) {
+      onShowToast('Gagal membersihkan data barang', 'error');
     }
   };
 
@@ -400,7 +471,7 @@ const StockOpname = ({ onShowToast }) => {
   return (
     <div className="pb-10 min-h-screen">
       
-      {/* TABS NAVIGATION (Bisa discroll menyamping di HP) */}
+      {/* TABS NAVIGATION */}
       <div className="flex gap-2 mb-4 md:mb-6 bg-white p-2 rounded-xl shadow-sm border overflow-x-auto custom-scrollbar whitespace-nowrap">
         {[
           { id: 'products', label: 'Daftar Produk & Stok', icon: Package }, 
@@ -425,7 +496,6 @@ const StockOpname = ({ onShowToast }) => {
               <p className="text-[10px] md:text-xs text-gray-500 mt-1 font-bold">Kelola data dan jumlah stok fisik barang</p>
             </div>
             
-            {/* Action Buttons: Menyusun rapi di HP */}
             <div className="grid grid-cols-2 md:flex gap-2 w-full md:w-auto">
               <button onClick={handleDownloadTemplate} className="col-span-1 md:col-auto flex justify-center items-center gap-1.5 md:gap-2 bg-gray-50 text-gray-700 border border-gray-200 px-3 md:px-4 py-2 md:py-2.5 rounded-lg md:rounded-xl hover:bg-gray-100 transition-colors text-[10px] md:text-xs font-black shadow-sm">
                 <Download className="w-3.5 h-3.5" /> Template
@@ -459,8 +529,6 @@ const StockOpname = ({ onShowToast }) => {
             <div className="bg-white rounded-2xl md:rounded-3xl border shadow-sm p-6 md:p-10 text-center"><Package className="w-10 h-10 md:w-12 md:h-12 text-gray-300 mx-auto mb-3" /><p className="text-gray-500 font-bold text-xs md:text-sm">Produk tidak ditemukan</p></div>
           ) : (
             <div className="bg-white rounded-[24px] md:rounded-[32px] border shadow-sm flex flex-col">
-              
-              {/* GRID PRODUK: 1 kolom di HP kecil, 2 di tablet, 3-4 di PC */}
               <div className="p-4 md:p-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
                 {paginatedProducts.map((product) => (
                   <div key={product.id} className="bg-white border border-gray-200 rounded-xl md:rounded-2xl overflow-hidden hover:shadow-lg hover:border-teal-300 transition-all duration-300 flex flex-col">
@@ -526,42 +594,92 @@ const StockOpname = ({ onShowToast }) => {
       {/* --- TAB 2: LAPORAN HISTORI STOK --- */}
       {activeTab === 'history' && (
         <div className="space-y-4 md:space-y-6">
-          <div className="bg-white p-4 md:p-5 rounded-2xl md:rounded-3xl border flex flex-col lg:flex-row flex-wrap gap-4 items-start lg:items-center justify-between shadow-sm">
-             <div>
-                <h4 className="text-sm md:text-base font-black text-gray-800">Cetak Laporan Pergerakan Stok</h4>
-                <p className="text-[9px] md:text-[10px] text-gray-400 font-bold uppercase tracking-wider">Mencakup Barang Masuk, Keluar Manual, dan Terjual di Kasir</p>
+          
+          {/* GRAFIK PERGERAKAN STOK */}
+          <div className="bg-white p-4 md:p-6 rounded-2xl md:rounded-[32px] border shadow-sm flex flex-col">
+            <div className="flex justify-between items-center mb-4 md:mb-6">
+              <h3 className="font-black text-gray-800 flex items-center gap-2 text-sm md:text-base"><TrendingUp className="w-4 h-4 md:w-5 md:h-5 text-teal-600"/> Grafik Pergerakan Barang (Pcs)</h3>
+              <div className="flex bg-gray-100 p-1 rounded-lg">
+                {['daily', 'weekly', 'monthly', 'yearly'].map(p => (
+                  <button key={p} onClick={() => setChartPeriod(p)} className={`px-2 py-1 text-[9px] md:text-[10px] font-black rounded-md uppercase transition-all whitespace-nowrap ${chartPeriod === p ? 'bg-white text-teal-600 shadow-sm' : 'text-gray-400'}`}>
+                    {p === 'daily' ? 'Hari' : p === 'weekly' ? 'Minggu' : p === 'monthly' ? 'Bulan' : 'Tahun'}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="h-[200px] md:h-[250px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={stockChartData}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
+                  <XAxis dataKey="label" style={{fontSize: '9px'}} />
+                  <YAxis style={{fontSize: '9px'}} width={35} />
+                  <Tooltip cursor={{fill: '#f9fafb'}} />
+                  <Bar name="Masuk" dataKey="masuk" fill="#10b981" radius={[4, 4, 0, 0]} />
+                  <Bar name="Keluar" dataKey="keluar" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* HEADER EXPORT (Desain Sesuai Foto Referensi HP) */}
+          <div className="bg-white p-4 md:p-6 rounded-2xl md:rounded-[32px] border shadow-sm flex flex-col lg:flex-row gap-4 lg:gap-6 items-start lg:items-center justify-between">
+             <div className="w-full lg:w-auto">
+                <h4 className="text-sm md:text-base font-black text-gray-800">Cetak Laporan Histori Stok</h4>
+                <p className="text-[10px] md:text-[11px] text-gray-400 font-bold uppercase tracking-wider mt-1">Mencakup Barang Masuk, Keluar Manual, & Terjual di Kasir</p>
              </div>
-             <div className="flex flex-col sm:flex-row flex-wrap items-center gap-2 md:gap-3 w-full lg:w-auto">
-                <div className="flex items-center gap-2 bg-gray-50 px-3 md:px-4 py-2 md:py-2.5 rounded-lg md:rounded-xl border border-gray-200 w-full sm:w-auto flex-1">
-                  <Calendar className="w-4 h-4 text-gray-400" />
-                  <input type="date" className="bg-transparent text-[10px] md:text-xs font-black outline-none w-full" value={startDate} onChange={e => {setStartDate(e.target.value); setHistoryPage(1);}} />
-                  <span className="text-gray-300">-</span>
-                  <input type="date" className="bg-transparent text-[10px] md:text-xs font-black outline-none w-full" value={endDate} onChange={e => {setEndDate(e.target.value); setHistoryPage(1);}} />
+             
+             <div className="w-full lg:w-auto flex flex-col sm:flex-row gap-3">
+                {/* Date Picker Block */}
+                <div className="flex items-center justify-between bg-gray-50 px-4 py-3 md:py-2.5 rounded-xl border border-gray-200 w-full sm:w-auto">
+                  <div className="flex items-center gap-2 flex-1 sm:flex-none">
+                    <input type="date" className="bg-transparent text-xs md:text-sm font-black outline-none w-full uppercase text-gray-700" value={startDate} onChange={e => {setStartDate(e.target.value); setHistoryPage(1);}} />
+                  </div>
+                  <span className="text-gray-300 font-black mx-2">-</span>
+                  <div className="flex items-center gap-2 flex-1 sm:flex-none justify-end sm:justify-start">
+                    <input type="date" className="bg-transparent text-xs md:text-sm font-black outline-none w-full uppercase text-right sm:text-left text-gray-700" value={endDate} onChange={e => {setEndDate(e.target.value); setHistoryPage(1);}} />
+                  </div>
                 </div>
-                <div className="grid grid-cols-2 gap-2 w-full sm:w-auto">
-                    <button onClick={handleDownloadHistoryExcel} className="justify-center p-2.5 md:p-3 bg-green-50 text-green-700 rounded-lg md:rounded-xl border border-green-200 hover:bg-green-100 flex items-center gap-1.5 md:gap-2 text-[10px] md:text-xs font-black shadow-sm"><TableIcon className="w-3.5 h-3.5 md:w-4 md:h-4" /> Excel</button>
-                    <button onClick={handleDownloadHistoryPDF} className="justify-center p-2.5 md:p-3 bg-blue-50 text-blue-700 rounded-lg md:rounded-xl border border-blue-200 hover:bg-blue-100 flex items-center gap-1.5 md:gap-2 text-[10px] md:text-xs font-black shadow-sm"><FileText className="w-3.5 h-3.5 md:w-4 md:h-4" /> PDF</button>
+                
+                {/* Buttons Block */}
+                <div className="grid grid-cols-2 sm:flex gap-3 w-full sm:w-auto">
+                  <button onClick={handleDownloadHistoryExcel} title="Download Excel" className="flex items-center justify-center py-3 sm:px-5 bg-green-50 text-green-600 rounded-xl border border-green-200 hover:bg-green-100 transition-colors shadow-sm">
+                     <TableIcon className="w-5 h-5" />
+                  </button>
+                  <button onClick={handleDownloadHistoryPDF} title="Download PDF" className="flex items-center justify-center py-3 sm:px-5 bg-blue-50 text-blue-600 rounded-xl border border-blue-200 hover:bg-blue-100 transition-colors shadow-sm">
+                     <FileText className="w-5 h-5" />
+                  </button>
                 </div>
              </div>
           </div>
 
-          <div className="bg-white p-3 md:p-4 rounded-xl md:rounded-2xl border flex items-center shadow-sm">
-            <div className="relative w-full">
-              <Search className="absolute left-3 md:left-4 top-2.5 md:top-3 w-4 h-4 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Ketik nama barang atau keterangan log..."
-                value={searchHistory}
-                onChange={(e) => { setSearchHistory(e.target.value); setHistoryPage(1); }}
-                className="w-full pl-9 md:pl-11 pr-3 md:pr-4 py-2 md:py-2.5 bg-gray-50 border-none rounded-lg md:rounded-xl text-xs md:text-sm font-bold outline-none focus:ring-2 focus:ring-teal-500"
-              />
+          <div className="flex flex-col sm:flex-row justify-between items-center gap-3">
+            <div className="bg-white p-2.5 md:p-3 rounded-xl md:rounded-2xl border flex items-center shadow-sm w-full sm:w-auto flex-1">
+              <div className="relative w-full">
+                <Search className="absolute left-3 top-2 md:top-2.5 w-4 h-4 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Ketik nama barang atau keterangan log..."
+                  value={searchHistory}
+                  onChange={(e) => { setSearchHistory(e.target.value); setHistoryPage(1); }}
+                  className="w-full pl-9 md:pl-10 pr-3 py-1.5 md:py-2 bg-gray-50 border-none rounded-lg md:rounded-xl text-xs md:text-sm font-bold outline-none focus:ring-2 focus:ring-teal-500"
+                />
+              </div>
             </div>
+            
+            {/* Action Buttons with Delete Functions (Moved aside search bar) */}
+            {/* <div className="flex gap-2 w-full sm:w-auto">
+               <button onClick={() => setShowClearHistoryModal(true)} className="flex-1 sm:flex-none justify-center px-4 py-3 sm:py-0 bg-red-50 text-red-600 rounded-xl md:rounded-2xl border border-red-200 hover:bg-red-100 flex items-center gap-1.5 text-[10px] md:text-xs font-black transition-colors shadow-sm whitespace-nowrap">
+                  <Trash2 className="w-3.5 h-3.5" /> Bersihkan Histori
+               </button>
+               <button onClick={() => setShowClearProductsModal(true)} className="flex-1 sm:flex-none justify-center px-4 py-3 sm:py-0 bg-red-50 text-red-600 rounded-xl md:rounded-2xl border border-red-200 hover:bg-red-100 flex items-center gap-1.5 text-[10px] md:text-xs font-black transition-colors shadow-sm whitespace-nowrap">
+                  <Trash2 className="w-3.5 h-3.5" /> Hapus Semua Barang
+               </button>
+            </div> */}
           </div>
 
           <div className="bg-white rounded-[24px] md:rounded-[32px] border overflow-hidden shadow-sm flex flex-col">
             <div className="p-4 md:p-6 bg-gray-50/50 border-b"><h3 className="text-base md:text-lg font-black text-gray-800 uppercase tracking-tighter flex items-center gap-2"><ListFilter className="text-teal-500 w-4 h-4 md:w-5 md:h-5"/> Data Detail Pergerakan Barang</h3></div>
             
-            {/* WRAPPER TABEL RESPONSIF */}
             <div className="overflow-x-auto w-full custom-scrollbar">
               <table className="w-full min-w-[700px] text-left text-xs md:text-sm">
                 <thead>
@@ -580,8 +698,8 @@ const StockOpname = ({ onShowToast }) => {
                     paginatedHistory.map(log => {
                       let badgeColor = '';
                       let symbol = '';
-                      if (log.type === 'MASUK') { badgeColor = 'bg-green-100 text-green-700 border-green-200'; symbol = '+'; }
-                      else if (log.type === 'KELUAR') { badgeColor = 'bg-orange-100 text-orange-700 border-orange-200'; symbol = '-'; }
+                      if (log.type === 'MASUK' || log.type === 'in') { badgeColor = 'bg-green-100 text-green-700 border-green-200'; symbol = '+'; }
+                      else if (log.type === 'KELUAR' || log.type === 'out') { badgeColor = 'bg-orange-100 text-orange-700 border-orange-200'; symbol = '-'; }
                       else if (log.type === 'TERJUAL') { badgeColor = 'bg-red-100 text-red-700 border-red-200'; symbol = '-'; }
 
                       return (
@@ -592,7 +710,7 @@ const StockOpname = ({ onShowToast }) => {
                           </td>
                           <td className="p-4 md:p-5">
                             <span className={`px-2 py-1 md:px-3 rounded-lg text-[8px] md:text-[9px] font-black uppercase border shadow-sm ${badgeColor}`}>
-                              {log.type}
+                              {log.type === 'in' ? 'MASUK' : log.type === 'out' ? 'KELUAR' : log.type}
                             </span>
                           </td>
                           <td className="p-4 md:p-5 text-center whitespace-nowrap">
@@ -614,61 +732,138 @@ const StockOpname = ({ onShowToast }) => {
         </div>
       )}
 
-      {/* --- MODALS --- */}
+      {/* --- MODALS TAMBAH & EDIT PRODUK (STICKY HEADER) --- */}
       {showModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
-          {/* Modal dengan max-h dan scroll agar pas di HP */}
-          <div className="bg-white rounded-[24px] md:rounded-[32px] p-5 md:p-8 max-w-md w-full shadow-2xl overflow-y-auto max-h-[90vh] custom-scrollbar">
-            <h3 className="text-lg md:text-xl font-black text-gray-800 mb-4 md:mb-6 flex items-center gap-2 border-b pb-3 md:pb-4">
-              {modalMode === 'add' ? <><Plus className="w-4 h-4 md:w-5 md:h-5 text-teal-600"/> Tambah Produk Baru</> : <><Edit2 className="w-4 h-4 md:w-5 md:h-5 text-teal-600"/> Edit Data Produk</>}
-            </h3>
-            <form onSubmit={handleSubmit} className="space-y-3 md:space-y-4">
-              <div>
-                <label className="block text-[9px] md:text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 ml-2">Nama Produk</label>
-                <input type="text" required value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} className="w-full px-3 md:px-4 py-2.5 md:py-3 bg-gray-50 border-none rounded-xl font-bold text-xs md:text-sm outline-none focus:ring-2 focus:ring-teal-500" />
-              </div>
-              <div>
-                <label className="block text-[9px] md:text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 ml-2">Kategori</label>
-                <input type="text" required value={formData.category} onChange={(e) => setFormData({ ...formData, category: e.target.value })} className="w-full px-3 md:px-4 py-2.5 md:py-3 bg-gray-50 border-none rounded-xl font-bold text-xs md:text-sm outline-none focus:ring-2 focus:ring-teal-500" />
-              </div>
-              <div>
-                <label className="block text-[9px] md:text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 ml-2">Tipe Satuan Jual</label>
-                <select value={formData.unitType} onChange={(e) => setFormData({ ...formData, unitType: e.target.value })} className="w-full px-3 md:px-4 py-2.5 md:py-3 bg-gray-50 border-none rounded-xl font-black text-xs md:text-sm outline-none focus:ring-2 focus:ring-teal-500 cursor-pointer appearance-none">
-                  <option value="PCS">Satuan (PCS)</option>
-                  <option value="KARTON">Grosir (KARTON)</option>
-                  <option value="BALL">Grosir (BALL)</option>
-                  <option value="IKAT">Grosir (IKAT)</option>
-                </select>
-              </div>
-              {WHOLESALE_TYPES.includes(formData.unitType) && (
-                <div className="bg-teal-50 p-3 md:p-4 rounded-xl md:rounded-2xl border border-teal-100">
-                  <label className="block text-[9px] md:text-[10px] font-black text-teal-700 uppercase tracking-widest mb-1 md:mb-2">Total Isi (Pcs) per 1 {formData.unitType}</label>
-                  <input type="number" required min="1" value={formData.pcsPerCarton} onChange={(e) => setFormData({ ...formData, pcsPerCarton: e.target.value })} className="w-full px-3 md:px-4 py-2 md:py-3 bg-white border-none rounded-xl font-black text-teal-800 text-xs md:text-sm outline-none focus:ring-2 focus:ring-teal-500 shadow-sm" placeholder="Contoh: 24" />
-                </div>
-              )}
-              <div className="grid grid-cols-2 gap-3 md:gap-4">
+          <div className="bg-white rounded-[24px] md:rounded-[32px] w-full max-w-md shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
+            
+            {/* Header Sticky */}
+            <div className="px-5 py-4 md:px-6 md:py-5 border-b border-gray-100 flex justify-between items-center bg-white z-10 shrink-0">
+              <h3 className="text-lg md:text-xl font-black text-gray-800 flex items-center gap-2">
+                {modalMode === 'add' ? <><Plus className="w-4 h-4 md:w-5 md:h-5 text-teal-600"/> Tambah Produk Baru</> : <><Edit2 className="w-4 h-4 md:w-5 md:h-5 text-teal-600"/> Edit Data Produk</>}
+              </h3>
+              <button 
+                type="button" 
+                onClick={() => { setShowModal(false); resetForm(); }} 
+                className="p-2 bg-gray-50 text-gray-400 hover:bg-red-50 hover:text-red-600 rounded-xl transition-colors"
+              >
+                <X className="w-4 h-4 md:w-5 md:h-5" />
+              </button>
+            </div>
+
+            {/* Scrollable Body */}
+            <div className="p-5 md:p-6 overflow-y-auto custom-scrollbar flex-1">
+              <form onSubmit={handleSubmit} className="space-y-3 md:space-y-4">
                 <div>
-                  <label className="block text-[9px] md:text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 ml-2">Harga Jual (Rp)</label>
-                  <input type="number" required min="0" value={formData.price} onChange={(e) => setFormData({ ...formData, price: e.target.value })} className="w-full px-3 md:px-4 py-2.5 md:py-3 bg-gray-50 border-none rounded-xl font-black text-xs md:text-sm outline-none focus:ring-2 focus:ring-teal-500" />
+                  <label className="block text-[9px] md:text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 ml-2">Nama Produk</label>
+                  <input type="text" required value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} className="w-full px-3 md:px-4 py-2.5 md:py-3 bg-gray-50 border-none rounded-xl font-bold text-xs md:text-sm outline-none focus:ring-2 focus:ring-teal-500" />
                 </div>
                 <div>
-                  <label className="block text-[9px] md:text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 ml-2">Stok Awal (PCS)</label>
-                  <input type="number" required min="0" disabled={modalMode === 'edit'} value={formData.stockPcs} onChange={(e) => setFormData({ ...formData, stockPcs: e.target.value })} className="w-full px-3 md:px-4 py-2.5 md:py-3 bg-gray-50 border-none rounded-xl font-black text-xs md:text-sm outline-none focus:ring-2 focus:ring-teal-500 disabled:opacity-50" />
+                  <label className="block text-[9px] md:text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 ml-2">Kategori</label>
+                  <input type="text" required value={formData.category} onChange={(e) => setFormData({ ...formData, category: e.target.value })} className="w-full px-3 md:px-4 py-2.5 md:py-3 bg-gray-50 border-none rounded-xl font-bold text-xs md:text-sm outline-none focus:ring-2 focus:ring-teal-500" />
                 </div>
-              </div>
-              <div>
-                <label className="block text-[9px] md:text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 ml-2">URL Gambar Boleh Kosong</label>
-                <input type="url" placeholder="https://..." value={formData.image} onChange={(e) => setFormData({ ...formData, image: e.target.value })} className="w-full px-3 md:px-4 py-2.5 md:py-3 bg-gray-50 border-none rounded-xl font-bold text-xs md:text-sm outline-none focus:ring-2 focus:ring-teal-500" />
-              </div>
-              <div className="flex gap-2 md:gap-3 pt-4 md:pt-6">
-                <button type="button" onClick={() => { setShowModal(false); resetForm(); }} className="flex-1 px-3 md:px-4 py-3 md:py-4 rounded-xl md:rounded-2xl font-black text-gray-400 hover:bg-gray-100 transition-colors text-xs md:text-sm">Batal</button>
-                <button type="submit" className="flex-1 px-3 md:px-4 py-3 md:py-4 bg-teal-600 text-white rounded-xl md:rounded-2xl font-black hover:bg-teal-700 transition-all shadow-lg shadow-teal-100 text-xs md:text-sm uppercase tracking-widest active:scale-95">{modalMode === 'add' ? 'Simpan' : 'Update'}</button>
-              </div>
-            </form>
+                <div>
+                  <label className="block text-[9px] md:text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 ml-2">Tipe Satuan Jual</label>
+                  <select value={formData.unitType} onChange={(e) => setFormData({ ...formData, unitType: e.target.value })} className="w-full px-3 md:px-4 py-2.5 md:py-3 bg-gray-50 border-none rounded-xl font-black text-xs md:text-sm outline-none focus:ring-2 focus:ring-teal-500 cursor-pointer appearance-none">
+                    <option value="PCS">Satuan (PCS)</option>
+                    <option value="KARTON">Grosir (KARTON)</option>
+                    <option value="BALL">Grosir (BALL)</option>
+                    <option value="IKAT">Grosir (IKAT)</option>
+                  </select>
+                </div>
+                
+                {WHOLESALE_TYPES.includes(formData.unitType) && (
+                  <div className="bg-teal-50 p-3 md:p-4 rounded-xl md:rounded-2xl border border-teal-100">
+                    <label className="block text-[9px] md:text-[10px] font-black text-teal-700 uppercase tracking-widest mb-1 md:mb-2">Total Isi (Pcs) per 1 {formData.unitType}</label>
+                    <input type="number" required min="1" value={formData.pcsPerCarton} onChange={(e) => setFormData({ ...formData, pcsPerCarton: e.target.value })} className="w-full px-3 md:px-4 py-2 md:py-3 bg-white border-none rounded-xl font-black text-teal-800 text-xs md:text-sm outline-none focus:ring-2 focus:ring-teal-500 shadow-sm" placeholder="Contoh: 24" />
+                  </div>
+                )}
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
+                  <div>
+                    <label className="block text-[9px] md:text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 ml-2">Harga Jual (Rp)</label>
+                    <input type="number" required min="0" value={formData.price} onChange={(e) => setFormData({ ...formData, price: e.target.value })} className="w-full px-3 md:px-4 py-2.5 md:py-3 bg-gray-50 border-none rounded-xl font-black text-xs md:text-sm outline-none focus:ring-2 focus:ring-teal-500" />
+                  </div>
+                  {!WHOLESALE_TYPES.includes(formData.unitType) && (
+                    <div>
+                      <label className="block text-[9px] md:text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 ml-2">
+                        {modalMode === 'add' ? 'Stok Awal (PCS)' : 'Stok Fisik (PCS)'}
+                      </label>
+                      <input 
+                        type="number" 
+                        required 
+                        min="0" 
+                        value={formData.stockPcs} 
+                        onChange={(e) => setFormData({ ...formData, stockPcs: e.target.value === '' ? '' : parseInt(e.target.value) || 0 })} 
+                        className={`w-full px-3 md:px-4 py-2.5 md:py-3 bg-gray-50 border-none rounded-xl font-black text-xs md:text-sm outline-none focus:ring-2 focus:ring-teal-500 ${modalMode === 'edit' ? 'border-2 border-orange-200 focus:border-orange-500 focus:ring-orange-100 bg-orange-50' : ''}`} 
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {WHOLESALE_TYPES.includes(formData.unitType) && (
+                  <div className="grid grid-cols-2 gap-3 md:gap-4">
+                    <div>
+                      <label className="block text-[9px] md:text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 ml-2">
+                        {modalMode === 'add' ? `Stok Awal (${formData.unitType})` : `Stok Fisik (${formData.unitType})`}
+                      </label>
+                      <input 
+                        type="number" 
+                        min="0" 
+                        step="any"
+                        value={formData.stockPcs === '' ? '' : (formData.stockPcs / (formData.pcsPerCarton || 1))} 
+                        onChange={(e) => {
+                          if (e.target.value === '') {
+                            setFormData({ ...formData, stockPcs: '' });
+                          } else {
+                            const bulk = parseFloat(e.target.value) || 0;
+                            setFormData({ ...formData, stockPcs: Math.round(bulk * (formData.pcsPerCarton || 1)) });
+                          }
+                        }} 
+                        className={`w-full px-3 md:px-4 py-2.5 md:py-3 bg-gray-50 border-none rounded-xl font-black text-xs md:text-sm outline-none focus:ring-2 focus:ring-teal-500 ${modalMode === 'edit' ? 'border-2 border-orange-200 focus:border-orange-500 focus:ring-orange-100 bg-orange-50' : ''}`} 
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[9px] md:text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 ml-2">
+                        Total {modalMode === 'add' ? 'Awal' : 'Fisik'} (PCS)
+                      </label>
+                      <input 
+                        type="number" 
+                        required 
+                        min="0" 
+                        value={formData.stockPcs} 
+                        onChange={(e) => setFormData({ ...formData, stockPcs: e.target.value === '' ? '' : parseInt(e.target.value) || 0 })} 
+                        className={`w-full px-3 md:px-4 py-2.5 md:py-3 bg-gray-50 border-none rounded-xl font-black text-xs md:text-sm outline-none focus:ring-2 focus:ring-teal-500 ${modalMode === 'edit' ? 'border-2 border-orange-200 focus:border-orange-500 focus:ring-orange-100 bg-orange-50' : ''}`} 
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Pesan Peringatan Saat Edit */}
+                {modalMode === 'edit' && (
+                  <div className="bg-orange-50 px-3 py-2 rounded-lg border border-orange-100 flex gap-2 items-start mt-1">
+                    <AlertTriangle className="w-4 h-4 text-orange-600 shrink-0 mt-0.5" />
+                    <p className="text-[9px] md:text-[10px] text-orange-700 font-bold leading-relaxed">
+                      Peringatan: Mengubah angka stok di sini akan tercatat sebagai <span className="font-black uppercase tracking-widest">"Edit Barang"</span> di Laporan Histori.
+                    </p>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-[9px] md:text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 ml-2">URL Gambar Boleh Kosong</label>
+                  <input type="url" placeholder="https://..." value={formData.image} onChange={(e) => setFormData({ ...formData, image: e.target.value })} className="w-full px-3 md:px-4 py-2.5 md:py-3 bg-gray-50 border-none rounded-xl font-bold text-xs md:text-sm outline-none focus:ring-2 focus:ring-teal-500" />
+                </div>
+
+                <div className="flex gap-2 md:gap-3 pt-4 md:pt-6">
+                  <button type="submit" className="w-full px-3 md:px-4 py-3.5 md:py-4 bg-teal-600 text-white rounded-xl md:rounded-2xl font-black hover:bg-teal-700 transition-all shadow-lg shadow-teal-100 text-xs md:text-sm uppercase tracking-widest active:scale-95">{modalMode === 'add' ? 'Simpan Data' : 'Update Data'}</button>
+                </div>
+              </form>
+            </div>
           </div>
         </div>
       )}
 
+      {/* MODAL UPDATE STOK MANUAL (+/-) */}
       {showStockModal && selectedProduct && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
           <div className="bg-white rounded-[24px] md:rounded-[32px] p-6 md:p-8 max-w-sm w-full shadow-2xl">
@@ -710,6 +905,7 @@ const StockOpname = ({ onShowToast }) => {
         </div>
       )}
 
+      {/* MODAL HAPUS SATU PRODUK */}
       {showDeleteModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
           <div className="bg-white rounded-[24px] md:rounded-[32px] p-6 md:p-8 max-w-sm w-full shadow-2xl text-center">
@@ -718,6 +914,44 @@ const StockOpname = ({ onShowToast }) => {
             <div className="flex flex-col gap-2">
               <button onClick={handleDelete} className="w-full bg-red-600 text-white py-3 md:py-4 rounded-xl md:rounded-2xl font-black text-xs md:text-sm shadow-md shadow-red-100 uppercase tracking-widest active:scale-95">Ya, Hapus Permanen</button>
               <button onClick={() => setShowDeleteModal(false)} className="w-full py-3 md:py-4 font-black text-gray-400 text-xs md:text-sm hover:bg-gray-50 rounded-xl md:rounded-2xl transition-colors">Batal</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL BERSIHKAN HISTORI */}
+      {showClearHistoryModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
+          <div className="bg-white rounded-[24px] md:rounded-[32px] p-6 md:p-8 max-w-sm w-full shadow-2xl text-center border-t-8 border-red-600">
+            <div className="mx-auto bg-red-50 w-16 h-16 md:w-20 md:h-20 rounded-full flex items-center justify-center mb-4 border border-red-100 shadow-inner">
+              <AlertTriangle className="w-8 h-8 md:w-10 md:h-10 text-red-600" />
+            </div>
+            <h3 className="text-lg md:text-xl font-black text-gray-800 mb-2">Hapus Seluruh Histori?</h3>
+            <p className="text-[10px] md:text-xs text-gray-500 mb-6 font-bold leading-relaxed">
+              Ini akan menghapus riwayat masuk/keluar stok secara permanen. (Riwayat penjualan dari kasir akan tetap aman).
+            </p>
+            <div className="flex flex-col gap-2">
+              <button onClick={handleClearAllHistory} className="w-full bg-red-600 text-white py-3 md:py-4 rounded-xl md:rounded-2xl font-black text-xs md:text-sm shadow-md hover:bg-red-700 transition-all uppercase tracking-widest">Ya, Hapus Semua</button>
+              <button onClick={() => setShowClearHistoryModal(false)} className="w-full py-3 md:py-4 font-black text-gray-400 hover:bg-gray-50 rounded-xl md:rounded-2xl transition-all text-xs md:text-sm">Batal</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL BERSIHKAN SEMUA BARANG */}
+      {showClearProductsModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
+          <div className="bg-white rounded-[24px] md:rounded-[32px] p-6 md:p-8 max-w-sm w-full shadow-2xl text-center border-t-8 border-red-600">
+            <div className="mx-auto bg-red-50 w-16 h-16 md:w-20 md:h-20 rounded-full flex items-center justify-center mb-4 border border-red-100 shadow-inner">
+              <AlertTriangle className="w-8 h-8 md:w-10 md:h-10 text-red-600" />
+            </div>
+            <h3 className="text-lg md:text-xl font-black text-gray-800 mb-2">Bersihkan Semua Barang?</h3>
+            <p className="text-[10px] md:text-xs text-gray-500 mb-6 font-bold leading-relaxed">
+              Perhatian! Seluruh data produk dan stok Anda di etalase akan dihapus secara permanen. Tindakan ini tidak bisa dibatalkan!
+            </p>
+            <div className="flex flex-col gap-2">
+              <button onClick={handleClearAllProducts} className="w-full bg-red-600 text-white py-3 md:py-4 rounded-xl md:rounded-2xl font-black text-xs md:text-sm shadow-md hover:bg-red-700 transition-all uppercase tracking-widest">Ya, Bersihkan Etalase</button>
+              <button onClick={() => setShowClearProductsModal(false)} className="w-full py-3 md:py-4 font-black text-gray-400 hover:bg-gray-50 rounded-xl md:rounded-2xl transition-all text-xs md:text-sm">Batal</button>
             </div>
           </div>
         </div>
