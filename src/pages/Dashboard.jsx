@@ -38,7 +38,7 @@ const CustomerSearchSelect = ({ customers, value, onChange, placeholder }) => {
   const selected = customers.find(c => c.id === value);
 
   return (
-    <div className="relative flex-1" ref={wrapperRef}>
+    <div className="relative flex-1 w-full" ref={wrapperRef}>
       <div 
         className="w-full bg-gray-50 rounded-xl px-4 py-3 text-sm font-bold text-gray-800 cursor-pointer flex justify-between items-center border border-transparent hover:border-teal-300 transition-colors"
         onClick={() => setIsOpen(!isOpen)}
@@ -95,13 +95,14 @@ const Dashboard = ({ onShowToast }) => {
 
   const [activeTab, setActiveTab] = useState('overview');
   const [chartPeriod, setChartPeriod] = useState('daily');
+  const [showAllLogs, setShowAllLogs] = useState(false); // STATE BARU UNTUK LOG CEPAT
   
   // Modals
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showPayDebtModal, setShowPayDebtModal] = useState(false);
   const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
   const [showReturnModal, setShowReturnModal] = useState(false);
-  const [showResetModal, setShowResetModal] = useState(false); // Modal untuk tombol hapus semua
+  const [showResetModal, setShowResetModal] = useState(false); 
 
   const [selectedItem, setSelectedItem] = useState(null);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
@@ -120,7 +121,7 @@ const Dashboard = ({ onShowToast }) => {
   const [newExpense, setNewExpense] = useState({ title: '', amount: '', category: 'Operasional' });
   const [newManualDebt, setNewManualDebt] = useState({ customerId: '', amount: '', note: '' });
 
-  // --- DATE HELPERS (DENGAN JAM) ---
+  // --- DATE HELPERS ---
   const getSafeDate = (dateSource) => {
     if (!dateSource) return new Date();
     try {
@@ -149,15 +150,19 @@ const Dashboard = ({ onShowToast }) => {
     transactions.forEach(t => {
       if (t.paymentStatus === 'HUTANG' || t.note === 'Penambahan Hutang Manual') {
         let amount = t.subtotal;
-        if (t.paymentStatus === 'HUTANG') amount = t.subtotal - (t.returnUsed || 0);
+        if (t.paymentStatus === 'HUTANG') {
+           amount = t.subtotal - (t.returnUsed || 0);
+           if (t.debtPaid > 0) amount += t.debtPaid; 
+        }
         if (t.note === 'Penambahan Hutang Manual') amount = t.subtotal || t.amount;
-        logs.push({ ...t, debtType: 'in', nominal: amount });
+        logs.push({ ...t, debtType: 'in', nominal: amount, note: (t.paymentStatus === 'HUTANG' && t.debtPaid > 0) ? 'Konsolidasi Hutang Baru' : (t.note || 'Belanja Hutang') });
       }
       if (t.debtPaid > 0) {
-        logs.push({ ...t, debtType: 'out', nominal: t.debtPaid, note: `Bayar Hutang (Kasir) ${t.note ? '- '+t.note : ''}` });
+        const outNote = t.paymentStatus === 'HUTANG' ? 'Penutupan Hutang Lama (Digabung ke Nota Baru)' : `Bayar Hutang di Kasir ${t.note ? '- '+t.note : ''}`;
+        logs.push({ ...t, debtType: 'out', nominal: t.debtPaid, note: outNote });
       }
       if (t.note === 'Cicilan/Pelunasan Hutang') {
-         logs.push({ ...t, debtType: 'out', nominal: t.subtotal });
+         logs.push({ ...t, debtType: 'out', nominal: t.subtotal, note: 'Pelunasan Hutang Manual' });
       }
     });
     return logs.sort((a, b) => getSafeDate(b.createdAt) - getSafeDate(a.createdAt));
@@ -166,14 +171,10 @@ const Dashboard = ({ onShowToast }) => {
   const depositLogs = useMemo(() => {
     let logs = [];
     returnsData.forEach(r => {
-      if (r.refundType === 'deposit') {
-        logs.push({ ...r, depType: 'in', nominal: r.amount, note: `Retur: ${r.reason}` });
-      }
+      if (r.refundType === 'deposit') logs.push({ ...r, depType: 'in', nominal: r.amount, note: `Retur: ${r.reason}` });
     });
     transactions.forEach(t => {
-      if (t.returnUsed > 0) {
-        logs.push({ ...t, depType: 'out', nominal: t.returnUsed, note: `Dipakai belanja (Nota: #${t.id?.substring(0,6)})` });
-      }
+      if (t.returnUsed > 0) logs.push({ ...t, depType: 'out', nominal: t.returnUsed, note: `Dipakai belanja (Nota: #${t.id?.substring(0,6)})` });
     });
     return logs.sort((a, b) => getSafeDate(b.createdAt) - getSafeDate(a.createdAt));
   }, [returnsData, transactions]);
@@ -182,14 +183,23 @@ const Dashboard = ({ onShowToast }) => {
     let logs = [];
     transactions.forEach(t => {
       if (Number(t.total) > 0) {
-        logs.push({ ...t, netType: 'in', nominal: t.total });
+        logs.push({ ...t, netType: 'in', nominal: t.total, subjName: t.customerName || 'Pemasukan Kas', detailNote: t.note || (t.items ? t.items.map(i => i.name).join(', ') : 'Transaksi Lunas') });
       }
     });
     expenses.forEach(e => {
-      logs.push({ ...e, netType: 'out', nominal: e.amount, customerName: e.title });
+      logs.push({ ...e, netType: 'out', nominal: e.amount, subjName: 'Beban/Pengeluaran', detailNote: e.title });
     });
     return logs.sort((a, b) => getSafeDate(b.createdAt) - getSafeDate(a.createdAt));
   }, [transactions, expenses]);
+
+  // --- LOG CEPAT KESELURUHAN (ALL ACTIVITIES) ---
+  const allActivityLogs = useMemo(() => {
+    let logs = [];
+    netLogs.forEach(l => logs.push({ ...l, logTime: getSafeDate(l.createdAt), logCategory: 'KAS', logType: l.netType, logLabel: l.netType === 'in' ? 'Kas Masuk' : 'Kas Keluar', logTitle: l.subjName, logDetail: l.detailNote }));
+    debtLogs.forEach(l => logs.push({ ...l, logTime: getSafeDate(l.createdAt), logCategory: 'HUTANG', logType: l.debtType, logLabel: l.debtType === 'in' ? 'Hutang Bertambah' : 'Hutang Lunas/Cicil', logTitle: l.customerName || 'Tanpa Nama', logDetail: l.note }));
+    depositLogs.forEach(l => logs.push({ ...l, logTime: getSafeDate(l.createdAt), logCategory: 'DEPOSIT', logType: l.depType, logLabel: l.depType === 'in' ? 'Deposit Masuk' : 'Deposit Terpakai', logTitle: l.customerName || 'Tanpa Nama', logDetail: l.note }));
+    return logs.sort((a, b) => b.logTime - a.logTime);
+  }, [netLogs, debtLogs, depositLogs]);
 
   // --- CHART LOGIC ---
   const dynamicChartData = useMemo(() => {
@@ -216,14 +226,7 @@ const Dashboard = ({ onShowToast }) => {
   const handleAddManualIncome = async (e) => {
     e.preventDefault();
     if (!newManualIncome.note || !newManualIncome.amount) return onShowToast('Lengkapi data', 'error');
-    await addDocument('transactions', {
-      note: newManualIncome.note,
-      subtotal: Number(newManualIncome.amount),
-      total: Number(newManualIncome.amount),
-      customerName: 'Pemasukan Manual',
-      paymentStatus: 'LUNAS',
-      createdAt: new Date()
-    });
+    await addDocument('transactions', { note: newManualIncome.note, subtotal: Number(newManualIncome.amount), total: Number(newManualIncome.amount), customerName: 'Pemasukan Manual', paymentStatus: 'LUNAS', createdAt: new Date() });
     setNewManualIncome({ note: '', amount: '' });
     onShowToast('Pemasukan dicatat', 'success');
   };
@@ -231,20 +234,9 @@ const Dashboard = ({ onShowToast }) => {
   const handlePayDebt = async () => {
     const amount = isFullPayment ? selectedCustomer.remainingDebt : Number(debtPaymentAmount);
     if (amount <= 0 || amount > selectedCustomer.remainingDebt) return onShowToast('Nominal tidak valid', 'error');
-    
-    const updateRes = await updateDocument('customers', selectedCustomer.id, {
-      remainingDebt: selectedCustomer.remainingDebt - amount
-    });
-
+    const updateRes = await updateDocument('customers', selectedCustomer.id, { remainingDebt: selectedCustomer.remainingDebt - amount });
     if (updateRes.success) {
-      await addDocument('transactions', {
-        customerName: selectedCustomer.name,
-        subtotal: amount,
-        total: amount,
-        note: 'Cicilan/Pelunasan Hutang',
-        paymentStatus: 'LUNAS',
-        createdAt: new Date()
-      });
+      await addDocument('transactions', { customerName: selectedCustomer.name, subtotal: amount, total: amount, note: 'Cicilan/Pelunasan Hutang', paymentStatus: 'LUNAS', createdAt: new Date() });
       onShowToast('Hutang diperbarui', 'success');
       setShowPayDebtModal(false);
     }
@@ -256,71 +248,37 @@ const Dashboard = ({ onShowToast }) => {
     const cust = customers.find(c => c.id === newManualDebt.customerId);
     if (!cust) return;
     const amount = Number(newManualDebt.amount);
-    
-    const updateRes = await updateDocument('customers', cust.id, {
-      remainingDebt: (Number(cust.remainingDebt) || 0) + amount
-    });
-
+    const updateRes = await updateDocument('customers', cust.id, { remainingDebt: (Number(cust.remainingDebt) || 0) + amount });
     if (updateRes.success) {
-      await addDocument('transactions', {
-        customerName: cust.name,
-        customerId: cust.id,
-        subtotal: amount, 
-        total: 0, 
-        note: newManualDebt.note || 'Penambahan Hutang Manual',
-        paymentStatus: 'HUTANG',
-        createdAt: new Date()
-      });
+      await addDocument('transactions', { customerName: cust.name, customerId: cust.id, subtotal: amount, total: 0, note: newManualDebt.note || 'Penambahan Hutang Manual', paymentStatus: 'HUTANG', createdAt: new Date() });
       onShowToast('Hutang manual berhasil ditambahkan', 'success');
       setNewManualDebt({ customerId: '', amount: '', note: '' });
     }
   };
 
-  // --- FITUR RESET SEMUA DATA (TOMBOL MERAH DI RINGKASAN) ---
   const handleResetAllData = async () => {
     try {
-      // 1. Hapus semua histori transaksi & pemasukan
-      for (const t of transactions) {
-        await deleteDocument('transactions', t.id);
-      }
-      
-      // 2. Hapus semua histori pengeluaran
-      for (const e of expenses) {
-        await deleteDocument('expenses', e.id);
-      }
-      
-      // 3. Hapus semua histori form retur
-      for (const r of returnsData) {
-        await deleteDocument('returns', r.id);
-      }
-      
-      // 4. Reset sisa hutang dan deposit semua pelanggan kembali ke 0
+      for (const t of transactions) { await deleteDocument('transactions', t.id); }
+      for (const e of expenses) { await deleteDocument('expenses', e.id); }
+      for (const r of returnsData) { await deleteDocument('returns', r.id); }
       for (const c of customers) {
         if ((Number(c.remainingDebt) || 0) > 0 || (Number(c.returnAmount) || 0) > 0) {
-          await updateDocument('customers', c.id, {
-            remainingDebt: 0,
-            returnAmount: 0
-          });
+          await updateDocument('customers', c.id, { remainingDebt: 0, returnAmount: 0 });
         }
       }
-
       onShowToast('Seluruh data transaksi, hutang, dan deposit berhasil dihapus bersih', 'success');
       setShowResetModal(false);
     } catch (error) {
-      console.error("Gagal mereset data: ", error);
       onShowToast('Gagal mereset sebagian data. Periksa koneksi.', 'error');
     }
   };
 
-  // --- FILTERS ---
   const applyFilters = (list, searchFields) => list.filter(item => {
     const date = getSafeDate(item.createdAt);
     const matchesSearch = searchFields.some(field => (item[field] || '').toLowerCase().includes(searchTerm.toLowerCase()));
     let matchesDate = true;
     if (startDate && endDate) {
-      const start = new Date(startDate);
-      const end = new Date(endDate);
-      end.setHours(23, 59, 59);
+      const start = new Date(startDate); const end = new Date(endDate); end.setHours(23, 59, 59);
       matchesDate = date >= start && date <= end;
     }
     return matchesSearch && matchesDate;
@@ -330,196 +288,267 @@ const Dashboard = ({ onShowToast }) => {
   const filteredExpenses = useMemo(() => applyFilters(expenses, ['title']), [expenses, searchTerm, startDate, endDate]);
   const filteredDebtHistory = useMemo(() => applyFilters(debtLogs, ['customerName', 'note']), [debtLogs, searchTerm, startDate, endDate]);
   const filteredDepositHistory = useMemo(() => applyFilters(depositLogs, ['customerName', 'note', 'reason']), [depositLogs, searchTerm, startDate, endDate]);
-  const filteredNetBalance = useMemo(() => applyFilters(netLogs, ['customerName', 'note', 'title']), [netLogs, searchTerm, startDate, endDate]);
+  const filteredNetBalance = useMemo(() => applyFilters(netLogs, ['customerName', 'note', 'title', 'subjName', 'detailNote']), [netLogs, searchTerm, startDate, endDate]);
 
   const handleBulkDelete = async () => {
-    let target = [];
-    let collectionName = '';
+    let target = []; let collectionName = '';
     if (activeTab === 'transactions') { target = filteredTransactions; collectionName = 'transactions'; }
     else if (activeTab === 'expenses') { target = filteredExpenses; collectionName = 'expenses'; }
-    
     if (target.length === 0) return onShowToast('Pilih tab Pemasukan atau Pengeluaran untuk hapus masal', 'error');
-
-    for (const item of target) {
-      await deleteDocument(collectionName, item.id);
-    }
+    for (const item of target) { await deleteDocument(collectionName, item.id); }
     onShowToast(`${target.length} data dihapus`, 'success');
     setShowBulkDeleteModal(false);
   };
 
-  // --- EXPORT TOOLS LAPORAN MASTER ---
-  const handleDownloadMasterExcel = () => {
-    let aoa = [
-      ["LAPORAN KESELURUHAN BUKU KAS (DETAIL ARUS & HISTORI)"],
-      ["Periode:", startDate ? `${startDate} s/d ${endDate}` : "Semua Data Tersedia"],
-      []
-    ];
-
-    const filterByDate = (list) => applyFilters(list, ['customerName', 'note', 'title', 'reason']);
-
-    const addSimpleSection = (title, data, sign) => {
-      if(data.length === 0) return 0;
-      aoa.push([`--- ${title} ---`]);
-      aoa.push(["Tanggal", "Keterangan", "Nominal"]);
-      let sum = 0;
-      data.forEach(item => {
-        sum += item.nominal;
-        aoa.push([formatDisplayDate(item.createdAt), item.customerName || item.note || item.title || item.reason || '-', `${sign} ${item.nominal}`]);
-      });
-      aoa.push(["TOTAL", "", sum]);
-      aoa.push([]);
-      return sum;
-    };
-
-    const addCombinedSection = (title, data, typeField) => {
-      if(data.length === 0) return { sumIn: 0, sumOut: 0, net: 0 };
-      aoa.push([`--- ${title} ---`]);
-      aoa.push(["Tanggal", "Status", "Keterangan", "Masuk/Bertambah (+)", "Keluar/Berkurang (-)"]);
-      let sumIn = 0, sumOut = 0;
-      data.forEach(item => {
-        const isIn = item[typeField] === 'in';
-        const nominal = item.nominal || 0;
-        if (isIn) sumIn += nominal; else sumOut += nominal;
-        aoa.push([
-          formatDisplayDate(item.createdAt), 
-          isIn ? 'BERTAMBAH (+)' : 'BERKURANG (-)',
-          item.customerName || item.note || item.title || item.reason || '-', 
-          isIn ? nominal : 0, 
-          !isIn ? nominal : 0
-        ]);
-      });
-      aoa.push(["TOTAL", "", "", sumIn, sumOut]);
-      aoa.push(["SELISIH / NETTO", "", "", sumIn - sumOut, ""]);
-      aoa.push([]);
-      return { sumIn, sumOut, net: sumIn - sumOut };
-    };
-
-    addSimpleSection("1. RINCIAN PEMASUKAN KAS", filterByDate(netLogs.filter(l => l.netType === 'in')), '+');
-    addSimpleSection("2. RINCIAN PENGELUARAN KAS", filterByDate(netLogs.filter(l => l.netType === 'out')), '-');
-    addCombinedSection("3. HISTORI PIUTANG (HUTANG PELANGGAN)", filterByDate(debtLogs), 'debtType');
-    addCombinedSection("4. HISTORI DEPOSIT (RETUR PELANGGAN)", filterByDate(depositLogs), 'depType');
-    const netKas = addCombinedSection("5. ARUS KAS RIIL (GABUNGAN PEMASUKAN & PENGELUARAN)", filterByDate(netLogs), 'netType');
-
-    aoa.push(["====================================="]);
-    aoa.push(["SALDO BERSIH AKHIR (Pemasukan - Pengeluaran)", "", "", netKas.net, ""]);
-
-    const ws = XLSX.utils.aoa_to_sheet(aoa);
+  // =====================================================================
+  // --- FUNGSI EXPORT EXCEL (DENGAN TOTAL) ---
+  // =====================================================================
+  const handleDownloadMasterExcel = () => { 
+    if (filteredNetBalance.length === 0 && filteredDebtHistory.length === 0 && filteredDepositHistory.length === 0) {
+      return onShowToast('Tidak ada data untuk dicetak pada periode ini', 'error');
+    }
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Laporan_Master");
-    XLSX.writeFile(wb, `Laporan_Keuangan_Lengkap.xlsx`);
+
+    // 1. PEMASUKAN
+    let totalIn = 0;
+    const inData = filteredTransactions.filter(t => Number(t.total) > 0).map(t => {
+      totalIn += Number(t.total);
+      return { 'Tanggal & Jam': formatDisplayDate(t.createdAt), 'Nama Pembeli': t.customerName || 'Tanpa Nama', 'Keterangan Rinci': t.note || (t.items ? t.items.map(i => i.name).join(', ') : 'Transaksi Pemasukan'), 'Nominal': `+ Rp ${Number(t.total).toLocaleString('id-ID')}` };
+    });
+    if (inData.length > 0) {
+      inData.push({ 'Tanggal & Jam': 'TOTAL PEMASUKAN', 'Nama Pembeli': '', 'Keterangan Rinci': '', 'Nominal': `Rp ${totalIn.toLocaleString('id-ID')}` });
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(inData), "1. Pemasukan");
+    }
+
+    // 2. PENGELUARAN
+    let totalEx = 0;
+    const exData = filteredExpenses.map(e => {
+      totalEx += Number(e.amount);
+      return { 'Tanggal & Jam': formatDisplayDate(e.createdAt), 'Keterangan Pengeluaran': e.title, 'Nominal': `- Rp ${Number(e.amount).toLocaleString('id-ID')}` };
+    });
+    if (exData.length > 0) {
+      exData.push({ 'Tanggal & Jam': 'TOTAL PENGELUARAN', 'Keterangan Pengeluaran': '', 'Nominal': `Rp ${totalEx.toLocaleString('id-ID')}` });
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(exData), "2. Pengeluaran");
+    }
+
+    // 3. HISTORI HUTANG
+    let inDebtEx = 0, outDebtEx = 0;
+    const debtHistData = filteredDebtHistory.map(item => {
+      const nominal = Number(item.nominal) || 0;
+      if (item.debtType === 'in') inDebtEx += nominal; else outDebtEx += nominal;
+      return { 'Tanggal & Jam': formatDisplayDate(item.createdAt), 'Status': item.debtType === 'in' ? 'BERTAMBAH' : 'BERKURANG', 'Nama Pembeli': item.customerName || 'Tanpa Nama', 'Keterangan': item.note || 'Belanja Hutang', 'Nominal': (item.debtType === 'in' ? '+' : '-') + ` Rp ${nominal.toLocaleString('id-ID')}` };
+    });
+    if (debtHistData.length > 0) {
+      debtHistData.push({ 'Tanggal & Jam': `TOTAL MASUK: Rp ${inDebtEx.toLocaleString('id-ID')} | KELUAR: Rp ${outDebtEx.toLocaleString('id-ID')}`, 'Status': '', 'Nama Pembeli': '', 'Keterangan': 'NET:', 'Nominal': `Rp ${Math.abs(inDebtEx - outDebtEx).toLocaleString('id-ID')}` });
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(debtHistData), "3. Histori Hutang");
+    }
+
+    // 4. DAFTAR HUTANG
+    let totalDebtAct = 0;
+    const activeDebts = customers.filter(c => (Number(c.remainingDebt) || 0) > 0).map(c => {
+      totalDebtAct += Number(c.remainingDebt);
+      return { 'Nama Pembeli': c.name, 'No. Telepon': c.phone || '-', 'Sisa Hutang': Number(c.remainingDebt).toLocaleString('id-ID') };
+    });
+    if (activeDebts.length > 0) {
+      activeDebts.push({ 'Nama Pembeli': 'TOTAL KESELURUHAN PIUTANG', 'No. Telepon': '', 'Sisa Hutang': totalDebtAct.toLocaleString('id-ID') });
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(activeDebts), "4. Daftar Hutang Aktif");
+    }
+
+    // 5. HISTORI DEPOSIT
+    let inDepEx = 0, outDepEx = 0;
+    const depHistData = filteredDepositHistory.map(item => {
+      const nominal = Number(item.nominal) || 0;
+      if (item.depType === 'in') inDepEx += nominal; else outDepEx += nominal;
+      return { 'Tanggal & Jam': formatDisplayDate(item.createdAt), 'Status': item.depType === 'in' ? 'BERTAMBAH' : 'BERKURANG', 'Nama Pembeli': item.customerName || 'Tanpa Nama', 'Keterangan': item.note || 'Retur', 'Nominal': (item.depType === 'in' ? '+' : '-') + ` Rp ${nominal.toLocaleString('id-ID')}` };
+    });
+    if (depHistData.length > 0) {
+      depHistData.push({ 'Tanggal & Jam': `TOTAL MASUK: Rp ${inDepEx.toLocaleString('id-ID')} | KELUAR: Rp ${outDepEx.toLocaleString('id-ID')}`, 'Status': '', 'Nama Pembeli': '', 'Keterangan': 'NET:', 'Nominal': `Rp ${Math.abs(inDepEx - outDepEx).toLocaleString('id-ID')}` });
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(depHistData), "5. Histori Deposit");
+    }
+
+    // 6. DAFTAR DEPOSIT
+    let totalDepAct = 0;
+    const activeDeposits = customers.filter(c => (Number(c.returnAmount) || 0) > 0).map(c => {
+      totalDepAct += Number(c.returnAmount);
+      return { 'Nama Pembeli': c.name, 'No. Telepon': c.phone || '-', 'Saldo Deposit': Number(c.returnAmount).toLocaleString('id-ID') };
+    });
+    if (activeDeposits.length > 0) {
+      activeDeposits.push({ 'Nama Pembeli': 'TOTAL KESELURUHAN DEPOSIT', 'No. Telepon': '', 'Saldo Deposit': totalDepAct.toLocaleString('id-ID') });
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(activeDeposits), "6. Daftar Deposit Aktif");
+    }
+
+    // 7. SALDO BERSIH
+    let netInEx = 0, netOutEx = 0;
+    const netData = filteredNetBalance.map(item => {
+      const nominal = Number(item.nominal) || 0;
+      if (item.netType === 'in') netInEx += nominal; else netOutEx += nominal;
+      return { 'Tanggal & Jam': formatDisplayDate(item.createdAt), 'Kategori': item.netType === 'in' ? 'PEMASUKAN' : 'PENGELUARAN', 'Nama / Subjek': item.subjName, 'Keterangan Rinci': item.detailNote, 'Nominal Kas': (item.netType === 'in' ? '+' : '-') + ` Rp ${nominal.toLocaleString('id-ID')}` };
+    });
+    if (netData.length > 0) {
+      netData.push({ 'Tanggal & Jam': `TOTAL MASUK: Rp ${netInEx.toLocaleString('id-ID')} | KELUAR: Rp ${netOutEx.toLocaleString('id-ID')}`, 'Kategori': '', 'Nama / Subjek': '', 'Keterangan Rinci': 'SALDO AKHIR:', 'Nominal Kas': `Rp ${(netInEx - netOutEx).toLocaleString('id-ID')}` });
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(netData), "7. Saldo Bersih");
+    }
+
+    XLSX.writeFile(wb, `Laporan_Buku_Kas_${startDate||'Awal'}_sd_${endDate||'Sekarang'}.xlsx`);
+    onShowToast('File Excel berhasil diunduh', 'success');
   };
 
-  const handleDownloadMasterPDF = () => {
+  // =====================================================================
+  // --- FUNGSI EXPORT PDF (DENGAN TOTAL SEPERTI FOTO) ---
+  // =====================================================================
+  const handleDownloadMasterPDF = () => { 
+    if (filteredNetBalance.length === 0 && filteredDebtHistory.length === 0 && filteredDepositHistory.length === 0) {
+      return onShowToast('Tidak ada data untuk dicetak pada periode ini', 'error');
+    }
+
     const doc = new jsPDF('p', 'mm', 'a4');
-    let finalY = 15;
-    doc.setFontSize(14);
-    doc.setFont("helvetica", "bold");
-    doc.text(`Laporan Keseluruhan`, 14, finalY);
-    finalY += 6;
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "normal");
-    doc.text(`Periode: ${startDate || 'Awal'} s/d ${endDate || 'Sekarang'}`, 14, finalY);
-    finalY += 10;
+    doc.setFontSize(14); doc.setFont("helvetica", "bold");
+    doc.text("Laporan Keseluruhan ARZEN Frozen Food", 14, 15);
+    doc.setFontSize(10); doc.setFont("helvetica", "normal");
+    doc.text(`Periode: ${startDate || 'Awal'} s/d ${endDate || 'Sekarang'}`, 14, 22);
 
-    const filterByDate = (list) => applyFilters(list, ['customerName', 'note', 'title', 'reason']);
+    let currentY = 32;
 
-    const addSimpleSectionPDF = (title, data, sign, colorHeader) => {
-      if(data.length === 0) return 0;
-      doc.setFontSize(11);
-      doc.setFont("helvetica", "bold");
-      doc.text(title, 14, finalY);
-      
-      let sum = 0;
-      const body = data.map(item => {
-        sum += item.nominal;
-        return [
-          formatDisplayDate(item.createdAt), 
-          item.customerName || item.note || item.title || item.reason || '-', 
-          `${sign} Rp ${item.nominal.toLocaleString()}`
-        ];
-      });
-      
-      body.push([
-        { content: `TOTAL`, colSpan: 2, styles: { halign: 'right', fontStyle: 'bold' } }, 
-        { content: `Rp ${sum.toLocaleString()}`, styles: { fontStyle: 'bold' } }
-      ]);
-
-      autoTable(doc, {
-        startY: finalY + 3,
-        head: [['Tanggal & Jam', 'Keterangan Detail', 'Nominal']],
-        body: body,
-        theme: 'grid',
-        headStyles: { fillColor: colorHeader },
-        didParseCell: function(data) {
-          if (data.section === 'body' && data.column.index === 2) {
-            if (data.cell.raw.includes && data.cell.raw.includes('+')) data.cell.styles.textColor = [0, 128, 0];
-            if (data.cell.raw.includes && data.cell.raw.includes('-')) data.cell.styles.textColor = [200, 0, 0];
-          }
-        },
-        margin: { bottom: 20 }
-      });
-
-      finalY = doc.lastAutoTable.finalY + 10;
-      if (finalY > 270) { doc.addPage(); finalY = 15; }
-      return sum;
+    const customDidParseCell = (data) => {
+      if (data.section === 'body') {
+        const lastColIndex = data.table.columns.length - 1;
+        if (data.column.index === lastColIndex && typeof data.cell.raw === 'string') {
+          if (data.cell.raw.includes('+')) data.cell.styles.textColor = [0, 128, 0];
+          if (data.cell.raw.includes('-')) data.cell.styles.textColor = [220, 38, 38];
+        }
+      }
     };
 
-    const addCombinedSectionPDF = (title, data, typeField, colorHeader) => {
-      if(data.length === 0) return { net: 0 };
-      doc.setFontSize(11);
-      doc.setFont("helvetica", "bold");
-      doc.text(title, 14, finalY);
-      
-      let sumIn = 0, sumOut = 0;
-      const body = data.map(item => {
-        const isIn = item[typeField] === 'in';
-        const nominal = item.nominal || 0;
-        if (isIn) sumIn += nominal; else sumOut += nominal;
-        return [
-          formatDisplayDate(item.createdAt), 
-          isIn ? 'BERTAMBAH' : 'BERKURANG',
-          item.customerName || item.note || item.title || item.reason || '-', 
-          isIn ? `+ Rp ${nominal.toLocaleString()}` : `- Rp ${nominal.toLocaleString()}`
-        ];
-      });
-      
-      const net = sumIn - sumOut;
-      body.push([
-        { content: `TOTAL MASUK: Rp ${sumIn.toLocaleString()} | KELUAR: Rp ${sumOut.toLocaleString()}`, colSpan: 3, styles: { halign: 'right', fontStyle: 'bold' } }, 
-        { content: `NET: Rp ${net.toLocaleString()}`, styles: { fontStyle: 'bold', fillColor: net >= 0 ? [240,255,240] : [255,240,240] } }
-      ]);
-
-      autoTable(doc, {
-        startY: finalY + 3,
-        head: [['Tanggal & Jam', 'Status', 'Keterangan Detail', 'Nominal']],
-        body: body,
-        theme: 'grid',
-        headStyles: { fillColor: colorHeader },
-        didParseCell: function(data) {
-          if (data.section === 'body' && data.column.index === 3) {
-            if (data.cell.raw.includes && data.cell.raw.includes('+')) data.cell.styles.textColor = [0, 128, 0];
-            if (data.cell.raw.includes && data.cell.raw.includes('-')) data.cell.styles.textColor = [200, 0, 0];
-          }
-        },
-        margin: { bottom: 20 }
-      });
-
-      finalY = doc.lastAutoTable.finalY + 10;
-      if (finalY > 270) { doc.addPage(); finalY = 15; }
-      return { net };
+    const checkPageBreak = (spaceNeeded) => {
+      if (currentY + spaceNeeded > 280) { doc.addPage(); currentY = 20; }
     };
 
-    addSimpleSectionPDF("1. RINCIAN PEMASUKAN KAS", filterByDate(netLogs.filter(l => l.netType === 'in')), '+', [13, 148, 136]); 
-    addSimpleSectionPDF("2. RINCIAN PENGELUARAN KAS", filterByDate(netLogs.filter(l => l.netType === 'out')), '-', [220, 38, 38]);
-    addCombinedSectionPDF("3. HISTORI PIUTANG (HUTANG PELANGGAN)", filterByDate(debtLogs), 'debtType', [230, 80, 0]); 
-    addCombinedSectionPDF("4. HISTORI SALDO DEPOSIT (RETUR PELANGGAN)", filterByDate(depositLogs), 'depType', [128, 0, 128]); 
-    const netKas = addCombinedSectionPDF("5. ARUS KAS RIIL (GABUNGAN PEMASUKAN & PENGELUARAN)", filterByDate(netLogs), 'netType', [15, 118, 166]); 
+    // 1. PEMASUKAN
+    const inList = filteredTransactions.filter(t => Number(t.total) > 0);
+    if (inList.length > 0) {
+      checkPageBreak(30);
+      doc.setFontSize(11); doc.setFont("helvetica", "bold"); doc.text("1. PEMASUKAN  ", 14, currentY); currentY += 5;
+      let totalIn = 0;
+      const inBody = inList.map(t => {
+        totalIn += Number(t.total);
+        return [formatDisplayDate(t.createdAt), t.customerName || 'Tanpa Nama', t.note || (t.items ? t.items.map(i => i.name).join(', ') : 'Transaksi Pemasukan'), `+ Rp ${Number(t.total).toLocaleString('id-ID')}`];
+      });
+      inBody.push([
+        { content: 'TOTAL PEMASUKAN KESELURUHAN:', colSpan: 3, styles: { halign: 'right', fontStyle: 'bold' } },
+        { content: `Rp ${totalIn.toLocaleString('id-ID')}`, styles: { fontStyle: 'bold', textColor: [0, 128, 0], fillColor: [230, 245, 230] } }
+      ]);
+      autoTable(doc, { startY: currentY, head: [['Tanggal & Jam', 'Nama Pembeli', 'Keterangan Rinci', 'Nominal']], body: inBody, theme: 'grid', headStyles: { fillColor: [46, 204, 113] }, didParseCell: customDidParseCell, margin: { left: 14 } });
+      currentY = doc.lastAutoTable.finalY + 12;
+    }
 
-    doc.setFontSize(12);
-    doc.setFont("helvetica", "bold");
-    doc.text(`SALDO BERSIH AKHIR (Pemasukan - Pengeluaran): Rp ${(netKas.net || 0).toLocaleString()}`, 14, finalY);
+    // 2. PENGELUARAN
+    if (filteredExpenses.length > 0) {
+      checkPageBreak(30);
+      doc.setFontSize(11); doc.setFont("helvetica", "bold"); doc.text("2. PENGELUARAN  ", 14, currentY); currentY += 5;
+      let totalEx = 0;
+      const exBody = filteredExpenses.map(e => {
+        totalEx += Number(e.amount);
+        return [formatDisplayDate(e.createdAt), e.title, `- Rp ${Number(e.amount).toLocaleString('id-ID')}`];
+      });
+      exBody.push([
+        { content: 'TOTAL PENGELUARAN KESELURUHAN:', colSpan: 2, styles: { halign: 'right', fontStyle: 'bold' } },
+        { content: `Rp ${totalEx.toLocaleString('id-ID')}`, styles: { fontStyle: 'bold', textColor: [220, 38, 38], fillColor: [253, 237, 236] } }
+      ]);
+      autoTable(doc, { startY: currentY, head: [['Tanggal & Jam', 'Keterangan Pengeluaran', 'Nominal']], body: exBody, theme: 'grid', headStyles: { fillColor: [231, 76, 60] }, didParseCell: customDidParseCell, margin: { left: 14 } });
+      currentY = doc.lastAutoTable.finalY + 12;
+    }
 
-    doc.save(`Laporan_Keuangan_Lengkap.pdf`);
+    // 3. HISTORI HUTANG
+    if (filteredDebtHistory.length > 0) {
+      checkPageBreak(30);
+      doc.setFontSize(11); doc.setFont("helvetica", "bold"); doc.text("3. HISTORI HUTANG  ", 14, currentY); currentY += 5;
+      let inDebt = 0, outDebt = 0;
+      const debtHistBody = filteredDebtHistory.map(item => {
+        const nominal = Number(item.nominal) || 0;
+        if (item.debtType === 'in') inDebt += nominal; else outDebt += nominal;
+        return [formatDisplayDate(item.createdAt), item.debtType === 'in' ? 'BERTAMBAH' : 'BERKURANG', `${item.customerName || 'Tanpa Nama'} [${item.note || 'Belanja Hutang'}]`, (item.debtType === 'in' ? '+' : '-') + ` Rp ${nominal.toLocaleString('id-ID')}`];
+      });
+      debtHistBody.push([
+        { content: `TOTAL MASUK/TAMBAH: Rp ${inDebt.toLocaleString('id-ID')} | KELUAR/KURANG: Rp ${outDebt.toLocaleString('id-ID')}`, colSpan: 3, styles: { halign: 'right', fontStyle: 'bold' } },
+        { content: `NET: Rp ${Math.abs(inDebt - outDebt).toLocaleString('id-ID')}`, styles: { fontStyle: 'bold', textColor: [0, 128, 0], fillColor: [230, 245, 230] } }
+      ]);
+      autoTable(doc, { startY: currentY, head: [['Tanggal & Jam', 'Status', 'Keterangan Detail', 'Nominal']], body: debtHistBody, theme: 'grid', headStyles: { fillColor: [230, 126, 34] }, didParseCell: customDidParseCell, margin: { left: 14 } });
+      currentY = doc.lastAutoTable.finalY + 12;
+    }
+
+    // 4. DAFTAR HUTANG
+    const activeDebts = customers.filter(c => (Number(c.remainingDebt) || 0) > 0);
+    if (activeDebts.length > 0) {
+      checkPageBreak(30);
+      doc.setFontSize(11); doc.setFont("helvetica", "bold"); doc.text("4. DAFTAR HUTANG (PIUTANG AKTIF)", 14, currentY); currentY += 5;
+      let totalActDebt = 0;
+      const actDebtBody = activeDebts.map(c => {
+        totalActDebt += Number(c.remainingDebt);
+        return [c.name, c.phone || '-', `Rp ${Number(c.remainingDebt).toLocaleString('id-ID')}`];
+      });
+      actDebtBody.push([
+        { content: 'TOTAL KESELURUHAN PIUTANG:', colSpan: 2, styles: { halign: 'right', fontStyle: 'bold' } },
+        { content: `Rp ${totalActDebt.toLocaleString('id-ID')}`, styles: { fontStyle: 'bold', textColor: [220, 38, 38], fillColor: [253, 237, 236] } }
+      ]);
+      autoTable(doc, { startY: currentY, head: [['Nama Pembeli', 'No. Telepon', 'Sisa Hutang']], body: actDebtBody, theme: 'grid', headStyles: { fillColor: [211, 84, 0] }, margin: { left: 14 } });
+      currentY = doc.lastAutoTable.finalY + 12;
+    }
+
+    // 5. HISTORI DEPOSIT
+    if (filteredDepositHistory.length > 0) {
+      checkPageBreak(30);
+      doc.setFontSize(11); doc.setFont("helvetica", "bold"); doc.text("5. HISTORI DEPOSIT  ", 14, currentY); currentY += 5;
+      let inDep = 0, outDep = 0;
+      const depHistBody = filteredDepositHistory.map(item => {
+        const nominal = Number(item.nominal) || 0;
+        if (item.depType === 'in') inDep += nominal; else outDep += nominal;
+        return [formatDisplayDate(item.createdAt), item.depType === 'in' ? 'BERTAMBAH' : 'BERKURANG', `${item.customerName || 'Tanpa Nama'} [${item.note || 'Retur'}]`, (item.depType === 'in' ? '+' : '-') + ` Rp ${nominal.toLocaleString('id-ID')}`];
+      });
+      depHistBody.push([
+        { content: `TOTAL MASUK/TAMBAH: Rp ${inDep.toLocaleString('id-ID')} | KELUAR/KURANG: Rp ${outDep.toLocaleString('id-ID')}`, colSpan: 3, styles: { halign: 'right', fontStyle: 'bold' } },
+        { content: `NET: Rp ${Math.abs(inDep - outDep).toLocaleString('id-ID')}`, styles: { fontStyle: 'bold', textColor: [0, 128, 0], fillColor: [230, 245, 230] } }
+      ]);
+      autoTable(doc, { startY: currentY, head: [['Tanggal & Jam', 'Status', 'Keterangan Detail', 'Nominal']], body: depHistBody, theme: 'grid', headStyles: { fillColor: [155, 89, 182] }, didParseCell: customDidParseCell, margin: { left: 14 } });
+      currentY = doc.lastAutoTable.finalY + 12;
+    }
+
+    // 6. DAFTAR DEPOSIT
+    const activeDeposits = customers.filter(c => (Number(c.returnAmount) || 0) > 0);
+    if (activeDeposits.length > 0) {
+      checkPageBreak(30);
+      doc.setFontSize(11); doc.setFont("helvetica", "bold"); doc.text("6. DAFTAR DEPOSIT AKTIF", 14, currentY); currentY += 5;
+      let totalActDep = 0;
+      const actDepBody = activeDeposits.map(c => {
+        totalActDep += Number(c.returnAmount);
+        return [c.name, c.phone || '-', `Rp ${Number(c.returnAmount).toLocaleString('id-ID')}`];
+      });
+      actDepBody.push([
+        { content: 'TOTAL KESELURUHAN DEPOSIT:', colSpan: 2, styles: { halign: 'right', fontStyle: 'bold' } },
+        { content: `Rp ${totalActDep.toLocaleString('id-ID')}`, styles: { fontStyle: 'bold', textColor: [0, 128, 0], fillColor: [230, 245, 230] } }
+      ]);
+      autoTable(doc, { startY: currentY, head: [['Nama Pembeli', 'No. Telepon', 'Saldo Deposit']], body: actDepBody, theme: 'grid', headStyles: { fillColor: [142, 68, 173] }, margin: { left: 14 } });
+      currentY = doc.lastAutoTable.finalY + 12;
+    }
+
+    // 7. SALDO BERSIH
+    if (filteredNetBalance.length > 0) {
+      checkPageBreak(30);
+      doc.setFontSize(11); doc.setFont("helvetica", "bold"); doc.text("7. SALDO BERSIH ", 14, currentY); currentY += 5;
+      let netIn = 0, netOut = 0;
+      const netBody = filteredNetBalance.map(item => {
+        const nominal = Number(item.nominal) || 0;
+        if (item.netType === 'in') netIn += nominal; else netOut += nominal;
+        return [formatDisplayDate(item.createdAt), item.netType === 'in' ? 'PEMASUKAN' : 'PENGELUARAN', item.subjName, item.detailNote, (item.netType === 'in' ? '+' : '-') + ` Rp ${nominal.toLocaleString('id-ID')}`];
+      });
+      netBody.push([
+        { content: `TOTAL KAS MASUK: Rp ${netIn.toLocaleString('id-ID')} | KAS KELUAR: Rp ${netOut.toLocaleString('id-ID')}`, colSpan: 4, styles: { halign: 'right', fontStyle: 'bold' } },
+        { content: `SALDO AKHIR: Rp ${(netIn - netOut).toLocaleString('id-ID')}`, styles: { fontStyle: 'bold', textColor: [0, 128, 0], fillColor: [230, 245, 230] } }
+      ]);
+      autoTable(doc, { startY: currentY, head: [['Tanggal & Jam', 'Kategori', 'Nama/Subjek', 'Keterangan Rinci', 'Nominal']], body: netBody, theme: 'grid', headStyles: { fillColor: [52, 152, 219] }, didParseCell: customDidParseCell, margin: { left: 14 } });
+    }
+
+    doc.save(`Laporan_Buku_Kas_${Date.now()}.pdf`);
+    onShowToast('File PDF berhasil diunduh', 'success');
   };
 
   const navigateToTab = (tabId) => {
@@ -540,12 +569,11 @@ const Dashboard = ({ onShowToast }) => {
 
   const paginatedItems = currentList.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
-  // --- KOMPONEN PAGINASI CANGGIH ---
   const renderPagination = () => {
     const totalPages = Math.ceil(currentList.length / itemsPerPage);
     return (
       <div className="flex flex-col md:flex-row justify-between items-center p-4 bg-gray-50/50 border-t gap-4">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 w-full md:w-auto justify-center md:justify-start">
           <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Tampilkan:</span>
           <select 
             value={itemsPerPage} 
@@ -560,116 +588,105 @@ const Dashboard = ({ onShowToast }) => {
           </select>
         </div>
         
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 w-full md:w-auto justify-between md:justify-end">
           <span className="text-xs font-bold text-gray-500">
-            Halaman <span className="text-teal-600 font-black">{currentPage}</span> dari <span className="text-gray-800 font-black">{totalPages || 1}</span>
-            <span className="ml-2 text-[10px] uppercase tracking-widest">({currentList.length} Total Data)</span>
+            Hal <span className="text-teal-600 font-black">{currentPage}</span> dari <span className="text-gray-800 font-black">{totalPages || 1}</span>
+            <span className="ml-1 text-[10px] uppercase tracking-widest hidden md:inline">({currentList.length} Total Data)</span>
           </span>
           <div className="flex gap-2">
-            <button 
-              onClick={() => setCurrentPage(p => Math.max(1, p - 1))} 
-              disabled={currentPage === 1}
-              className="p-2 rounded-xl bg-white border border-gray-200 text-gray-600 disabled:opacity-30 hover:bg-gray-50 hover:text-teal-600 transition-all shadow-sm"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            <button 
-              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} 
-              disabled={currentPage === totalPages || totalPages === 0}
-              className="p-2 rounded-xl bg-white border border-gray-200 text-gray-600 disabled:opacity-30 hover:bg-gray-50 hover:text-teal-600 transition-all shadow-sm"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
+            <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="p-2 rounded-xl bg-white border border-gray-200 text-gray-600 disabled:opacity-30 hover:bg-gray-50 hover:text-teal-600 transition-all shadow-sm"><ChevronLeft className="w-4 h-4" /></button>
+            <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages || totalPages === 0} className="p-2 rounded-xl bg-white border border-gray-200 text-gray-600 disabled:opacity-30 hover:bg-gray-50 hover:text-teal-600 transition-all shadow-sm"><ChevronRight className="w-4 h-4" /></button>
           </div>
         </div>
       </div>
     );
   };
 
+  const displayedLogs = showAllLogs ? allActivityLogs : allActivityLogs.slice(0, 10);
+
   return (
-    <div className="pb-10 bg-gray-50 min-h-screen">
+    <div className="pb-10 bg-gray-50 min-h-screen p-2 md:p-6">
       {/* TABS NAVIGATION */}
-      <div className="flex flex-wrap gap-2 mb-6 bg-white p-2 rounded-xl shadow-sm border no-print overflow-x-auto custom-scrollbar">
+      <div className="flex gap-2 mb-6 bg-white p-2 rounded-xl shadow-sm border no-print overflow-x-auto custom-scrollbar whitespace-nowrap">
         {[
           { id: 'overview', label: 'Ringkasan', icon: TrendingUp }, 
           { id: 'transactions', label: 'Pemasukan', icon: ArrowUpCircle }, 
           { id: 'expenses', label: 'Pengeluaran', icon: ArrowDownCircle }, 
-          { id: 'debts', label: 'Manajemen Hutang', icon: CreditCard },
-          { id: 'returns', label: 'Retur & Deposit', icon: RotateCcw },
+          { id: 'debts', label: 'Hutang', icon: CreditCard },
+          { id: 'returns', label: 'Retur/Deposit', icon: RotateCcw },
           { id: 'netbalance', label: 'Saldo Bersih', icon: Wallet }
         ].map(tab => (
-          <button key={tab.id} onClick={() => navigateToTab(tab.id)} className={`flex items-center gap-2 px-6 py-3 rounded-lg text-sm font-bold whitespace-nowrap ${activeTab === tab.id ? 'bg-teal-600 text-white shadow-lg' : 'text-gray-500 hover:bg-gray-100'}`}>
+          <button key={tab.id} onClick={() => navigateToTab(tab.id)} className={`flex items-center gap-2 px-4 md:px-6 py-3 rounded-lg text-sm font-bold whitespace-nowrap ${activeTab === tab.id ? 'bg-teal-600 text-white shadow-lg' : 'text-gray-500 hover:bg-gray-100'}`}>
             <tab.icon className="w-4 h-4" /> {tab.label}
           </button>
         ))}
       </div>
 
-      {/* STATS CARDS (KLIKABLE) */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
-        <div onClick={() => navigateToTab('transactions')} className="bg-white rounded-2xl shadow-sm p-6 border-b-4 border-teal-500 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all duration-300">
-          <p className="text-[10px] font-black text-gray-400 uppercase mb-1">Pemasukan Kas</p>
-          <h3 className="text-xl font-black text-teal-700">Rp {(totalIncome || 0).toLocaleString()}</h3>
+      {/* STATS CARDS */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 md:gap-4 mb-8">
+        <div onClick={() => navigateToTab('transactions')} className="bg-white rounded-2xl shadow-sm p-4 md:p-6 border-b-4 border-teal-500 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all duration-300">
+          <p className="text-[9px] md:text-[10px] font-black text-gray-400 uppercase mb-1">Pemasukan Kas</p>
+          <h3 className="text-base md:text-xl font-black text-teal-700">Rp {(totalIncome || 0).toLocaleString()}</h3>
         </div>
-        <div onClick={() => navigateToTab('expenses')} className="bg-white rounded-2xl shadow-sm p-6 border-b-4 border-red-500 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all duration-300">
-          <p className="text-[10px] font-black text-gray-400 uppercase mb-1">Pengeluaran Kas</p>
-          <h3 className="text-xl font-black text-red-600">Rp {(totalExpenses || 0).toLocaleString()}</h3>
+        <div onClick={() => navigateToTab('expenses')} className="bg-white rounded-2xl shadow-sm p-4 md:p-6 border-b-4 border-red-500 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all duration-300">
+          <p className="text-[9px] md:text-[10px] font-black text-gray-400 uppercase mb-1">Pengeluaran Kas</p>
+          <h3 className="text-base md:text-xl font-black text-red-600">Rp {(totalExpenses || 0).toLocaleString()}</h3>
         </div>
-        <div onClick={() => navigateToTab('debts')} className="bg-white rounded-2xl shadow-sm p-6 border-b-4 border-orange-500 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all duration-300">
-          <p className="text-[10px] font-black text-gray-400 uppercase mb-1">Piutang Aktif</p>
-          <h3 className="text-xl font-black text-orange-600">Rp {(totalUnpaidDebt || 0).toLocaleString()}</h3>
+        <div onClick={() => navigateToTab('debts')} className="bg-white rounded-2xl shadow-sm p-4 md:p-6 border-b-4 border-orange-500 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all duration-300">
+          <p className="text-[9px] md:text-[10px] font-black text-gray-400 uppercase mb-1">Piutang Aktif</p>
+          <h3 className="text-base md:text-xl font-black text-orange-600">Rp {(totalUnpaidDebt || 0).toLocaleString()}</h3>
         </div>
-        <div onClick={() => navigateToTab('returns')} className="bg-white rounded-2xl shadow-sm p-6 border-b-4 border-purple-500 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all duration-300">
-          <p className="text-[10px] font-black text-gray-400 uppercase mb-1">Deposit Aktif</p>
-          <h3 className="text-xl font-black text-purple-600">Rp {(totalDeposit || 0).toLocaleString()}</h3>
+        <div onClick={() => navigateToTab('returns')} className="bg-white rounded-2xl shadow-sm p-4 md:p-6 border-b-4 border-purple-500 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all duration-300">
+          <p className="text-[9px] md:text-[10px] font-black text-gray-400 uppercase mb-1">Deposit Aktif</p>
+          <h3 className="text-base md:text-xl font-black text-purple-600">Rp {(totalDeposit || 0).toLocaleString()}</h3>
         </div>
-        <div onClick={() => navigateToTab('netbalance')} className="bg-white rounded-2xl shadow-sm p-6 border-b-4 border-blue-600 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all duration-300">
-          <p className="text-[10px] font-black text-gray-400 uppercase mb-1">Uang bersih (Net)</p>
-          <h3 className="text-xl font-black text-blue-700">Rp {(balance || 0).toLocaleString()}</h3>
+        <div onClick={() => navigateToTab('netbalance')} className="col-span-2 md:col-span-1 bg-white rounded-2xl shadow-sm p-4 md:p-6 border-b-4 border-blue-600 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all duration-300">
+          <p className="text-[9px] md:text-[10px] font-black text-gray-400 uppercase mb-1">Uang bersih (Net)</p>
+          <h3 className="text-lg md:text-xl font-black text-blue-700">Rp {(balance || 0).toLocaleString()}</h3>
         </div>
       </div>
 
       {/* --- TAB OVERVIEW --- */}
       {activeTab === 'overview' && (
         <>
-          <div className="bg-white p-5 rounded-3xl border flex flex-col md:flex-row flex-wrap gap-4 items-center justify-between mb-6 shadow-sm">
+          <div className="bg-white p-4 md:p-5 rounded-3xl border flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between mb-6 shadow-sm">
              <div>
-                <h4 className="text-sm font-black text-gray-800">Cetak Laporan Keseluruhan Detail (+/-)</h4>
-                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Harian, Mingguan, Bulanan, Tahunan</p>
+                <h4 className="text-sm font-black text-gray-800">Cetak Laporan Keseluruhan</h4>
+                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Mencakup Pemasukan, Pengeluaran, Piutang, & Deposit</p>
              </div>
-             <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
-                <div className="flex items-center gap-2 bg-gray-50 px-4 py-2.5 rounded-xl border border-gray-200 flex-1 md:flex-none">
+             <div className="flex flex-col md:flex-row items-center gap-3 w-full lg:w-auto">
+                <div className="flex items-center gap-2 bg-gray-50 px-3 py-2.5 rounded-xl border border-gray-200 w-full md:w-auto">
                   <Calendar className="w-4 h-4 text-gray-400" />
                   <input type="date" className="bg-transparent text-xs font-black outline-none w-full" value={startDate} onChange={e => setStartDate(e.target.value)} />
                   <span className="text-gray-300">-</span>
                   <input type="date" className="bg-transparent text-xs font-black outline-none w-full" value={endDate} onChange={e => setEndDate(e.target.value)} />
                 </div>
                 <div className="flex gap-2 w-full md:w-auto">
-                    <button onClick={handleDownloadMasterExcel} className="flex-1 md:flex-none justify-center p-3 bg-green-50 text-green-700 rounded-xl border border-green-200 hover:bg-green-100 flex items-center gap-2 text-xs font-black shadow-sm"><TableIcon className="w-4 h-4" /> Excel</button>
-                    <button onClick={handleDownloadMasterPDF} className="flex-1 md:flex-none justify-center p-3 bg-blue-50 text-blue-700 rounded-xl border border-blue-200 hover:bg-blue-100 flex items-center gap-2 text-xs font-black shadow-sm"><FileText className="w-4 h-4" /> PDF</button>
-                    {/* TOMBOL RESET SEMUA DATA */}
-                    {/* <button onClick={() => setShowResetModal(true)} className="flex-1 md:flex-none justify-center p-3 bg-red-50 text-red-700 rounded-xl border border-red-200 hover:bg-red-100 flex items-center gap-2 text-xs font-black shadow-sm"><Trash2 className="w-4 h-4" /> Reset Data</button> */}
+                    <button onClick={handleDownloadMasterExcel} className="flex-1 justify-center p-3 bg-green-50 text-green-700 rounded-xl border border-green-200 hover:bg-green-100 flex items-center gap-2 text-xs font-black shadow-sm"><TableIcon className="w-4 h-4" /> </button>
+                    <button onClick={handleDownloadMasterPDF} className="flex-1 justify-center p-3 bg-blue-50 text-blue-700 rounded-xl border border-blue-200 hover:bg-blue-100 flex items-center gap-2 text-xs font-black shadow-sm"><FileText className="w-4 h-4" /> </button>
+                    {/* <button onClick={() => setShowResetModal(true)} className="flex-1 justify-center p-3 bg-red-50 text-red-700 rounded-xl border border-red-200 hover:bg-red-100 flex items-center gap-2 text-xs font-black shadow-sm"><AlertTriangle className="w-4 h-4" /> Reset Data</button> */}
                 </div>
              </div>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2 bg-white p-8 rounded-3xl shadow-sm border">
-              <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
-                <h3 className="text-lg font-black text-gray-800 flex items-center gap-2"><Clock className="text-teal-500" /> Grafik Arus Kas</h3>
-                <div className="flex bg-gray-100 p-1 rounded-xl">
+            <div className="lg:col-span-2 bg-white p-4 md:p-8 rounded-3xl shadow-sm border overflow-hidden">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+                <h3 className="text-base md:text-lg font-black text-gray-800 flex items-center gap-2"><Clock className="text-teal-500 w-5 h-5" /> Grafik Arus Kas</h3>
+                <div className="flex bg-gray-100 p-1 rounded-xl w-full md:w-auto overflow-x-auto custom-scrollbar">
                   {['daily', 'weekly', 'monthly', 'yearly'].map(p => (
-                    <button key={p} onClick={() => setChartPeriod(p)} className={`px-4 py-1.5 text-[10px] font-black rounded-lg uppercase transition-all ${chartPeriod === p ? 'bg-white text-teal-600 shadow-sm' : 'text-gray-400'}`}>
+                    <button key={p} onClick={() => setChartPeriod(p)} className={`flex-1 md:flex-none px-3 py-1.5 text-[10px] font-black rounded-lg uppercase transition-all whitespace-nowrap ${chartPeriod === p ? 'bg-white text-teal-600 shadow-sm' : 'text-gray-400'}`}>
                       {p === 'daily' ? 'Hari' : p === 'weekly' ? 'Minggu' : p === 'monthly' ? 'Bulan' : 'Tahun'}
                     </button>
                   ))}
                 </div>
               </div>
-              <div className="h-[350px]">
+              <div className="h-[250px] md:h-[350px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={dynamicChartData}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
-                    <XAxis dataKey="label" style={{fontSize: '10px'}} />
-                    <YAxis style={{fontSize: '10px'}} />
+                    <XAxis dataKey="label" style={{fontSize: '9px'}} />
+                    <YAxis style={{fontSize: '9px'}} width={40} />
                     <Tooltip cursor={{fill: '#f9fafb'}} />
                     <Bar name="Masuk" dataKey="masuk" fill="#0d9488" radius={[6, 6, 0, 0]} />
                     <Bar name="Keluar" dataKey="keluar" fill="#dc2626" radius={[6, 6, 0, 0]} />
@@ -678,24 +695,49 @@ const Dashboard = ({ onShowToast }) => {
               </div>
             </div>
             
-            <div className="bg-white p-8 rounded-3xl shadow-sm border overflow-hidden">
-              <h3 className="text-lg font-black text-gray-800 mb-6 flex items-center gap-2"><ListFilter className="text-blue-500" /> Log Transaksi Cepat</h3>
-              <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2">
-                {netLogs.length === 0 ? (
-                  <p className="text-center text-xs text-gray-400 font-bold py-10">Belum ada transaksi</p>
+            <div className="bg-white p-4 md:p-8 rounded-3xl shadow-sm border overflow-hidden flex flex-col">
+              <div className="flex justify-between items-center mb-4 md:mb-6">
+                <h3 className="text-base md:text-lg font-black text-gray-800 flex items-center gap-2"><ListFilter className="text-blue-500 w-5 h-5" /> Log Cepat Aktivitas</h3>
+                {allActivityLogs.length > 10 && (
+                  <button 
+                    onClick={() => setShowAllLogs(!showAllLogs)}
+                    className="text-[9px] md:text-[10px] font-black text-teal-600 hover:text-teal-800 uppercase tracking-wider bg-teal-50 px-3 py-1.5 rounded-lg transition-colors shadow-sm"
+                  >
+                    {showAllLogs ? 'Tutup Sebagian' : 'Lihat Semua'}
+                  </button>
+                )}
+              </div>
+              
+              <div className="space-y-3 flex-1 overflow-y-auto pr-2 custom-scrollbar transition-all duration-500" style={{ maxHeight: showAllLogs ? '500px' : '300px' }}>
+                {displayedLogs.length === 0 ? (
+                  <p className="text-center text-xs text-gray-400 font-bold py-10">Belum ada aktivitas</p>
                 ) : (
-                  netLogs.slice(0, 10).map((log, idx) => {
-                    const isIncome = log.netType === 'in';
+                  displayedLogs.map((log, idx) => {
+                    const isIn = log.logType === 'in';
+                    const colorClass = 
+                      log.logCategory === 'KAS' ? (isIn ? 'text-teal-600' : 'text-red-600') :
+                      log.logCategory === 'HUTANG' ? (isIn ? 'text-orange-600' : 'text-green-600') :
+                      (isIn ? 'text-purple-600' : 'text-red-600');
+                    
+                    const bgBadgeClass = 
+                      log.logCategory === 'KAS' ? (isIn ? 'bg-teal-100 text-teal-700' : 'bg-red-100 text-red-700') :
+                      log.logCategory === 'HUTANG' ? (isIn ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700') :
+                      (isIn ? 'bg-purple-100 text-purple-700' : 'bg-red-100 text-red-700');
+
                     return (
-                      <div key={idx} className={`flex items-center justify-between p-3 rounded-xl border ${isIncome ? 'bg-teal-50 border-teal-100' : 'bg-red-50 border-red-100'}`}>
-                        <div className="min-w-0">
-                          <p className={`text-sm font-black truncate ${isIncome ? 'text-teal-800' : 'text-red-800'}`}>
-                            {log.customerName || log.title}
-                          </p>
-                          <p className="text-[9px] text-gray-400 font-bold uppercase">{formatDisplayDate(log.createdAt)}</p>
+                      <div key={idx} className="flex items-center justify-between p-3 rounded-xl border bg-white hover:bg-gray-50 transition-all shadow-sm">
+                        <div className="min-w-0 flex-1 pr-2">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest ${bgBadgeClass}`}>
+                              {log.logLabel}
+                            </span>
+                          </div>
+                          <p className="text-xs md:text-sm font-black truncate text-gray-800">{log.logTitle}</p>
+                          <p className="text-[9px] text-gray-500 truncate mt-0.5">{log.logDetail}</p>
+                          <p className="text-[8px] text-gray-400 font-bold uppercase mt-1">{formatDisplayDate(log.logTime)}</p>
                         </div>
-                        <p className={`text-sm font-black ${isIncome ? 'text-teal-600' : 'text-red-600'}`}>
-                          {isIncome ? '+' : '-'} Rp {log.nominal.toLocaleString()}
+                        <p className={`text-xs md:text-sm font-black whitespace-nowrap ${colorClass}`}>
+                          {isIn ? '+' : '-'} Rp {Number(log.nominal || 0).toLocaleString('id-ID')}
                         </p>
                       </div>
                     );
@@ -709,48 +751,58 @@ const Dashboard = ({ onShowToast }) => {
 
       {/* --- GLOBAL TOOLBAR (SEARCH & DATE) UNTUK TAB TABEL --- */}
       {activeTab !== 'overview' && (
-        <div className="bg-white p-4 rounded-2xl border flex flex-wrap gap-4 items-center mb-6 shadow-sm">
-          <div className="relative flex-1 min-w-[200px]"><Search className="absolute left-4 top-3 w-4 h-4 text-gray-300" /><input type="text" placeholder="Cari berdasarkan nama/keterangan..." className="w-full pl-12 pr-4 py-2.5 bg-gray-50 rounded-xl text-sm font-bold border-none outline-none focus:ring-2 focus:ring-teal-500" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} /></div>
-          <div className="flex items-center gap-2 bg-gray-50 px-4 py-2 rounded-xl border border-gray-100">
-            <Calendar className="w-4 h-4 text-gray-400" /><input type="date" className="bg-transparent text-xs font-black outline-none" value={startDate} onChange={e => setStartDate(e.target.value)} />
-            <span className="text-gray-300">-</span><input type="date" className="bg-transparent text-xs font-black outline-none" value={endDate} onChange={e => setEndDate(e.target.value)} />
+        <div className="bg-white p-3 md:p-4 rounded-2xl border flex flex-col md:flex-row gap-3 items-center mb-6 shadow-sm">
+          <div className="relative w-full md:flex-1"><Search className="absolute left-4 top-3 w-4 h-4 text-gray-300" /><input type="text" placeholder="Cari berdasarkan nama/keterangan..." className="w-full pl-11 pr-4 py-2 bg-gray-50 rounded-xl text-sm font-bold border-none outline-none focus:ring-2 focus:ring-teal-500" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} /></div>
+          <div className="flex w-full md:w-auto items-center gap-2 bg-gray-50 px-3 py-2 rounded-xl border border-gray-100">
+            <Calendar className="w-4 h-4 text-gray-400" /><input type="date" className="bg-transparent text-xs font-black outline-none w-full" value={startDate} onChange={e => setStartDate(e.target.value)} />
+            <span className="text-gray-300">-</span><input type="date" className="bg-transparent text-xs font-black outline-none w-full" value={endDate} onChange={e => setEndDate(e.target.value)} />
           </div>
-          <div className="flex gap-2">
-              <button onClick={() => setShowBulkDeleteModal(true)} className="p-2.5 bg-red-50 text-red-600 rounded-xl border border-red-100 hover:bg-red-100 transition-colors"><Trash2 className="w-5 h-5" /></button>
-          </div>
+          <button onClick={() => setShowBulkDeleteModal(true)} className="w-full md:w-auto flex justify-center p-2.5 bg-red-50 text-red-600 rounded-xl border border-red-100 hover:bg-red-100 transition-colors"><Trash2 className="w-5 h-5" /></button>
         </div>
       )}
 
       {/* --- TAB TRANSACTIONS & EXPENSES --- */}
       {(activeTab === 'transactions' || activeTab === 'expenses') && (
         <div className="space-y-6">
-          <div className="bg-white p-6 rounded-3xl border shadow-sm">
-            <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-4">{activeTab === 'transactions' ? 'Pemasukan Manual' : 'Catat Pengeluaran'}</h4>
-            <form onSubmit={activeTab === 'transactions' ? handleAddManualIncome : (e) => { e.preventDefault(); addDocument('expenses', {...newExpense, amount: Number(newExpense.amount), createdAt: new Date()}); onShowToast('Disimpan', 'success'); setNewExpense({title: '', amount: '', category: 'Operasional'}); }} className="flex flex-wrap gap-3">
-              <input type="text" placeholder="Deskripsi" className="flex-1 bg-gray-50 rounded-xl px-4 py-3 text-sm font-bold border-none outline-none focus:ring-2 focus:ring-teal-500" value={activeTab === 'transactions' ? newManualIncome.note : newExpense.title} onChange={e => activeTab === 'transactions' ? setNewManualIncome({...newManualIncome, note: e.target.value}) : setNewExpense({...newExpense, title: e.target.value})} />
-              <input type="number" placeholder="Rp" className="w-44 bg-gray-50 rounded-xl px-4 py-3 text-sm font-black border-none outline-none focus:ring-2 focus:ring-teal-500" value={activeTab === 'transactions' ? newManualIncome.amount : newExpense.amount} onChange={e => activeTab === 'transactions' ? setNewManualIncome({...newManualIncome, amount: e.target.value}) : setNewExpense({...newExpense, amount: e.target.value})} />
-              <button className={`px-8 py-3 rounded-xl font-black text-sm text-white ${activeTab === 'transactions' ? 'bg-teal-600 hover:bg-teal-700' : 'bg-red-600 hover:bg-red-700'} shadow-md transition-all`}>Simpan</button>
+          <div className="bg-white p-4 md:p-6 rounded-3xl border shadow-sm">
+            <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3 md:mb-4">{activeTab === 'transactions' ? 'Pemasukan Manual' : 'Catat Pengeluaran'}</h4>
+            <form onSubmit={activeTab === 'transactions' ? handleAddManualIncome : (e) => { e.preventDefault(); addDocument('expenses', {...newExpense, amount: Number(newExpense.amount), createdAt: new Date()}); onShowToast('Disimpan', 'success'); setNewExpense({title: '', amount: '', category: 'Operasional'}); }} className="flex flex-col md:flex-row gap-3">
+              <input type="text" placeholder="Deskripsi" className="w-full md:flex-1 bg-gray-50 rounded-xl px-4 py-3 text-sm font-bold border-none outline-none focus:ring-2 focus:ring-teal-500" value={activeTab === 'transactions' ? newManualIncome.note : newExpense.title} onChange={e => activeTab === 'transactions' ? setNewManualIncome({...newManualIncome, note: e.target.value}) : setNewExpense({...newExpense, title: e.target.value})} />
+              <input type="number" placeholder="Nominal (Rp)" className="w-full md:w-44 bg-gray-50 rounded-xl px-4 py-3 text-sm font-black border-none outline-none focus:ring-2 focus:ring-teal-500" value={activeTab === 'transactions' ? newManualIncome.amount : newExpense.amount} onChange={e => activeTab === 'transactions' ? setNewManualIncome({...newManualIncome, amount: e.target.value}) : setNewExpense({...newExpense, amount: e.target.value})} />
+              <button className={`w-full md:w-auto px-8 py-3 rounded-xl font-black text-sm text-white ${activeTab === 'transactions' ? 'bg-teal-600 hover:bg-teal-700' : 'bg-red-600 hover:bg-red-700'} shadow-md transition-all`}>Simpan</button>
             </form>
           </div>
-          <div className="bg-white rounded-[32px] border overflow-hidden shadow-sm flex flex-col">
-            <table className="w-full text-left">
-              <thead><tr className="bg-gray-50/50 border-b"><th className="p-5 font-black text-gray-400 uppercase text-[10px]">Tgl & Jam</th><th className="p-5 font-black text-gray-400 uppercase text-[10px]">Keterangan</th><th className="p-5 font-black text-gray-400 uppercase text-[10px] text-right">Nominal Kas</th><th className="p-5 font-black text-gray-400 uppercase text-[10px] text-right">Aksi</th></tr></thead>
-              <tbody className="divide-y">
-                {paginatedItems.map(item => {
-                  let tableNominal = Number(item.total || item.amount || 0);
-                  if (item.paymentStatus === 'HUTANG' || (!item.total && item.subtotal)) tableNominal = Number(item.subtotal || 0);
+          <div className="bg-white rounded-[32px] border shadow-sm flex flex-col">
+            <div className="overflow-x-auto w-full custom-scrollbar">
+              <table className="w-full min-w-[600px] text-left">
+                <thead>
+                  <tr className="bg-gray-50/50 border-b">
+                    <th className="p-4 font-black text-gray-400 uppercase text-[10px]">Tgl & Jam</th>
+                    {activeTab === 'transactions' && <th className="p-4 font-black text-gray-400 uppercase text-[10px]">Nama Pembeli</th>}
+                    <th className="p-4 font-black text-gray-400 uppercase text-[10px]">{activeTab === 'transactions' ? 'Keterangan Rinci' : 'Keterangan'}</th>
+                    <th className="p-4 font-black text-gray-400 uppercase text-[10px] text-right">Nominal Kas</th>
+                    <th className="p-4 font-black text-gray-400 uppercase text-[10px] text-right">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {paginatedItems.map(item => {
+                    let tableNominal = Number(item.total || item.amount || 0);
+                    if (item.paymentStatus === 'HUTANG' || (!item.total && item.subtotal)) tableNominal = Number(item.subtotal || 0);
+                    const keteranganStr = activeTab === 'transactions' ? (item.note || (item.items ? item.items.map(i => i.name).join(', ') : 'Transaksi Pemasukan')) : item.title;
 
-                  return (
-                    <tr key={item.id} className="hover:bg-gray-50 transition-colors text-sm">
-                      <td className="p-5 font-bold text-gray-500">{formatDisplayDate(item.createdAt)}</td>
-                      <td className="p-5 font-black text-gray-800 uppercase">{item.customerName || item.note || item.title}</td>
-                      <td className="p-5 font-black text-right text-gray-700">Rp {tableNominal.toLocaleString()}</td>
-                      <td className="p-5 text-right"><div className="flex justify-end gap-2">{activeTab === 'transactions' && item.items && (<button onClick={() => { setSelectedNotaTransaction(item); setShowNota(true); }} className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg"><Eye className="w-4 h-4"/></button>)}<button onClick={() => { setSelectedItem(item); setShowDeleteModal(true); }} className="p-2 text-red-500 hover:bg-red-50 rounded-lg"><Trash2 className="w-4 h-4"/></button></div></td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                    return (
+                      <tr key={item.id} className="hover:bg-gray-50 transition-colors text-xs md:text-sm">
+                        <td className="p-4 font-bold text-gray-500 whitespace-nowrap">{formatDisplayDate(item.createdAt)}</td>
+                        {activeTab === 'transactions' && (<td className="p-4 font-black text-gray-800 uppercase max-w-[150px] truncate">{item.customerName || 'Pemasukan Manual'}</td>)}
+                        <td className="p-4 font-bold text-gray-600 max-w-[250px] truncate" title={keteranganStr}>{keteranganStr}</td>
+                        <td className="p-4 font-black text-right text-gray-700 whitespace-nowrap">Rp {tableNominal.toLocaleString()}</td>
+                        <td className="p-4 text-right"><div className="flex justify-end gap-2">{activeTab === 'transactions' && item.items && (<button onClick={() => { setSelectedNotaTransaction(item); setShowNota(true); }} className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg"><Eye className="w-4 h-4"/></button>)}<button onClick={() => { setSelectedItem(item); setShowDeleteModal(true); }} className="p-2 text-red-500 hover:bg-red-50 rounded-lg"><Trash2 className="w-4 h-4"/></button></div></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
             {renderPagination()}
           </div>
         </div>
@@ -759,122 +811,137 @@ const Dashboard = ({ onShowToast }) => {
       {/* --- TAB DEBTS (HISTORI HUTANG +/-) --- */}
       {activeTab === 'debts' && (
         <div className="space-y-6">
-          <div className="bg-white p-6 rounded-3xl border shadow-sm relative z-10">
-            <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-4">Penambahan Hutang Manual</h4>
+          <div className="bg-white p-4 md:p-6 rounded-3xl border shadow-sm relative z-10">
+            <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3 md:mb-4">Penambahan Hutang Manual</h4>
             <form onSubmit={handleAddManualDebt} className="flex flex-col md:flex-row gap-3">
-              <CustomerSearchSelect 
-                customers={customers} 
-                value={newManualDebt.customerId} 
-                onChange={(id) => setNewManualDebt({...newManualDebt, customerId: id})}
-                placeholder="-- Ketik Cari Pembeli --"
-              />
-              <input type="text" placeholder="Keterangan" required className="flex-1 bg-gray-50 rounded-xl px-4 py-3 text-sm font-bold border-none outline-none focus:ring-2 focus:ring-orange-500" value={newManualDebt.note} onChange={e => setNewManualDebt({...newManualDebt, note: e.target.value})} />
+              <CustomerSearchSelect customers={customers} value={newManualDebt.customerId} onChange={(id) => setNewManualDebt({...newManualDebt, customerId: id})} placeholder="-- Cari Pembeli --" />
+              <input type="text" placeholder="Keterangan" required className="w-full md:flex-1 bg-gray-50 rounded-xl px-4 py-3 text-sm font-bold border-none outline-none focus:ring-2 focus:ring-orange-500" value={newManualDebt.note} onChange={e => setNewManualDebt({...newManualDebt, note: e.target.value})} />
               <input type="number" placeholder="Rp" required className="w-full md:w-44 bg-gray-50 rounded-xl px-4 py-3 text-sm font-black border-none outline-none focus:ring-2 focus:ring-orange-500" value={newManualDebt.amount} onChange={e => setNewManualDebt({...newManualDebt, amount: e.target.value})} />
-              <button className="px-8 py-3 rounded-xl font-black text-sm text-white bg-orange-600 hover:bg-orange-700 transition-all shadow-md">Simpan</button>
+              <button className="w-full md:w-auto px-8 py-3 rounded-xl font-black text-sm text-white bg-orange-600 hover:bg-orange-700 transition-all shadow-md">Simpan</button>
             </form>
           </div>
 
-          <div className="bg-white rounded-3xl border overflow-hidden shadow-sm mb-6 relative z-0">
-            <div className="p-6 bg-gray-50/50 border-b flex justify-between items-center"><h3 className="text-lg font-black text-gray-800 uppercase tracking-tighter">Daftar Piutang Aktif</h3><div className="bg-orange-100 px-4 py-1 rounded-xl text-orange-600 font-black text-xs uppercase tracking-tighter">Total: Rp {(totalUnpaidDebt || 0).toLocaleString()}</div></div>
-            <table className="w-full text-left text-sm">
-              <thead><tr className="border-b"><th className="p-5 font-black text-gray-400 uppercase text-[10px]">Pelanggan</th><th className="p-5 font-black text-gray-400 uppercase text-[10px]">Sisa Hutang (Lama+Baru)</th><th className="p-5 font-black text-gray-400 uppercase text-[10px] text-right">Aksi</th></tr></thead>
-              <tbody className="divide-y">
-                {customers.filter(c => (Number(c.remainingDebt) || 0) > 0).map(c => (
-                  <tr key={c.id} className="hover:bg-gray-50 transition-all">
-                    <td className="p-5"><div><p className="font-black text-gray-800 uppercase">{c.name}</p><p className="text-xs text-gray-400 font-bold">{c.phone || '-'}</p></div></td>
-                    <td className="p-5 font-black text-red-600 italic text-lg">Rp {(Number(c.remainingDebt) || 0).toLocaleString()}</td>
-                    <td className="p-5 text-right"><button onClick={() => { setSelectedCustomer(c); setShowPayDebtModal(true); setDebtPaymentAmount(''); setIsFullPayment(true); }} className="bg-teal-600 text-white px-6 py-2.5 rounded-xl text-xs font-black shadow-lg hover:bg-teal-700 uppercase tracking-tighter transition-all">Bayar / Cicil</button></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="bg-white rounded-3xl border shadow-sm mb-6 relative z-0 flex flex-col">
+            <div className="p-4 md:p-6 bg-gray-50/50 border-b flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+               <h3 className="text-base md:text-lg font-black text-gray-800 uppercase tracking-tighter">Daftar Piutang Aktif</h3>
+               <div className="bg-orange-100 px-4 py-1.5 rounded-xl text-orange-600 font-black text-[10px] md:text-xs uppercase tracking-tighter">Total: Rp {(totalUnpaidDebt || 0).toLocaleString()}</div>
+            </div>
+            <div className="overflow-x-auto w-full custom-scrollbar">
+               <table className="w-full min-w-[500px] text-left text-xs md:text-sm">
+                 <thead><tr className="border-b"><th className="p-4 font-black text-gray-400 uppercase text-[10px]">Pelanggan</th><th className="p-4 font-black text-gray-400 uppercase text-[10px]">Sisa Hutang</th><th className="p-4 font-black text-gray-400 uppercase text-[10px] text-right">Aksi</th></tr></thead>
+                 <tbody className="divide-y">
+                   {customers.filter(c => (Number(c.remainingDebt) || 0) > 0).map(c => (
+                     <tr key={c.id} className="hover:bg-gray-50 transition-all">
+                       <td className="p-4"><div><p className="font-black text-gray-800 uppercase">{c.name}</p><p className="text-[10px] text-gray-400 font-bold">{c.phone || '-'}</p></div></td>
+                       <td className="p-4 font-black text-red-600 italic text-sm md:text-lg whitespace-nowrap">Rp {(Number(c.remainingDebt) || 0).toLocaleString()}</td>
+                       <td className="p-4 text-right"><button onClick={() => { setSelectedCustomer(c); setShowPayDebtModal(true); setDebtPaymentAmount(''); setIsFullPayment(true); }} className="bg-teal-600 text-white px-4 py-2 rounded-xl text-[10px] md:text-xs font-black shadow-md hover:bg-teal-700 uppercase tracking-tighter transition-all whitespace-nowrap">Bayar / Cicil</button></td>
+                     </tr>
+                   ))}
+                 </tbody>
+               </table>
+            </div>
           </div>
 
-          <div className="bg-white rounded-[32px] border overflow-hidden shadow-sm flex flex-col">
-             <div className="p-6 bg-gray-50/50 border-b"><h3 className="text-lg font-black text-gray-800 uppercase tracking-tighter flex items-center gap-2"><History className="text-orange-500 w-5 h-5"/> Histori Transaksi Hutang</h3></div>
-             <table className="w-full text-left text-sm">
-                <thead><tr className="bg-gray-50/50 border-b"><th className="p-5 font-black text-gray-400 uppercase text-[10px]">Tgl & Jam</th><th className="p-5 font-black text-gray-400 uppercase text-[10px]">Pelanggan</th><th className="p-5 font-black text-gray-400 uppercase text-[10px]">Keterangan</th><th className="p-5 font-black text-gray-400 uppercase text-[10px] text-right">Perubahan Hutang</th></tr></thead>
-                <tbody className="divide-y">
-                  {paginatedItems.map(item => {
-                    const isIn = item.debtType === 'in'; // 'in' = nambah hutang (merah), 'out' = bayar hutang (hijau)
-                    return (
-                      <tr key={item.id + item.debtType} className="hover:bg-gray-50 transition-colors">
-                         <td className="p-5 font-bold text-gray-500">{formatDisplayDate(item.createdAt)}</td>
-                         <td className="p-5 font-black text-gray-800 uppercase">{item.customerName}</td>
-                         <td className="p-5 font-bold text-gray-600">{item.note || 'Belanja Hutang'}</td>
-                         <td className={`p-5 font-black text-right whitespace-nowrap ${isIn ? 'text-red-600' : 'text-teal-600'}`}>
-                           {isIn ? '(+)' : '(-)'} Rp {(Number(item.nominal)||0).toLocaleString()}
-                         </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-             </table>
+          <div className="bg-white rounded-[32px] border shadow-sm flex flex-col">
+             <div className="p-4 md:p-6 bg-gray-50/50 border-b"><h3 className="text-base md:text-lg font-black text-gray-800 uppercase tracking-tighter flex items-center gap-2"><History className="text-orange-500 w-4 h-4 md:w-5 md:h-5"/> Histori Hutang</h3></div>
+             <div className="overflow-x-auto w-full custom-scrollbar">
+                <table className="w-full min-w-[600px] text-left text-xs md:text-sm">
+                   <thead><tr className="bg-gray-50/50 border-b"><th className="p-4 font-black text-gray-400 uppercase text-[10px]">Tgl & Jam</th><th className="p-4 font-black text-gray-400 uppercase text-[10px]">Pelanggan</th><th className="p-4 font-black text-gray-400 uppercase text-[10px]">Keterangan</th><th className="p-4 font-black text-gray-400 uppercase text-[10px] text-right">Nominal</th></tr></thead>
+                   <tbody className="divide-y">
+                     {paginatedItems.map(item => {
+                       const isIn = item.debtType === 'in'; 
+                       return (
+                         <tr key={item.id + item.debtType} className="hover:bg-gray-50 transition-colors">
+                            <td className="p-4 font-bold text-gray-500 whitespace-nowrap">{formatDisplayDate(item.createdAt)}</td>
+                            <td className="p-4 font-black text-gray-800 uppercase max-w-[150px] truncate">{item.customerName}</td>
+                            <td className="p-4 font-bold text-gray-600 max-w-[250px] truncate">{item.note || 'Belanja Hutang'}</td>
+                            <td className={`p-4 font-black text-right whitespace-nowrap ${isIn ? 'text-red-600' : 'text-teal-600'}`}>
+                              {isIn ? '(+)' : '(-)'} Rp {(Number(item.nominal)||0).toLocaleString()}
+                            </td>
+                         </tr>
+                       );
+                     })}
+                   </tbody>
+                </table>
+             </div>
              {renderPagination()}
           </div>
         </div>
       )}
 
-      {/* --- TAB RETURNS & DEPOSITS (HISTORI DEPOSIT +/-) --- */}
+      {/* --- TAB RETURNS & DEPOSITS --- */}
       {activeTab === 'returns' && (
         <div className="space-y-6">
-          <div className="bg-white p-6 rounded-3xl border shadow-sm flex flex-col md:flex-row justify-between items-center bg-gradient-to-r from-purple-50 to-white gap-4">
+          <div className="bg-white p-4 md:p-6 rounded-3xl border shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center bg-gradient-to-r from-purple-50 to-white gap-4">
             <div>
-              <h4 className="text-lg font-black text-purple-800 tracking-tight flex items-center gap-2"><PackagePlus className="w-5 h-5"/> Retur ke Deposit</h4>
-              <p className="text-xs text-purple-600 font-bold mt-1">Gunakan tombol ini untuk meretur barang jadi saldo deposit.</p>
+              <h4 className="text-base md:text-lg font-black text-purple-800 tracking-tight flex items-center gap-2"><PackagePlus className="w-4 h-4 md:w-5 md:h-5"/> Retur ke Deposit</h4>
+              <p className="text-[10px] md:text-xs text-purple-600 font-bold mt-1">Gunakan tombol ini untuk meretur barang jadi saldo.</p>
             </div>
-            <button onClick={() => setShowReturnModal(true)} className="w-full md:w-auto bg-purple-600 hover:bg-purple-700 text-white px-8 py-4 rounded-2xl font-black text-sm shadow-xl shadow-purple-200 transition-all uppercase tracking-widest active:scale-95 flex items-center justify-center gap-2">
+            <button onClick={() => setShowReturnModal(true)} className="w-full sm:w-auto bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-xl font-black text-xs md:text-sm shadow-lg shadow-purple-200 transition-all uppercase tracking-widest flex items-center justify-center gap-2">
               <RotateCcw className="w-4 h-4" /> Proses Retur
             </button>
           </div>
 
-          <div className="bg-white rounded-[32px] border overflow-hidden shadow-sm flex flex-col">
-            <div className="p-6 bg-gray-50/50 border-b"><h3 className="text-lg font-black text-gray-800 uppercase tracking-tighter flex items-center gap-2"><History className="text-purple-500 w-5 h-5"/> Histori Saldo Deposit</h3></div>
-            <table className="w-full text-left text-sm">
-              <thead><tr className="border-b bg-gray-50/50"><th className="p-5 font-black text-gray-400 uppercase text-[10px]">Tgl & Jam</th><th className="p-5 font-black text-gray-400 uppercase text-[10px]">Pelanggan</th><th className="p-5 font-black text-gray-400 uppercase text-[10px]">Detail</th><th className="p-5 font-black text-gray-400 uppercase text-[10px] text-right">Perubahan Deposit</th></tr></thead>
-              <tbody className="divide-y">
-                {paginatedItems.map(item => {
-                  const isIn = item.depType === 'in'; // 'in' = dapet retur (hijau), 'out' = dipake belanja (merah)
-                  return (
-                    <tr key={item.id + item.depType} className="hover:bg-purple-50/30 transition-all">
-                      <td className="p-5 font-bold text-gray-500">{formatDisplayDate(item.createdAt)}</td>
-                      <td className="p-5 font-black text-gray-800 uppercase">{item.customerName}</td>
-                      <td className="p-5 font-bold text-gray-600 leading-relaxed max-w-xs">{item.note}</td>
-                      <td className={`p-5 font-black text-right whitespace-nowrap ${isIn ? 'text-teal-600' : 'text-red-600'}`}>
-                        {isIn ? '(+)' : '(-)'} Rp {(Number(item.nominal)||0).toLocaleString()}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          <div className="bg-white rounded-[32px] border shadow-sm flex flex-col">
+            <div className="p-4 md:p-6 bg-gray-50/50 border-b"><h3 className="text-base md:text-lg font-black text-gray-800 uppercase tracking-tighter flex items-center gap-2"><History className="text-purple-500 w-4 h-4 md:w-5 md:h-5"/> Histori Deposit</h3></div>
+            <div className="overflow-x-auto w-full custom-scrollbar">
+               <table className="w-full min-w-[600px] text-left text-xs md:text-sm">
+                 <thead><tr className="border-b bg-gray-50/50"><th className="p-4 font-black text-gray-400 uppercase text-[10px]">Tgl & Jam</th><th className="p-4 font-black text-gray-400 uppercase text-[10px]">Pelanggan</th><th className="p-4 font-black text-gray-400 uppercase text-[10px]">Detail</th><th className="p-4 font-black text-gray-400 uppercase text-[10px] text-right">Perubahan</th></tr></thead>
+                 <tbody className="divide-y">
+                   {paginatedItems.map(item => {
+                     const isIn = item.depType === 'in';
+                     return (
+                       <tr key={item.id + item.depType} className="hover:bg-purple-50/30 transition-all">
+                         <td className="p-4 font-bold text-gray-500 whitespace-nowrap">{formatDisplayDate(item.createdAt)}</td>
+                         <td className="p-4 font-black text-gray-800 uppercase">{item.customerName}</td>
+                         <td className="p-4 font-bold text-gray-600 leading-relaxed max-w-[200px] truncate">{item.note}</td>
+                         <td className={`p-4 font-black text-right whitespace-nowrap ${isIn ? 'text-teal-600' : 'text-red-600'}`}>
+                           {isIn ? '(+)' : '(-)'} Rp {(Number(item.nominal)||0).toLocaleString()}
+                         </td>
+                       </tr>
+                     );
+                   })}
+                 </tbody>
+               </table>
+            </div>
             {renderPagination()}
           </div>
         </div>
       )}
 
-      {/* --- TAB SALDO BERSIH (ARUS KAS +/-) --- */}
+      {/* --- TAB SALDO BERSIH --- */}
       {activeTab === 'netbalance' && (
-        <div className="bg-white rounded-[32px] border overflow-hidden shadow-sm flex flex-col">
-          <div className="p-6 bg-gray-50/50 border-b"><h3 className="text-lg font-black text-gray-800 uppercase tracking-tighter flex items-center gap-2"><Wallet className="text-blue-500 w-5 h-5"/> Histori Arus Kas Riil (Uang Laci)</h3></div>
-          <table className="w-full text-left text-sm">
-             <thead><tr className="border-b bg-gray-50/50"><th className="p-5 font-black text-gray-400 uppercase text-[10px]">Tgl & Jam</th><th className="p-5 font-black text-gray-400 uppercase text-[10px]">Kategori</th><th className="p-5 font-black text-gray-400 uppercase text-[10px]">Keterangan Transaksi</th><th className="p-5 font-black text-gray-400 uppercase text-[10px] text-right">Uang Masuk/Keluar</th></tr></thead>
-             <tbody className="divide-y">
-               {paginatedItems.map(item => {
-                 const isMasuk = item.netType === 'in';
-                 return (
-                   <tr key={item.id} className="hover:bg-gray-50 transition-colors">
-                     <td className="p-5 font-bold text-gray-500">{formatDisplayDate(item.createdAt)}</td>
-                     <td className="p-5"><span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase ${isMasuk ? 'bg-teal-100 text-teal-700' : 'bg-red-100 text-red-700'}`}>{isMasuk ? 'PEMASUKAN' : 'PENGELUARAN'}</span></td>
-                     <td className="p-5 font-bold text-gray-800 uppercase">{item.customerName || item.title || item.note}</td>
-                     <td className={`p-5 font-black text-right whitespace-nowrap ${isMasuk ? 'text-teal-600' : 'text-red-600'}`}>
-                       {isMasuk ? '(+)' : '(-)'} Rp {(Number(item.nominal)||0).toLocaleString()}
-                     </td>
-                   </tr>
-                 );
-               })}
-             </tbody>
-          </table>
+        <div className="bg-white rounded-[32px] border shadow-sm flex flex-col">
+          <div className="p-4 md:p-6 bg-gray-50/50 border-b"><h3 className="text-base md:text-lg font-black text-gray-800 uppercase tracking-tighter flex items-center gap-2"><Wallet className="text-blue-500 w-4 h-4 md:w-5 md:h-5"/> Arus Kas Riil (Uang Laci)</h3></div>
+          <div className="overflow-x-auto w-full custom-scrollbar">
+             <table className="w-full min-w-[600px] text-left text-xs md:text-sm">
+                <thead>
+                  <tr className="border-b bg-gray-50/50">
+                    <th className="p-4 font-black text-gray-400 uppercase text-[10px]">Tgl & Jam</th>
+                    <th className="p-4 font-black text-gray-400 uppercase text-[10px]">Kategori</th>
+                    <th className="p-4 font-black text-gray-400 uppercase text-[10px]">Nama / Subjek</th>
+                    <th className="p-4 font-black text-gray-400 uppercase text-[10px]">Keterangan Rinci</th>
+                    <th className="p-4 font-black text-gray-400 uppercase text-[10px] text-right">Masuk/Keluar</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {paginatedItems.map(item => {
+                    const isMasuk = item.netType === 'in';
+                    return (
+                      <tr key={item.id} className="hover:bg-gray-50 transition-colors">
+                        <td className="p-4 font-bold text-gray-500 whitespace-nowrap">{formatDisplayDate(item.createdAt)}</td>
+                        <td className="p-4"><span className={`px-2 py-1 rounded-full text-[8px] md:text-[9px] font-black uppercase ${isMasuk ? 'bg-teal-100 text-teal-700' : 'bg-red-100 text-red-700'}`}>{isMasuk ? 'PEMASUKAN' : 'PENGELUARAN'}</span></td>
+                        <td className="p-4 font-black text-gray-800 uppercase max-w-[150px] truncate">{item.subjName}</td>
+                        <td className="p-4 font-bold text-gray-600 max-w-[200px] truncate" title={item.detailNote}>{item.detailNote}</td>
+                        <td className={`p-4 font-black text-right whitespace-nowrap ${isMasuk ? 'text-teal-600' : 'text-red-600'}`}>
+                          {isMasuk ? '(+)' : '(-)'} Rp {(Number(item.nominal)||0).toLocaleString()}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+             </table>
+          </div>
           {renderPagination()}
         </div>
       )}
@@ -882,28 +949,28 @@ const Dashboard = ({ onShowToast }) => {
       {/* --- MODALS --- */}
       {showPayDebtModal && selectedCustomer && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
-          <div className="bg-white rounded-[40px] p-10 max-w-sm w-full shadow-2xl relative border-t-8 border-teal-600">
-            <button onClick={() => setShowPayDebtModal(false)} className="absolute right-8 top-8 text-gray-400 hover:text-gray-600"><X /></button>
-            <h3 className="text-xl font-black text-gray-800 mb-2 uppercase">Terima Pembayaran</h3>
-            <p className="text-sm text-gray-500 mb-8 font-bold uppercase tracking-widest text-teal-600">{selectedCustomer.name}</p>
-            <div className="flex bg-gray-100 p-1 rounded-2xl mb-8">
-              <button onClick={() => setIsFullPayment(true)} className={`flex-1 py-3 text-xs font-black rounded-xl transition-all ${isFullPayment ? 'bg-white text-teal-600 shadow-sm' : 'text-gray-400'}`}>Lunasi Semua</button>
-              <button onClick={() => setIsFullPayment(false)} className={`flex-1 py-3 text-xs font-black rounded-xl transition-all ${!isFullPayment ? 'bg-white text-teal-600 shadow-sm' : 'text-gray-400'}`}>Cicil</button>
+          <div className="bg-white rounded-[40px] p-6 md:p-10 max-w-sm w-full shadow-2xl relative border-t-8 border-teal-600 max-h-[90vh] overflow-y-auto custom-scrollbar">
+            <button onClick={() => setShowPayDebtModal(false)} className="absolute right-6 top-6 md:right-8 md:top-8 text-gray-400 hover:text-gray-600"><X /></button>
+            <h3 className="text-lg md:text-xl font-black text-gray-800 mb-1 md:mb-2 uppercase">Terima Pembayaran</h3>
+            <p className="text-[10px] md:text-sm text-gray-500 mb-6 font-bold uppercase tracking-widest text-teal-600">{selectedCustomer.name}</p>
+            <div className="flex bg-gray-100 p-1 rounded-2xl mb-6">
+              <button onClick={() => setIsFullPayment(true)} className={`flex-1 py-3 text-[10px] md:text-xs font-black rounded-xl transition-all ${isFullPayment ? 'bg-white text-teal-600 shadow-sm' : 'text-gray-400'}`}>Lunasi Semua</button>
+              <button onClick={() => setIsFullPayment(false)} className={`flex-1 py-3 text-[10px] md:text-xs font-black rounded-xl transition-all ${!isFullPayment ? 'bg-white text-teal-600 shadow-sm' : 'text-gray-400'}`}>Cicil</button>
             </div>
-            <div className="bg-orange-50 p-5 rounded-3xl mb-8 border border-orange-100 shadow-inner"><p className="text-[10px] font-black text-orange-600 uppercase mb-1">Tagihan Kumulatif</p><p className="text-2xl font-black text-orange-700">Rp {(Number(selectedCustomer.remainingDebt) || 0).toLocaleString()}</p></div>
-            {!isFullPayment && <div className="mb-8"><label className="text-[10px] font-black text-gray-400 uppercase ml-2 mb-2 block">Nominal Bayar</label><input type="number" className="w-full bg-gray-50 rounded-2xl px-6 py-5 text-xl font-black text-teal-600 focus:ring-2 focus:ring-teal-500 outline-none border-none" value={debtPaymentAmount} onChange={e => setDebtPaymentAmount(e.target.value)} placeholder="0" /></div>}
-            <button onClick={handlePayDebt} className="w-full bg-teal-600 text-white py-5 rounded-2xl font-black text-sm shadow-xl shadow-teal-100 hover:bg-teal-700 transition-all uppercase tracking-widest active:scale-95">Simpan Pembayaran</button>
+            <div className="bg-orange-50 p-4 rounded-3xl mb-6 border border-orange-100 shadow-inner"><p className="text-[9px] md:text-[10px] font-black text-orange-600 uppercase mb-1">Tagihan Kumulatif</p><p className="text-xl md:text-2xl font-black text-orange-700">Rp {(Number(selectedCustomer.remainingDebt) || 0).toLocaleString()}</p></div>
+            {!isFullPayment && <div className="mb-6"><label className="text-[9px] md:text-[10px] font-black text-gray-400 uppercase ml-2 mb-2 block">Nominal Bayar</label><input type="number" className="w-full bg-gray-50 rounded-2xl px-4 py-4 md:px-6 md:py-5 text-lg md:text-xl font-black text-teal-600 focus:ring-2 focus:ring-teal-500 outline-none border-none" value={debtPaymentAmount} onChange={e => setDebtPaymentAmount(e.target.value)} placeholder="0" /></div>}
+            <button onClick={handlePayDebt} className="w-full bg-teal-600 text-white py-4 md:py-5 rounded-2xl font-black text-xs md:text-sm shadow-xl shadow-teal-100 hover:bg-teal-700 transition-all uppercase tracking-widest active:scale-95">Simpan</button>
           </div>
         </div>
       )}
 
       {showDeleteModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
-          <div className="bg-white rounded-[32px] p-8 max-w-sm w-full shadow-2xl text-center">
-            <h3 className="text-xl font-black text-gray-800 mb-8">Hapus Data Ini?</h3>
-            <div className="flex gap-4">
-              <button onClick={() => setShowDeleteModal(false)} className="flex-1 py-4 font-black text-gray-400 text-sm">Batal</button>
-              <button onClick={async () => { await deleteDocument(activeTab === 'expenses' ? 'expenses' : activeTab === 'returns' ? 'returns' : 'transactions', selectedItem.id); onShowToast('Dihapus', 'success'); setShowDeleteModal(false); }} className="flex-1 bg-red-600 text-white py-4 rounded-2xl font-black text-sm shadow-xl">Hapus</button>
+          <div className="bg-white rounded-[32px] p-6 md:p-8 max-w-sm w-full shadow-2xl text-center">
+            <h3 className="text-lg md:text-xl font-black text-gray-800 mb-6">Hapus Data Ini?</h3>
+            <div className="flex gap-3 md:gap-4">
+              <button onClick={() => setShowDeleteModal(false)} className="flex-1 py-3 md:py-4 font-black text-gray-400 text-xs md:text-sm">Batal</button>
+              <button onClick={async () => { await deleteDocument(activeTab === 'expenses' ? 'expenses' : activeTab === 'returns' ? 'returns' : 'transactions', selectedItem.id); onShowToast('Dihapus', 'success'); setShowDeleteModal(false); }} className="flex-1 bg-red-600 text-white py-3 md:py-4 rounded-2xl font-black text-xs md:text-sm shadow-md">Hapus</button>
             </div>
           </div>
         </div>
@@ -911,31 +978,30 @@ const Dashboard = ({ onShowToast }) => {
 
       {showBulkDeleteModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
-          <div className="bg-white rounded-[32px] p-8 max-w-sm w-full shadow-2xl text-center">
-            <h3 className="text-xl font-black text-gray-800 mb-2">Hapus Masal?</h3>
-            <p className="text-sm text-gray-500 mb-8 font-bold">Yakin ingin menghapus seluruh data yang sedang difilter?</p>
+          <div className="bg-white rounded-[32px] p-6 md:p-8 max-w-sm w-full shadow-2xl text-center">
+            <h3 className="text-lg md:text-xl font-black text-gray-800 mb-2">Hapus Masal?</h3>
+            <p className="text-xs md:text-sm text-gray-500 mb-6 font-bold">Yakin ingin menghapus seluruh data yang sedang difilter?</p>
             <div className="flex flex-col gap-2">
-              <button onClick={handleBulkDelete} className="w-full bg-red-600 text-white py-4 rounded-2xl font-black text-sm shadow-xl shadow-red-100">Ya, Hapus Semua</button>
-              <button onClick={() => setShowBulkDeleteModal(false)} className="w-full py-4 font-black text-gray-400 text-sm">Batal</button>
+              <button onClick={handleBulkDelete} className="w-full bg-red-600 text-white py-3 md:py-4 rounded-2xl font-black text-xs md:text-sm shadow-md shadow-red-100">Ya, Hapus Semua</button>
+              <button onClick={() => setShowBulkDeleteModal(false)} className="w-full py-3 md:py-4 font-black text-gray-400 text-xs md:text-sm">Batal</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* MODAL UNTUK RESET SEMUA DATA */}
       {showResetModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
-          <div className="bg-white rounded-[32px] p-8 max-w-sm w-full shadow-2xl text-center border-t-8 border-red-600">
-            <div className="mx-auto bg-red-50 w-20 h-20 rounded-full flex items-center justify-center mb-4 border border-red-100 shadow-inner">
-              <AlertTriangle className="w-10 h-10 text-red-600" />
+          <div className="bg-white rounded-[32px] p-6 md:p-8 max-w-sm w-full shadow-2xl text-center border-t-8 border-red-600 max-h-[90vh] overflow-y-auto custom-scrollbar">
+            <div className="mx-auto bg-red-50 w-16 h-16 md:w-20 md:h-20 rounded-full flex items-center justify-center mb-4 border border-red-100 shadow-inner">
+              <AlertTriangle className="w-8 h-8 md:w-10 md:h-10 text-red-600" />
             </div>
-            <h3 className="text-xl font-black text-gray-800 mb-2">Reset Semua Data?</h3>
-            <p className="text-xs text-gray-500 mb-6 font-bold leading-relaxed">
+            <h3 className="text-lg md:text-xl font-black text-gray-800 mb-2">Reset Semua Data?</h3>
+            <p className="text-[10px] md:text-xs text-gray-500 mb-6 font-bold leading-relaxed">
               Tindakan ini akan menghapus permanen <strong>seluruh</strong> riwayat pemasukan, pengeluaran, histori hutang, dan retur. Saldo hutang dan deposit pembeli akan kembali menjadi Rp 0.
             </p>
             <div className="flex flex-col gap-2">
-              <button onClick={handleResetAllData} className="w-full bg-red-600 text-white py-4 rounded-2xl font-black text-sm shadow-xl shadow-red-200 hover:bg-red-700 uppercase tracking-widest transition-all">Ya, Bersihkan Semua Data</button>
-              <button onClick={() => setShowResetModal(false)} className="w-full py-4 font-black text-gray-400 text-sm hover:bg-gray-50 rounded-2xl transition-all">Batal</button>
+              <button onClick={handleResetAllData} className="w-full bg-red-600 text-white py-3 md:py-4 rounded-2xl font-black text-xs md:text-sm shadow-md shadow-red-200 hover:bg-red-700 uppercase tracking-widest transition-all">Ya, Bersihkan Semua</button>
+              <button onClick={() => setShowResetModal(false)} className="w-full py-3 md:py-4 font-black text-gray-400 text-xs md:text-sm hover:bg-gray-50 rounded-2xl transition-all">Batal</button>
             </div>
           </div>
         </div>

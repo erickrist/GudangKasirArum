@@ -7,6 +7,14 @@ import StockOpname from './pages/StockOpname';
 import DataPembeli from './pages/DataPembeli';
 import Toast from './components/common/Toast';
 
+// OPTIMASI 1: Pindahkan ke luar agar tidak dirender ulang terus-menerus
+const PAGE_TITLES = {
+  dashboard: 'Dashboard',
+  kasir: 'Kasir',
+  stock: 'Stock Opname',
+  pembeli: 'Data Pembeli',
+};
+
 function App() {
   const [currentPage, setCurrentPage] = useState('dashboard');
   const [toast, setToast] = useState(null);
@@ -17,13 +25,6 @@ function App() {
 
   const closeToast = () => {
     setToast(null);
-  };
-
-  const pageTitle = {
-    dashboard: 'Dashboard',
-    kasir: 'Kasir',
-    stock: 'Stock Opname',
-    pembeli: 'Data Pembeli',
   };
 
   const renderPage = () => {
@@ -42,15 +43,19 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 flex flex-col">
       <Sidebar currentPage={currentPage} onNavigate={setCurrentPage} />
 
-      <div className="ml-64">
-        <Header title={pageTitle[currentPage]} />
+      {/* OPTIMASI 2: Hapus 'w-full md:w-auto', biarkan 'flex-1' yang bekerja menyesuaikan ruang */}
+      <div className="md:ml-64 flex-1 flex flex-col min-h-screen overflow-x-hidden pb-24 md:pb-0">
+        
+        {/* OPTIMASI 3: Berikan nilai default jika page tidak ditemukan */}
+        <Header title={PAGE_TITLES[currentPage] || 'Dashboard'} />
 
-        <main className="px-8 py-6">
+        <main className="px-4 md:px-8 py-4 md:py-6 flex-1">
           {renderPage()}
         </main>
+        
       </div>
 
       {toast && (

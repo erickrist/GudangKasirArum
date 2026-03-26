@@ -248,27 +248,30 @@ const Kasir = ({ onShowToast }) => {
   const subtotal = calculateSubtotal();
 
   return (
-    <div className="pb-10">
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <div className="pb-24 lg:pb-10"> {/* pb-24 untuk memberi ruang bagi menu navigasi bawah di HP */}
+      
+      {/* MENGGUNAKAN flex-col-reverse AGAR KERANJANG DI ATAS SAAT DI HP */}
+      <div className="flex flex-col-reverse lg:grid lg:grid-cols-3 gap-6">
+        
         {/* BAGIAN KIRI: DAFTAR PRODUK */}
-        <div className="lg:col-span-2 space-y-6">
+        <div className="lg:col-span-2 space-y-4 md:space-y-6">
           
-          <div className="bg-white p-4 rounded-2xl border flex items-center shadow-sm">
+          <div className="bg-white p-3 md:p-4 rounded-xl md:rounded-2xl border flex items-center shadow-sm">
             <div className="relative flex-1">
-              <Search className="absolute left-4 top-3 w-4 h-4 text-gray-400" />
+              <Search className="absolute left-4 top-3 md:top-3.5 w-4 h-4 text-gray-400" />
               <input
                 type="text"
                 placeholder="Cari nama atau kategori produk..."
                 value={searchProduct}
                 onChange={(e) => setSearchProduct(e.target.value)}
-                className="w-full pl-11 pr-4 py-2.5 bg-gray-50 border-none rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-teal-500"
+                className="w-full pl-11 pr-4 py-2.5 md:py-3 bg-gray-50 border-none rounded-xl text-xs md:text-sm font-bold outline-none focus:ring-2 focus:ring-teal-500"
               />
             </div>
           </div>
 
-          <div className="bg-white rounded-[32px] shadow-sm border p-6 min-h-[500px]">
-            <h3 className="text-lg font-black text-gray-800 uppercase tracking-tighter flex items-center gap-2 mb-6">
-              <Store className="w-5 h-5 text-teal-600"/> Etalase Produk
+          <div className="bg-white rounded-[24px] md:rounded-[32px] shadow-sm border p-4 md:p-6 min-h-[400px] md:min-h-[500px]">
+            <h3 className="text-base md:text-lg font-black text-gray-800 uppercase tracking-tighter flex items-center gap-2 mb-4 md:mb-6">
+              <Store className="w-4 h-4 md:w-5 md:h-5 text-teal-600"/> Etalase Produk
             </h3>
 
             {filteredProducts.length === 0 ? (
@@ -279,45 +282,46 @@ const Kasir = ({ onShowToast }) => {
                 />
               </div>
             ) : (
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 max-h-[600px] overflow-y-auto custom-scrollbar pr-2">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-4 max-h-[50vh] md:max-h-[600px] overflow-y-auto custom-scrollbar pr-1 md:pr-2">
                 {filteredProducts.map((product) => (
                   <button
                     key={product.id}
                     onClick={() => addToCart(product)}
                     disabled={product.stockPcs < 1}
-                    className={`text-left border rounded-2xl overflow-hidden hover:shadow-lg transition-all duration-300 flex flex-col ${
+                    className={`text-left border rounded-xl md:rounded-2xl overflow-hidden hover:shadow-lg transition-all duration-300 flex flex-col active:scale-95 ${
                       product.stockPcs < 1
                         ? 'opacity-50 cursor-not-allowed border-gray-200 grayscale'
                         : 'hover:border-teal-400 border-gray-200 bg-white'
                     }`}
                   >
-                    {/* LOGIKA GAMBAR: Jika ada URL gambar, tampilkan. Jika tidak, tidak dirender sama sekali */}
                     {product.image && (
                       <img
                         src={product.image}
                         alt={product.name}
-                        className="w-full h-32 object-cover border-b border-gray-100"
+                        className="w-full h-24 md:h-32 object-cover border-b border-gray-100"
                       />
                     )}
                     
-                    <div className="p-4 flex-1 flex flex-col">
-                      <h4 className="font-black text-gray-800 text-sm mb-1 uppercase tracking-tight line-clamp-2 leading-snug">
-                        {product.name}
-                      </h4>
-                      <p className="text-[9px] font-bold text-teal-600 uppercase tracking-widest mb-3 bg-teal-50 inline-block px-2 py-1 rounded-md self-start">
-                        {product.category}
-                      </p>
+                    <div className="p-3 md:p-4 flex-1 flex flex-col justify-between">
+                      <div>
+                        <h4 className="font-black text-gray-800 text-xs md:text-sm mb-1 uppercase tracking-tight line-clamp-2 leading-snug">
+                          {product.name}
+                        </h4>
+                        <p className="text-[8px] md:text-[9px] font-bold text-teal-600 uppercase tracking-widest mb-2 md:mb-3 bg-teal-50 inline-block px-1.5 md:px-2 py-1 rounded-md">
+                          {product.category}
+                        </p>
+                      </div>
                       
-                      <div className="mt-auto flex justify-between items-end border-t border-dashed border-gray-100 pt-3">
+                      <div className="mt-2 flex flex-col sm:flex-row justify-between items-start sm:items-end border-t border-dashed border-gray-100 pt-2 md:pt-3 gap-1 md:gap-0">
                         <div>
-                          <span className="text-sm font-black text-teal-600 block">
+                          <span className="text-xs md:text-sm font-black text-teal-600 block">
                             Rp {product.price.toLocaleString('id-ID')}
                           </span>
-                          <span className={`text-[10px] font-bold uppercase tracking-widest block mt-1 ${product.stockPcs < 10 ? 'text-red-500' : 'text-gray-400'}`}>
+                          <span className={`text-[9px] md:text-[10px] font-bold uppercase tracking-widest block mt-0.5 md:mt-1 ${product.stockPcs < 10 ? 'text-red-500' : 'text-gray-400'}`}>
                             Stok: {product.stockPcs}
                           </span>
                         </div>
-                        <span className="text-[9px] font-black bg-gray-100 text-gray-600 px-2 py-1 rounded uppercase tracking-wider">
+                        <span className="text-[8px] md:text-[9px] font-black bg-gray-100 text-gray-600 px-1.5 py-1 md:px-2 rounded uppercase tracking-wider self-end sm:self-auto">
                           {product.unitType}
                         </span>
                       </div>
@@ -331,47 +335,52 @@ const Kasir = ({ onShowToast }) => {
 
         {/* BAGIAN KANAN: KERANJANG */}
         <div className="lg:col-span-1">
-          <div className="bg-white rounded-[32px] shadow-sm border p-6 sticky top-28">
-            <div className="flex items-center justify-between mb-6 border-b border-gray-100 pb-4">
-              <h3 className="text-lg font-black text-gray-800 uppercase tracking-tighter">Keranjang</h3>
-              <div className="bg-teal-50 p-2 rounded-xl">
-                <ShoppingCart className="w-5 h-5 text-teal-600" />
+          <div className="bg-white rounded-[24px] md:rounded-[32px] shadow-sm border p-4 md:p-6 lg:sticky lg:top-4 z-10">
+            <div className="flex items-center justify-between mb-4 md:mb-6 border-b border-gray-100 pb-3 md:pb-4">
+              <h3 className="text-base md:text-lg font-black text-gray-800 uppercase tracking-tighter">Keranjang</h3>
+              <div className="bg-teal-50 p-2 rounded-xl relative">
+                <ShoppingCart className="w-4 h-4 md:w-5 md:h-5 text-teal-600" />
+                {cart.length > 0 && (
+                  <span className="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                    {cart.reduce((total, item) => total + item.qty, 0)}
+                  </span>
+                )}
               </div>
             </div>
 
             {/* PEMBELI SECTION */}
             {selectedCustomer ? (
-              <div className="bg-gray-50 border border-gray-100 rounded-2xl p-4 mb-6">
+              <div className="bg-gray-50 border border-gray-100 rounded-xl md:rounded-2xl p-3 md:p-4 mb-4 md:mb-6">
                 <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-3">
-                    <div className="bg-white p-2 rounded-lg shadow-sm">
-                      <User className="w-4 h-4 text-teal-600" />
+                  <div className="flex items-center gap-2 md:gap-3 overflow-hidden">
+                    <div className="bg-white p-1.5 md:p-2 rounded-lg shadow-sm flex-shrink-0">
+                      <User className="w-3 h-3 md:w-4 md:h-4 text-teal-600" />
                     </div>
-                    <div className="min-w-0">
-                      <p className="text-sm font-black text-gray-800 uppercase tracking-tight truncate">{selectedCustomer.name}</p>
-                      <p className="text-[10px] font-bold text-gray-500 tracking-widest">{selectedCustomer.phone || 'Tidak ada no HP'}</p>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs md:text-sm font-black text-gray-800 uppercase tracking-tight truncate">{selectedCustomer.name}</p>
+                      <p className="text-[9px] md:text-[10px] font-bold text-gray-500 tracking-widest truncate">{selectedCustomer.phone || 'Tidak ada no HP'}</p>
                     </div>
                   </div>
                   <button
                     onClick={() => setShowCustomerModal(true)}
-                    className="text-[10px] font-black uppercase tracking-widest bg-white border border-gray-200 text-gray-600 px-2 py-1 rounded hover:bg-teal-50 hover:text-teal-600 hover:border-teal-200 transition-colors"
+                    className="text-[9px] md:text-[10px] font-black uppercase tracking-widest bg-white border border-gray-200 text-gray-600 px-2 py-1 rounded hover:bg-teal-50 hover:text-teal-600 transition-colors flex-shrink-0 ml-2"
                   >
                     Ubah
                   </button>
                 </div>
 
                 {(selectedCustomer.returnAmount > 0 || selectedCustomer.remainingDebt > 0) && (
-                  <div className="mt-3 pt-3 border-t border-dashed border-gray-200 space-y-1.5">
+                  <div className="mt-2 md:mt-3 pt-2 md:pt-3 border-t border-dashed border-gray-200 space-y-1 md:space-y-1.5">
                     {selectedCustomer.returnAmount > 0 && (
                       <div className="flex justify-between items-center">
-                        <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Saldo Retur</span>
-                        <span className="text-xs font-black text-green-600">Rp {selectedCustomer.returnAmount.toLocaleString('id-ID')}</span>
+                        <span className="text-[9px] md:text-[10px] font-black text-gray-400 uppercase tracking-widest">Saldo Retur</span>
+                        <span className="text-[10px] md:text-xs font-black text-green-600">Rp {selectedCustomer.returnAmount.toLocaleString('id-ID')}</span>
                       </div>
                     )}
                     {selectedCustomer.remainingDebt > 0 && (
                       <div className="flex justify-between items-center">
-                        <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Sisa Hutang</span>
-                        <span className="text-xs font-black text-orange-600">Rp {selectedCustomer.remainingDebt.toLocaleString('id-ID')}</span>
+                        <span className="text-[9px] md:text-[10px] font-black text-gray-400 uppercase tracking-widest">Sisa Hutang</span>
+                        <span className="text-[10px] md:text-xs font-black text-orange-600">Rp {selectedCustomer.remainingDebt.toLocaleString('id-ID')}</span>
                       </div>
                     )}
                   </div>
@@ -380,18 +389,18 @@ const Kasir = ({ onShowToast }) => {
             ) : (
               <button
                 onClick={() => setShowCustomerModal(true)}
-                className="w-full bg-teal-50 border border-teal-100 text-teal-700 px-4 py-4 rounded-2xl mb-6 hover:bg-teal-100 transition-colors text-xs font-black uppercase tracking-widest flex items-center justify-center gap-2"
+                className="w-full bg-teal-50 border border-teal-100 text-teal-700 px-3 py-3 md:px-4 md:py-4 rounded-xl md:rounded-2xl mb-4 md:mb-6 hover:bg-teal-100 transition-colors text-[10px] md:text-xs font-black uppercase tracking-widest flex items-center justify-center gap-2"
               >
-                <Plus className="w-4 h-4" /> Pilih / Tambah Pembeli
+                <Plus className="w-3 h-3 md:w-4 md:h-4" /> Pilih / Tambah Pembeli
               </button>
             )}
 
             {/* DAFTAR ITEM KERANJANG */}
-            <div className="space-y-3 mb-6 max-h-[350px] overflow-y-auto custom-scrollbar pr-2">
+            <div className="space-y-2 md:space-y-3 mb-4 md:mb-6 max-h-[35vh] md:max-h-[350px] overflow-y-auto custom-scrollbar pr-1 md:pr-2">
               {cart.length === 0 ? (
-                <div className="text-center py-10">
-                  <ShoppingCart className="w-12 h-12 mx-auto mb-3 text-gray-200" />
-                  <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Keranjang Kosong</p>
+                <div className="text-center py-6 md:py-10 border-2 border-dashed border-gray-100 rounded-xl md:rounded-2xl">
+                  <ShoppingCart className="w-8 h-8 md:w-12 md:h-12 mx-auto mb-2 md:mb-3 text-gray-200" />
+                  <p className="text-[10px] md:text-xs font-bold text-gray-400 uppercase tracking-widest">Keranjang Kosong</p>
                 </div>
               ) : (
                 cart.map((item) => (
@@ -407,18 +416,18 @@ const Kasir = ({ onShowToast }) => {
             </div>
 
             {/* TOTAL & CHECKOUT */}
-            <div className="border-t border-gray-100 pt-6 space-y-4">
-              <div className="flex justify-between items-center px-2">
+            <div className="border-t border-gray-100 pt-4 md:pt-6 space-y-3 md:space-y-4">
+              <div className="flex justify-between items-center px-1 md:px-2">
                 <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Subtotal</span>
-                <span className="font-bold text-gray-600">
+                <span className="text-xs md:text-sm font-bold text-gray-600">
                   Rp {subtotal.toLocaleString('id-ID')}
                 </span>
               </div>
 
-              <div className="bg-teal-50 border border-teal-100 p-4 rounded-2xl">
+              <div className="bg-teal-50 border border-teal-100 p-3 md:p-4 rounded-xl md:rounded-2xl">
                 <div className="flex justify-between items-center">
-                  <span className="font-black text-teal-800 uppercase tracking-tight">Total Akhir</span>
-                  <span className="text-xl font-black text-teal-600">
+                  <span className="text-xs md:text-sm font-black text-teal-800 uppercase tracking-tight">Total Akhir</span>
+                  <span className="text-base md:text-xl font-black text-teal-600">
                     Rp {subtotal.toLocaleString('id-ID')}
                   </span>
                 </div>
@@ -427,7 +436,7 @@ const Kasir = ({ onShowToast }) => {
               <button
                 onClick={handleCheckout}
                 disabled={cart.length === 0 || !selectedCustomer}
-                className="w-full bg-teal-600 text-white py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-teal-700 transition-all shadow-xl shadow-teal-100 disabled:bg-gray-200 disabled:text-gray-400 disabled:shadow-none disabled:cursor-not-allowed text-sm"
+                className="w-full bg-teal-600 text-white py-3 md:py-4 rounded-xl md:rounded-2xl font-black uppercase tracking-widest hover:bg-teal-700 transition-all shadow-lg shadow-teal-100 disabled:bg-gray-200 disabled:text-gray-400 disabled:shadow-none disabled:cursor-not-allowed text-[10px] md:text-sm active:scale-95"
               >
                 Proses Pembayaran
               </button>
@@ -439,31 +448,31 @@ const Kasir = ({ onShowToast }) => {
       {/* MODAL PILIH PEMBELI */}
       {showCustomerModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
-          <div className="bg-white rounded-[32px] p-8 max-w-md w-full max-h-[85vh] overflow-y-auto custom-scrollbar shadow-2xl">
-            <div className="flex justify-between items-center mb-6 border-b border-gray-100 pb-4">
-              <h3 className="text-xl font-black text-gray-800 flex items-center gap-2">
-                <User className="w-5 h-5 text-teal-600"/> Pilih Pembeli
+          <div className="bg-white rounded-[24px] md:rounded-[32px] p-5 md:p-8 w-full max-w-md max-h-[85vh] overflow-y-auto custom-scrollbar shadow-2xl">
+            <div className="flex justify-between items-center mb-4 md:mb-6 border-b border-gray-100 pb-3 md:pb-4">
+              <h3 className="text-lg md:text-xl font-black text-gray-800 flex items-center gap-2">
+                <User className="w-4 h-4 md:w-5 md:h-5 text-teal-600"/> Pilih Pembeli
               </h3>
               <button
                 onClick={() => {
                   setShowCustomerModal(false);
                   setSearchCustomer('');
                 }}
-                className="bg-gray-50 p-2 rounded-xl text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+                className="bg-gray-50 p-1.5 md:p-2 rounded-xl text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4 md:w-5 md:h-5" />
               </button>
             </div>
 
-            <div className="flex gap-2 mb-6">
+            <div className="flex gap-2 mb-4 md:mb-6">
               <div className="relative flex-1">
-                <Search className="absolute left-4 top-3.5 w-4 h-4 text-gray-400" />
+                <Search className="absolute left-3 md:left-4 top-3 md:top-3.5 w-3.5 h-3.5 md:w-4 md:h-4 text-gray-400" />
                 <input
                   type="text"
                   placeholder="Cari nama atau no HP..."
                   value={searchCustomer}
                   onChange={(e) => setSearchCustomer(e.target.value)}
-                  className="w-full pl-11 pr-4 py-3 bg-gray-50 border-none rounded-2xl font-bold text-sm outline-none focus:ring-2 focus:ring-teal-500"
+                  className="w-full pl-9 md:pl-11 pr-3 md:pr-4 py-2.5 md:py-3 bg-gray-50 border-none rounded-xl md:rounded-2xl font-bold text-xs md:text-sm outline-none focus:ring-2 focus:ring-teal-500"
                 />
               </div>
               <button
@@ -472,29 +481,29 @@ const Kasir = ({ onShowToast }) => {
                   setShowAddCustomerModal(true);
                   setSearchCustomer('');
                 }}
-                className="bg-teal-600 text-white px-4 py-3 rounded-2xl hover:bg-teal-700 transition-colors shadow-md shadow-teal-100 flex items-center justify-center"
+                className="bg-teal-600 text-white px-3 md:px-4 py-2.5 md:py-3 rounded-xl md:rounded-2xl hover:bg-teal-700 transition-colors shadow-md shadow-teal-100 flex items-center justify-center"
               >
-                <Plus className="w-5 h-5" />
+                <Plus className="w-4 h-4 md:w-5 md:h-5" />
               </button>
             </div>
 
             {filteredCustomers.length === 0 ? (
-              <div className="text-center py-10 bg-gray-50 rounded-2xl border border-dashed border-gray-200">
-                <User className="w-10 h-10 mx-auto mb-3 text-gray-300" />
-                <p className="text-gray-500 mb-4 text-xs font-bold">Pembeli tidak ditemukan</p>
+              <div className="text-center py-8 md:py-10 bg-gray-50 rounded-xl md:rounded-2xl border border-dashed border-gray-200">
+                <User className="w-8 h-8 md:w-10 md:h-10 mx-auto mb-2 md:mb-3 text-gray-300" />
+                <p className="text-gray-500 mb-3 md:mb-4 text-[10px] md:text-xs font-bold">Pembeli tidak ditemukan</p>
                 <button
                   onClick={() => {
                     setShowCustomerModal(false);
                     setShowAddCustomerModal(true);
                     setSearchCustomer('');
                   }}
-                  className="bg-white border border-teal-200 text-teal-600 px-4 py-2 rounded-xl hover:bg-teal-50 transition-colors flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest mx-auto shadow-sm"
+                  className="bg-white border border-teal-200 text-teal-600 px-3 md:px-4 py-1.5 md:py-2 rounded-lg md:rounded-xl hover:bg-teal-50 transition-colors flex items-center justify-center gap-1 md:gap-2 text-[9px] md:text-[10px] font-black uppercase tracking-widest mx-auto shadow-sm"
                 >
                   <Plus className="w-3 h-3" /> Tambah Pembeli Baru
                 </button>
               </div>
             ) : (
-              <div className="space-y-3 mb-6">
+              <div className="space-y-2 md:space-y-3 mb-4 md:mb-6">
                 {filteredCustomers.map((customer) => (
                   <button
                     key={customer.id}
@@ -503,21 +512,21 @@ const Kasir = ({ onShowToast }) => {
                       setShowCustomerModal(false);
                       setSearchCustomer('');
                     }}
-                    className={`w-full text-left p-4 border rounded-2xl transition-all duration-300 ${
+                    className={`w-full text-left p-3 md:p-4 border rounded-xl md:rounded-2xl transition-all duration-300 ${
                       selectedCustomer?.id === customer.id 
                         ? 'border-teal-500 bg-teal-50 shadow-sm' 
                         : 'border-gray-200 hover:border-teal-300 bg-white hover:shadow-md'
                     }`}
                   >
-                    <h4 className="font-black text-gray-800 text-sm uppercase tracking-tight">{customer.name}</h4>
-                    <p className="text-[10px] font-bold text-gray-500 tracking-widest mt-0.5">{customer.phone || 'Tanpa No HP'}</p>
+                    <h4 className="font-black text-gray-800 text-xs md:text-sm uppercase tracking-tight">{customer.name}</h4>
+                    <p className="text-[9px] md:text-[10px] font-bold text-gray-500 tracking-widest mt-0.5">{customer.phone || 'Tanpa No HP'}</p>
                     
                     {customer.address && (
-                      <p className="text-[10px] text-gray-500 mt-2 line-clamp-2 bg-gray-50 p-2 rounded-lg leading-relaxed">{customer.address}</p>
+                      <p className="text-[9px] md:text-[10px] text-gray-500 mt-1.5 md:mt-2 line-clamp-2 bg-gray-50 p-1.5 md:p-2 rounded-lg leading-relaxed">{customer.address}</p>
                     )}
                     
                     {(customer.returnAmount > 0 || customer.remainingDebt > 0) && (
-                      <div className="text-[10px] font-black uppercase tracking-widest mt-3 pt-3 border-t border-dashed border-gray-200 space-y-1.5">
+                      <div className="text-[9px] md:text-[10px] font-black uppercase tracking-widest mt-2 md:mt-3 pt-2 md:pt-3 border-t border-dashed border-gray-200 space-y-1 md:space-y-1.5">
                         {customer.returnAmount > 0 && (
                           <div className="flex justify-between">
                             <span className="text-gray-400">Retur</span>
