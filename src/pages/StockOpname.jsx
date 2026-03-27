@@ -705,9 +705,9 @@ const StockOpname = ({ onShowToast }) => {
                   <Trash2 className="w-3.5 h-3.5" /> Bersihkan Histori
                </button>
                {/* TOMBOL BARU MENGARAH KE MODAL DENGAN 2 OPSI */}
-               <button onClick={() => setShowClearProductsModal(true)} className="flex-1 sm:flex-none justify-center px-4 py-3 sm:py-0 bg-red-50 text-red-600 rounded-xl md:rounded-2xl border border-red-200 hover:bg-red-100 flex items-center gap-1.5 text-[10px] md:text-xs font-black transition-colors shadow-sm whitespace-nowrap">
+               {/* <button onClick={() => setShowClearProductsModal(true)} className="flex-1 sm:flex-none justify-center px-4 py-3 sm:py-0 bg-red-50 text-red-600 rounded-xl md:rounded-2xl border border-red-200 hover:bg-red-100 flex items-center gap-1.5 text-[10px] md:text-xs font-black transition-colors shadow-sm whitespace-nowrap">
                   <Trash2 className="w-3.5 h-3.5" /> Kelola Masal Barang
-               </button>
+               </button> */}
             </div>
           </div>
 
