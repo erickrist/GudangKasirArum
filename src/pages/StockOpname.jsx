@@ -104,8 +104,8 @@ const StockOpname = ({ onShowToast }) => {
     transactions.forEach(t => {
       t.items?.forEach(item => {
         combinedLogs.push({
-          id: t.id, // Gunakan ID transaksi aslinya agar bisa dihapus
-          uniqueKey: `${t.id}-${item.productId}`, // Key unik untuk mapping list React
+          id: t.id, 
+          uniqueKey: `${t.id}-${item.productId}`, 
           sourceCollection: 'transactions',
           createdAt: t.createdAt,
           productId: item.productId,
@@ -243,6 +243,34 @@ const StockOpname = ({ onShowToast }) => {
       setShowClearHistoryModal(false);
     } catch (error) {
       onShowToast('Gagal menghapus histori', 'error');
+    }
+  };
+
+  // --- FUNGSI BARU: NOLKAN SEMUA STOK ---
+  const handleResetAllStock = async () => {
+    try {
+      let count = 0;
+      for (const p of products) {
+        if (p.stockPcs !== 0) {
+          await updateDocument('products', p.id, { stockPcs: 0 });
+          
+          await addDocument('stock_logs', {
+            productId: p.id,
+            productName: p.name,
+            type: p.stockPcs > 0 ? 'out' : 'in',
+            amount: Math.abs(p.stockPcs),
+            unitType: 'PCS',
+            totalPcs: Math.abs(p.stockPcs),
+            note: 'Reset Stok Massal (Nol-kan Stok)',
+            createdAt: new Date()
+          });
+          count++;
+        }
+      }
+      onShowToast(`Stok dari ${count} barang berhasil di-nol-kan`, 'success');
+      setShowClearProductsModal(false);
+    } catch (error) {
+      onShowToast('Gagal mereset stok barang', 'error');
     }
   };
 
@@ -676,8 +704,9 @@ const StockOpname = ({ onShowToast }) => {
                <button onClick={() => setShowClearHistoryModal(true)} className="flex-1 sm:flex-none justify-center px-4 py-3 sm:py-0 bg-red-50 text-red-600 rounded-xl md:rounded-2xl border border-red-200 hover:bg-red-100 flex items-center gap-1.5 text-[10px] md:text-xs font-black transition-colors shadow-sm whitespace-nowrap">
                   <Trash2 className="w-3.5 h-3.5" /> Bersihkan Histori
                </button>
+               {/* TOMBOL BARU MENGARAH KE MODAL DENGAN 2 OPSI */}
                <button onClick={() => setShowClearProductsModal(true)} className="flex-1 sm:flex-none justify-center px-4 py-3 sm:py-0 bg-red-50 text-red-600 rounded-xl md:rounded-2xl border border-red-200 hover:bg-red-100 flex items-center gap-1.5 text-[10px] md:text-xs font-black transition-colors shadow-sm whitespace-nowrap">
-                  <Trash2 className="w-3.5 h-3.5" /> Hapus Semua Barang
+                  <Trash2 className="w-3.5 h-3.5" /> Kelola Masal Barang
                </button>
             </div>
           </div>
@@ -977,20 +1006,26 @@ const StockOpname = ({ onShowToast }) => {
         </div>
       )}
 
-      {/* MODAL BERSIHKAN SEMUA BARANG */}
+      {/* MODAL KELOLA MASAL BARANG (NOLKAN STOK / HAPUS SEMUA) */}
       {showClearProductsModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
           <div className="bg-white rounded-[24px] md:rounded-[32px] p-6 md:p-8 max-w-sm w-full shadow-2xl text-center border-t-8 border-red-600">
             <div className="mx-auto bg-red-50 w-16 h-16 md:w-20 md:h-20 rounded-full flex items-center justify-center mb-4 border border-red-100 shadow-inner">
               <AlertTriangle className="w-8 h-8 md:w-10 md:h-10 text-red-600" />
             </div>
-            <h3 className="text-lg md:text-xl font-black text-gray-800 mb-2">Bersihkan Semua Barang?</h3>
-            <p className="text-[10px] md:text-xs text-gray-500 mb-6 font-bold leading-relaxed">
-              Perhatian! Seluruh data produk dan stok Anda di etalase akan dihapus secara permanen. Tindakan ini tidak bisa dibatalkan!
-            </p>
+            <h3 className="text-lg md:text-xl font-black text-gray-800 mb-3">Kelola Masal Produk</h3>
+            <div className="text-[10px] md:text-xs text-left text-gray-500 mb-6 space-y-2 bg-gray-50 p-4 rounded-xl border border-gray-100">
+              <p>
+                <strong className="text-orange-600 font-black">Nol-kan Stok:</strong> Angka sisa stok barang menjadi 0. Nama barang dan harga tetap aman di etalase.
+              </p>
+              <p>
+                <strong className="text-red-600 font-black">Hapus Barang:</strong> Menghapus bersih seluruh data produk sekaligus stoknya secara permanen.
+              </p>
+            </div>
             <div className="flex flex-col gap-2">
-              <button onClick={handleClearAllProducts} className="w-full bg-red-600 text-white py-3 md:py-4 rounded-xl md:rounded-2xl font-black text-xs md:text-sm shadow-md hover:bg-red-700 transition-all uppercase tracking-widest">Ya, Bersihkan Etalase</button>
-              <button onClick={() => setShowClearProductsModal(false)} className="w-full py-3 md:py-4 font-black text-gray-400 hover:bg-gray-50 rounded-xl md:rounded-2xl transition-all text-xs md:text-sm">Batal</button>
+              <button onClick={handleResetAllStock} className="w-full bg-orange-100 text-orange-700 py-3 md:py-4 rounded-xl md:rounded-2xl font-black text-xs md:text-sm border border-orange-200 hover:bg-orange-200 transition-all uppercase tracking-widest">Nol-kan Semua Stok</button>
+              <button onClick={handleClearAllProducts} className="w-full bg-red-600 text-white py-3 md:py-4 rounded-xl md:rounded-2xl font-black text-xs md:text-sm shadow-md hover:bg-red-700 transition-all uppercase tracking-widest">Ya, Hapus Semua Barang</button>
+              <button onClick={() => setShowClearProductsModal(false)} className="w-full py-3 md:py-4 font-black text-gray-400 hover:bg-gray-50 rounded-xl md:rounded-2xl transition-all text-xs md:text-sm mt-2">Batal</button>
             </div>
           </div>
         </div>
