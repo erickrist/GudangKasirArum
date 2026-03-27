@@ -4,7 +4,7 @@ import {
 } from 'recharts';
 import { 
   TrendingUp, Trash2, Eye, FileText, Table as TableIcon, Search, Calendar, Wallet, 
-  CreditCard, ArrowDownCircle, ArrowUpCircle, History, Clock, ListFilter, X, RotateCcw, PackagePlus, ChevronDown, ChevronLeft, ChevronRight, AlertTriangle
+  CreditCard, ArrowDownCircle, ArrowUpCircle, History, Clock, ListFilter, X, RotateCcw, PackagePlus, ChevronDown, ChevronLeft, ChevronRight, AlertTriangle, Edit3
 } from 'lucide-react';
 import { useCollection, deleteDocument, addDocument, updateDocument } from '../hooks/useFirestore';
 import Loading from '../components/common/Loading';
@@ -95,7 +95,7 @@ const Dashboard = ({ onShowToast }) => {
 
   const [activeTab, setActiveTab] = useState('overview');
   const [chartPeriod, setChartPeriod] = useState('daily');
-  const [showAllLogs, setShowAllLogs] = useState(false); // STATE BARU UNTUK LOG CEPAT
+  const [showAllLogs, setShowAllLogs] = useState(false); 
   
   // Modals
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -103,8 +103,15 @@ const Dashboard = ({ onShowToast }) => {
   const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
   const [showReturnModal, setShowReturnModal] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false); 
+  const [showDetailModal, setShowDetailModal] = useState(false);
+
+  // Edit Balance Modals
+  const [showEditBalanceModal, setShowEditBalanceModal] = useState(false);
+  const [editBalanceType, setEditBalanceType] = useState('debt'); // 'debt' or 'deposit'
+  const [editBalanceAmount, setEditBalanceAmount] = useState('');
 
   const [selectedItem, setSelectedItem] = useState(null);
+  const [selectedDetailItem, setSelectedDetailItem] = useState(null);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [showNota, setShowNota] = useState(false);
   const [selectedNotaTransaction, setSelectedNotaTransaction] = useState(null);
@@ -148,21 +155,20 @@ const Dashboard = ({ onShowToast }) => {
   const debtLogs = useMemo(() => {
     let logs = [];
     transactions.forEach(t => {
-      if (t.paymentStatus === 'HUTANG' || t.note === 'Penambahan Hutang Manual') {
-        let amount = t.subtotal;
+      if (t.paymentStatus === 'HUTANG' || t.note === 'Penambahan Hutang Manual' || t.note === 'Koreksi Hutang (Bertambah)') {
+        let amount = t.subtotal || t.amount;
         if (t.paymentStatus === 'HUTANG') {
            amount = t.subtotal - (t.returnUsed || 0);
            if (t.debtPaid > 0) amount += t.debtPaid; 
         }
-        if (t.note === 'Penambahan Hutang Manual') amount = t.subtotal || t.amount;
-        logs.push({ ...t, debtType: 'in', nominal: amount, note: (t.paymentStatus === 'HUTANG' && t.debtPaid > 0) ? 'Konsolidasi Hutang Baru' : (t.note || 'Belanja Hutang') });
+        logs.push({ ...t, sourceCollection: 'transactions', debtType: 'in', nominal: amount, note: (t.paymentStatus === 'HUTANG' && t.debtPaid > 0) ? 'Konsolidasi Hutang Baru' : (t.note || 'Belanja Hutang') });
       }
       if (t.debtPaid > 0) {
         const outNote = t.paymentStatus === 'HUTANG' ? 'Penutupan Hutang Lama (Digabung ke Nota Baru)' : `Bayar Hutang di Kasir ${t.note ? '- '+t.note : ''}`;
-        logs.push({ ...t, debtType: 'out', nominal: t.debtPaid, note: outNote });
+        logs.push({ ...t, sourceCollection: 'transactions', debtType: 'out', nominal: t.debtPaid, note: outNote });
       }
-      if (t.note === 'Cicilan/Pelunasan Hutang') {
-         logs.push({ ...t, debtType: 'out', nominal: t.subtotal, note: 'Pelunasan Hutang Manual' });
+      if (t.note === 'Cicilan/Pelunasan Hutang' || t.note === 'Pelunasan Hutang Manual' || t.note === 'Nol-kan Hutang Manual' || t.note === 'Koreksi Hutang (Berkurang)') {
+         logs.push({ ...t, sourceCollection: 'transactions', debtType: 'out', nominal: t.subtotal, note: t.note });
       }
     });
     return logs.sort((a, b) => getSafeDate(b.createdAt) - getSafeDate(a.createdAt));
@@ -171,10 +177,14 @@ const Dashboard = ({ onShowToast }) => {
   const depositLogs = useMemo(() => {
     let logs = [];
     returnsData.forEach(r => {
-      if (r.refundType === 'deposit') logs.push({ ...r, depType: 'in', nominal: r.amount, note: `Retur: ${r.reason}` });
+      if (r.refundType === 'deposit' || r.type === 'manual_deposit_in') {
+        logs.push({ ...r, sourceCollection: 'returns', depType: 'in', nominal: r.amount, note: r.note || `Retur: ${r.reason}` });
+      } else if (r.type === 'manual_deposit_out') {
+        logs.push({ ...r, sourceCollection: 'returns', depType: 'out', nominal: r.amount, note: r.note });
+      }
     });
     transactions.forEach(t => {
-      if (t.returnUsed > 0) logs.push({ ...t, depType: 'out', nominal: t.returnUsed, note: `Dipakai belanja (Nota: #${t.id?.substring(0,6)})` });
+      if (t.returnUsed > 0) logs.push({ ...t, sourceCollection: 'transactions', depType: 'out', nominal: t.returnUsed, note: `Dipakai belanja (Nota: #${t.id?.substring(0,6)})` });
     });
     return logs.sort((a, b) => getSafeDate(b.createdAt) - getSafeDate(a.createdAt));
   }, [returnsData, transactions]);
@@ -183,11 +193,11 @@ const Dashboard = ({ onShowToast }) => {
     let logs = [];
     transactions.forEach(t => {
       if (Number(t.total) > 0) {
-        logs.push({ ...t, netType: 'in', nominal: t.total, subjName: t.customerName || 'Pemasukan Kas', detailNote: t.note || (t.items ? t.items.map(i => i.name).join(', ') : 'Transaksi Lunas') });
+        logs.push({ ...t, sourceCollection: 'transactions', netType: 'in', nominal: t.total, subjName: t.customerName || 'Pemasukan Kas', detailNote: t.note || (t.items ? t.items.map(i => i.name).join(', ') : 'Transaksi Lunas') });
       }
     });
     expenses.forEach(e => {
-      logs.push({ ...e, netType: 'out', nominal: e.amount, subjName: 'Beban/Pengeluaran', detailNote: e.title });
+      logs.push({ ...e, sourceCollection: 'expenses', netType: 'out', nominal: e.amount, subjName: 'Beban/Pengeluaran', detailNote: e.title });
     });
     return logs.sort((a, b) => getSafeDate(b.createdAt) - getSafeDate(a.createdAt));
   }, [transactions, expenses]);
@@ -196,7 +206,7 @@ const Dashboard = ({ onShowToast }) => {
   const allActivityLogs = useMemo(() => {
     let logs = [];
     netLogs.forEach(l => logs.push({ ...l, logTime: getSafeDate(l.createdAt), logCategory: 'KAS', logType: l.netType, logLabel: l.netType === 'in' ? 'Kas Masuk' : 'Kas Keluar', logTitle: l.subjName, logDetail: l.detailNote }));
-    debtLogs.forEach(l => logs.push({ ...l, logTime: getSafeDate(l.createdAt), logCategory: 'HUTANG', logType: l.debtType, logLabel: l.debtType === 'in' ? 'Hutang Bertambah' : 'Hutang Lunas/Cicil', logTitle: l.customerName || 'Tanpa Nama', logDetail: l.note }));
+    debtLogs.forEach(l => logs.push({ ...l, logTime: getSafeDate(l.createdAt), logCategory: 'HUTANG', logType: l.debtType, logLabel: l.debtType === 'in' ? 'Hutang Bertambah' : 'Hutang Berkurang', logTitle: l.customerName || 'Tanpa Nama', logDetail: l.note }));
     depositLogs.forEach(l => logs.push({ ...l, logTime: getSafeDate(l.createdAt), logCategory: 'DEPOSIT', logType: l.depType, logLabel: l.depType === 'in' ? 'Deposit Masuk' : 'Deposit Terpakai', logTitle: l.customerName || 'Tanpa Nama', logDetail: l.note }));
     return logs.sort((a, b) => b.logTime - a.logTime);
   }, [netLogs, debtLogs, depositLogs]);
@@ -236,7 +246,7 @@ const Dashboard = ({ onShowToast }) => {
     if (amount <= 0 || amount > selectedCustomer.remainingDebt) return onShowToast('Nominal tidak valid', 'error');
     const updateRes = await updateDocument('customers', selectedCustomer.id, { remainingDebt: selectedCustomer.remainingDebt - amount });
     if (updateRes.success) {
-      await addDocument('transactions', { customerName: selectedCustomer.name, subtotal: amount, total: amount, note: 'Cicilan/Pelunasan Hutang', paymentStatus: 'LUNAS', createdAt: new Date() });
+      await addDocument('transactions', { customerName: selectedCustomer.name, customerId: selectedCustomer.id, subtotal: amount, total: amount, note: 'Pelunasan Hutang Manual', paymentStatus: 'LUNAS', createdAt: new Date() });
       onShowToast('Hutang diperbarui', 'success');
       setShowPayDebtModal(false);
     }
@@ -254,6 +264,39 @@ const Dashboard = ({ onShowToast }) => {
       onShowToast('Hutang manual berhasil ditambahkan', 'success');
       setNewManualDebt({ customerId: '', amount: '', note: '' });
     }
+  };
+
+  const handleSaveEditBalance = async () => {
+    const newAmount = Number(editBalanceAmount);
+    if (isNaN(newAmount) || newAmount < 0) return onShowToast('Nominal tidak valid', 'error');
+    
+    if (editBalanceType === 'debt') {
+      const oldAmount = Number(selectedCustomer.remainingDebt) || 0;
+      const diff = newAmount - oldAmount;
+      if (diff === 0) { setShowEditBalanceModal(false); return; }
+      
+      await updateDocument('customers', selectedCustomer.id, { remainingDebt: newAmount });
+      if (diff > 0) {
+        await addDocument('transactions', { customerName: selectedCustomer.name, customerId: selectedCustomer.id, subtotal: diff, total: 0, note: 'Koreksi Hutang (Bertambah)', paymentStatus: 'HUTANG', createdAt: new Date() });
+      } else {
+        await addDocument('transactions', { customerName: selectedCustomer.name, customerId: selectedCustomer.id, subtotal: Math.abs(diff), total: 0, note: 'Koreksi Hutang (Berkurang)', paymentStatus: 'LUNAS', createdAt: new Date() });
+      }
+      onShowToast('Hutang berhasil diubah', 'success');
+      
+    } else {
+      const oldAmount = Number(selectedCustomer.returnAmount) || 0;
+      const diff = newAmount - oldAmount;
+      if (diff === 0) { setShowEditBalanceModal(false); return; }
+
+      await updateDocument('customers', selectedCustomer.id, { returnAmount: newAmount });
+      if (diff > 0) {
+        await addDocument('returns', { customerName: selectedCustomer.name, customerId: selectedCustomer.id, amount: diff, type: 'manual_deposit_in', note: 'Koreksi Deposit (Bertambah)', createdAt: new Date() });
+      } else {
+        await addDocument('returns', { customerName: selectedCustomer.name, customerId: selectedCustomer.id, amount: Math.abs(diff), type: 'manual_deposit_out', note: 'Koreksi Deposit (Berkurang)', createdAt: new Date() });
+      }
+      onShowToast('Deposit berhasil diubah', 'success');
+    }
+    setShowEditBalanceModal(false);
   };
 
   const handleResetAllData = async () => {
@@ -291,12 +334,23 @@ const Dashboard = ({ onShowToast }) => {
   const filteredNetBalance = useMemo(() => applyFilters(netLogs, ['customerName', 'note', 'title', 'subjName', 'detailNote']), [netLogs, searchTerm, startDate, endDate]);
 
   const handleBulkDelete = async () => {
-    let target = []; let collectionName = '';
-    if (activeTab === 'transactions') { target = filteredTransactions; collectionName = 'transactions'; }
-    else if (activeTab === 'expenses') { target = filteredExpenses; collectionName = 'expenses'; }
-    if (target.length === 0) return onShowToast('Pilih tab Pemasukan atau Pengeluaran untuk hapus masal', 'error');
-    for (const item of target) { await deleteDocument(collectionName, item.id); }
-    onShowToast(`${target.length} data dihapus`, 'success');
+    let target = []; 
+    if (activeTab === 'transactions') target = filteredTransactions; 
+    else if (activeTab === 'expenses') target = filteredExpenses; 
+    else if (activeTab === 'debts') target = filteredDebtHistory;
+    else if (activeTab === 'returns') target = filteredDepositHistory;
+
+    if (target.length === 0) return onShowToast('Tidak ada data untuk dihapus pada tab ini', 'error');
+    
+    let count = 0;
+    for (const item of target) { 
+      const colName = item.sourceCollection || (activeTab === 'expenses' ? 'expenses' : 'transactions');
+      if (colName) {
+        await deleteDocument(colName, item.id);
+        count++;
+      }
+    }
+    onShowToast(`${count} data dihapus`, 'success');
     setShowBulkDeleteModal(false);
   };
 
@@ -664,7 +718,7 @@ const Dashboard = ({ onShowToast }) => {
                 <div className="flex gap-2 w-full md:w-auto">
                     <button onClick={handleDownloadMasterExcel} className="flex-1 justify-center p-3 bg-green-50 text-green-700 rounded-xl border border-green-200 hover:bg-green-100 flex items-center gap-2 text-xs font-black shadow-sm"><TableIcon className="w-4 h-4" /> </button>
                     <button onClick={handleDownloadMasterPDF} className="flex-1 justify-center p-3 bg-blue-50 text-blue-700 rounded-xl border border-blue-200 hover:bg-blue-100 flex items-center gap-2 text-xs font-black shadow-sm"><FileText className="w-4 h-4" /> </button>
-                    {/* <button onClick={() => setShowResetModal(true)} className="flex-1 justify-center p-3 bg-red-50 text-red-700 rounded-xl border border-red-200 hover:bg-red-100 flex items-center gap-2 text-xs font-black shadow-sm"><AlertTriangle className="w-4 h-4" /> Reset Data</button> */}
+                    <button onClick={() => setShowResetModal(true)} className="flex-1 justify-center p-3 bg-red-50 text-red-700 rounded-xl border border-red-200 hover:bg-red-100 flex items-center gap-2 text-xs font-black shadow-sm"><AlertTriangle className="w-4 h-4" /> Reset Data</button>
                 </div>
              </div>
           </div>
@@ -796,7 +850,14 @@ const Dashboard = ({ onShowToast }) => {
                         {activeTab === 'transactions' && (<td className="p-4 font-black text-gray-800 uppercase max-w-[150px] truncate">{item.customerName || 'Pemasukan Manual'}</td>)}
                         <td className="p-4 font-bold text-gray-600 max-w-[250px] truncate" title={keteranganStr}>{keteranganStr}</td>
                         <td className="p-4 font-black text-right text-gray-700 whitespace-nowrap">Rp {tableNominal.toLocaleString()}</td>
-                        <td className="p-4 text-right"><div className="flex justify-end gap-2">{activeTab === 'transactions' && item.items && (<button onClick={() => { setSelectedNotaTransaction(item); setShowNota(true); }} className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg"><Eye className="w-4 h-4"/></button>)}<button onClick={() => { setSelectedItem(item); setShowDeleteModal(true); }} className="p-2 text-red-500 hover:bg-red-50 rounded-lg"><Trash2 className="w-4 h-4"/></button></div></td>
+                        <td className="p-4 text-right">
+                          <div className="flex justify-end gap-2">
+                            {activeTab === 'transactions' && item.items && (
+                              <button onClick={() => { setSelectedNotaTransaction(item); setShowNota(true); }} className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg"><Eye className="w-4 h-4"/></button>
+                            )}
+                            <button onClick={() => { setSelectedItem(item); setShowDeleteModal(true); }} className="p-2 text-red-500 hover:bg-red-50 rounded-lg"><Trash2 className="w-4 h-4"/></button>
+                          </div>
+                        </td>
                       </tr>
                     );
                   })}
@@ -828,13 +889,29 @@ const Dashboard = ({ onShowToast }) => {
             </div>
             <div className="overflow-x-auto w-full custom-scrollbar">
                <table className="w-full min-w-[500px] text-left text-xs md:text-sm">
-                 <thead><tr className="border-b"><th className="p-4 font-black text-gray-400 uppercase text-[10px]">Pelanggan</th><th className="p-4 font-black text-gray-400 uppercase text-[10px]">Sisa Hutang</th><th className="p-4 font-black text-gray-400 uppercase text-[10px] text-right">Aksi</th></tr></thead>
+                 <thead>
+                   <tr className="border-b">
+                     <th className="p-4 font-black text-gray-400 uppercase text-[10px]">Pelanggan</th>
+                     <th className="p-4 font-black text-gray-400 uppercase text-[10px]">Sisa Hutang</th>
+                     <th className="p-4 font-black text-gray-400 uppercase text-[10px] text-right">Aksi</th>
+                   </tr>
+                 </thead>
                  <tbody className="divide-y">
                    {customers.filter(c => (Number(c.remainingDebt) || 0) > 0).map(c => (
                      <tr key={c.id} className="hover:bg-gray-50 transition-all">
                        <td className="p-4"><div><p className="font-black text-gray-800 uppercase">{c.name}</p><p className="text-[10px] text-gray-400 font-bold">{c.phone || '-'}</p></div></td>
                        <td className="p-4 font-black text-red-600 italic text-sm md:text-lg whitespace-nowrap">Rp {(Number(c.remainingDebt) || 0).toLocaleString()}</td>
-                       <td className="p-4 text-right"><button onClick={() => { setSelectedCustomer(c); setShowPayDebtModal(true); setDebtPaymentAmount(''); setIsFullPayment(true); }} className="bg-teal-600 text-white px-4 py-2 rounded-xl text-[10px] md:text-xs font-black shadow-md hover:bg-teal-700 uppercase tracking-tighter transition-all whitespace-nowrap">Bayar / Cicil</button></td>
+                       <td className="p-4 text-right">
+                         <div className="flex justify-end items-center gap-2">
+                           <button onClick={() => { setSelectedCustomer(c); setShowPayDebtModal(true); setDebtPaymentAmount(''); setIsFullPayment(true); }} className="bg-teal-600 text-white px-4 py-2 rounded-xl text-[10px] md:text-xs font-black shadow-md hover:bg-teal-700 uppercase tracking-tighter transition-all whitespace-nowrap">Bayar / Cicil</button>
+                           <button onClick={() => { setEditBalanceType('debt'); setSelectedCustomer(c); setEditBalanceAmount(c.remainingDebt || 0); setShowEditBalanceModal(true); }} className="bg-white border border-gray-200 text-gray-600 p-2 rounded-xl hover:bg-gray-50 hover:text-teal-600 transition-all shadow-sm" title="Edit Manual">
+                             <Edit3 className="w-4 h-4" />
+                           </button>
+                           <button onClick={() => { setSelectedItem({...c, isCustomerDebt: true}); setShowDeleteModal(true); }} className="bg-red-50 text-red-600 p-2 rounded-xl hover:bg-red-100 transition-all" title="Nol-kan Hutang">
+                             <Trash2 className="w-4 h-4" />
+                           </button>
+                         </div>
+                       </td>
                      </tr>
                    ))}
                  </tbody>
@@ -846,7 +923,15 @@ const Dashboard = ({ onShowToast }) => {
              <div className="p-4 md:p-6 bg-gray-50/50 border-b"><h3 className="text-base md:text-lg font-black text-gray-800 uppercase tracking-tighter flex items-center gap-2"><History className="text-orange-500 w-4 h-4 md:w-5 md:h-5"/> Histori Hutang</h3></div>
              <div className="overflow-x-auto w-full custom-scrollbar">
                 <table className="w-full min-w-[600px] text-left text-xs md:text-sm">
-                   <thead><tr className="bg-gray-50/50 border-b"><th className="p-4 font-black text-gray-400 uppercase text-[10px]">Tgl & Jam</th><th className="p-4 font-black text-gray-400 uppercase text-[10px]">Pelanggan</th><th className="p-4 font-black text-gray-400 uppercase text-[10px]">Keterangan</th><th className="p-4 font-black text-gray-400 uppercase text-[10px] text-right">Nominal</th></tr></thead>
+                   <thead>
+                     <tr className="bg-gray-50/50 border-b">
+                       <th className="p-4 font-black text-gray-400 uppercase text-[10px]">Tgl & Jam</th>
+                       <th className="p-4 font-black text-gray-400 uppercase text-[10px]">Pelanggan</th>
+                       <th className="p-4 font-black text-gray-400 uppercase text-[10px]">Keterangan</th>
+                       <th className="p-4 font-black text-gray-400 uppercase text-[10px] text-right">Nominal</th>
+                       <th className="p-4 font-black text-gray-400 uppercase text-[10px] text-right">Aksi</th>
+                     </tr>
+                   </thead>
                    <tbody className="divide-y">
                      {paginatedItems.map(item => {
                        const isIn = item.debtType === 'in'; 
@@ -857,6 +942,12 @@ const Dashboard = ({ onShowToast }) => {
                             <td className="p-4 font-bold text-gray-600 max-w-[250px] truncate">{item.note || 'Belanja Hutang'}</td>
                             <td className={`p-4 font-black text-right whitespace-nowrap ${isIn ? 'text-red-600' : 'text-teal-600'}`}>
                               {isIn ? '(+)' : '(-)'} Rp {(Number(item.nominal)||0).toLocaleString()}
+                            </td>
+                            <td className="p-4 text-right">
+                              <div className="flex justify-end gap-2">
+                                <button onClick={() => { setSelectedDetailItem(item); setShowDetailModal(true); }} className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg"><Eye className="w-4 h-4"/></button>
+                                <button onClick={() => { setSelectedItem(item); setShowDeleteModal(true); }} className="p-2 text-red-500 hover:bg-red-50 rounded-lg"><Trash2 className="w-4 h-4"/></button>
+                              </div>
                             </td>
                          </tr>
                        );
@@ -882,11 +973,55 @@ const Dashboard = ({ onShowToast }) => {
             </button>
           </div>
 
+          <div className="bg-white rounded-3xl border shadow-sm mb-6 relative z-0 flex flex-col">
+            <div className="p-4 md:p-6 bg-gray-50/50 border-b flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+               <h3 className="text-base md:text-lg font-black text-gray-800 uppercase tracking-tighter">Daftar Deposit Aktif</h3>
+               <div className="bg-purple-100 px-4 py-1.5 rounded-xl text-purple-600 font-black text-[10px] md:text-xs uppercase tracking-tighter">Total: Rp {(totalDeposit || 0).toLocaleString()}</div>
+            </div>
+            <div className="overflow-x-auto w-full custom-scrollbar">
+               <table className="w-full min-w-[500px] text-left text-xs md:text-sm">
+                 <thead>
+                   <tr className="border-b">
+                     <th className="p-4 font-black text-gray-400 uppercase text-[10px]">Pelanggan</th>
+                     <th className="p-4 font-black text-gray-400 uppercase text-[10px]">Saldo Deposit</th>
+                     <th className="p-4 font-black text-gray-400 uppercase text-[10px] text-right">Aksi</th>
+                   </tr>
+                 </thead>
+                 <tbody className="divide-y">
+                   {customers.filter(c => (Number(c.returnAmount) || 0) > 0).map(c => (
+                     <tr key={c.id} className="hover:bg-gray-50 transition-all">
+                       <td className="p-4"><div><p className="font-black text-gray-800 uppercase">{c.name}</p><p className="text-[10px] text-gray-400 font-bold">{c.phone || '-'}</p></div></td>
+                       <td className="p-4 font-black text-purple-600 italic text-sm md:text-lg whitespace-nowrap">Rp {(Number(c.returnAmount) || 0).toLocaleString()}</td>
+                       <td className="p-4 text-right">
+                         <div className="flex justify-end items-center gap-2">
+                           <button onClick={() => { setEditBalanceType('deposit'); setSelectedCustomer(c); setEditBalanceAmount(c.returnAmount || 0); setShowEditBalanceModal(true); }} className="bg-white border border-gray-200 text-gray-600 px-3 py-2 rounded-xl text-[10px] md:text-xs font-black shadow-sm hover:bg-gray-50 hover:text-teal-600 transition-all whitespace-nowrap">
+                             <Edit3 className="w-4 h-4 inline-block mr-1"/> Edit
+                           </button>
+                           <button onClick={() => { setSelectedItem({...c, isCustomerDeposit: true}); setShowDeleteModal(true); }} className="bg-red-50 text-red-600 p-2 rounded-xl hover:bg-red-100 transition-all" title="Nol-kan Deposit">
+                             <Trash2 className="w-4 h-4" />
+                           </button>
+                         </div>
+                       </td>
+                     </tr>
+                   ))}
+                 </tbody>
+               </table>
+            </div>
+          </div>
+
           <div className="bg-white rounded-[32px] border shadow-sm flex flex-col">
             <div className="p-4 md:p-6 bg-gray-50/50 border-b"><h3 className="text-base md:text-lg font-black text-gray-800 uppercase tracking-tighter flex items-center gap-2"><History className="text-purple-500 w-4 h-4 md:w-5 md:h-5"/> Histori Deposit</h3></div>
             <div className="overflow-x-auto w-full custom-scrollbar">
                <table className="w-full min-w-[600px] text-left text-xs md:text-sm">
-                 <thead><tr className="border-b bg-gray-50/50"><th className="p-4 font-black text-gray-400 uppercase text-[10px]">Tgl & Jam</th><th className="p-4 font-black text-gray-400 uppercase text-[10px]">Pelanggan</th><th className="p-4 font-black text-gray-400 uppercase text-[10px]">Detail</th><th className="p-4 font-black text-gray-400 uppercase text-[10px] text-right">Perubahan</th></tr></thead>
+                 <thead>
+                   <tr className="border-b bg-gray-50/50">
+                     <th className="p-4 font-black text-gray-400 uppercase text-[10px]">Tgl & Jam</th>
+                     <th className="p-4 font-black text-gray-400 uppercase text-[10px]">Pelanggan</th>
+                     <th className="p-4 font-black text-gray-400 uppercase text-[10px]">Detail</th>
+                     <th className="p-4 font-black text-gray-400 uppercase text-[10px] text-right">Perubahan</th>
+                     <th className="p-4 font-black text-gray-400 uppercase text-[10px] text-right">Aksi</th>
+                   </tr>
+                 </thead>
                  <tbody className="divide-y">
                    {paginatedItems.map(item => {
                      const isIn = item.depType === 'in';
@@ -897,6 +1032,12 @@ const Dashboard = ({ onShowToast }) => {
                          <td className="p-4 font-bold text-gray-600 leading-relaxed max-w-[200px] truncate">{item.note}</td>
                          <td className={`p-4 font-black text-right whitespace-nowrap ${isIn ? 'text-teal-600' : 'text-red-600'}`}>
                            {isIn ? '(+)' : '(-)'} Rp {(Number(item.nominal)||0).toLocaleString()}
+                         </td>
+                         <td className="p-4 text-right">
+                           <div className="flex justify-end gap-2">
+                             <button onClick={() => { setSelectedDetailItem(item); setShowDetailModal(true); }} className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg"><Eye className="w-4 h-4"/></button>
+                             <button onClick={() => { setSelectedItem(item); setShowDeleteModal(true); }} className="p-2 text-red-500 hover:bg-red-50 rounded-lg"><Trash2 className="w-4 h-4"/></button>
+                           </div>
                          </td>
                        </tr>
                      );
@@ -947,6 +1088,82 @@ const Dashboard = ({ onShowToast }) => {
       )}
 
       {/* --- MODALS --- */}
+
+      {/* MODAL EDIT HUTANG & DEPOSIT */}
+      {showEditBalanceModal && selectedCustomer && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
+          <div className="bg-white rounded-[32px] p-6 md:p-8 max-w-sm w-full shadow-2xl relative border-t-8 border-teal-600">
+            <button onClick={() => setShowEditBalanceModal(false)} className="absolute right-6 top-6 text-gray-400 hover:text-gray-600"><X /></button>
+            <h3 className="text-lg md:text-xl font-black text-gray-800 mb-2 uppercase">Koreksi Manual</h3>
+            <p className="text-xs text-gray-500 mb-6 font-bold">
+              Ubah angka {editBalanceType === 'debt' ? 'hutang' : 'deposit'} untuk <span className="text-teal-600 uppercase tracking-widest">{selectedCustomer.name}</span>
+            </p>
+            
+            <div className="mb-6">
+              <label className="text-[9px] md:text-[10px] font-black text-gray-400 uppercase ml-2 mb-2 block">
+                Total {editBalanceType === 'debt' ? 'Hutang' : 'Deposit'} Baru
+              </label>
+              <input 
+                type="number" 
+                className="w-full bg-gray-50 rounded-2xl px-4 py-4 text-lg md:text-xl font-black text-teal-600 focus:ring-2 focus:ring-teal-500 outline-none border-none" 
+                value={editBalanceAmount} 
+                onChange={e => setEditBalanceAmount(e.target.value)} 
+                placeholder="0" 
+              />
+            </div>
+
+            <div className="flex gap-2">
+              <button onClick={() => setShowEditBalanceModal(false)} className="flex-1 py-3 font-black text-gray-400 hover:bg-gray-100 rounded-xl transition-all">Batal</button>
+              <button onClick={handleSaveEditBalance} className="flex-1 bg-teal-600 text-white py-3 rounded-xl font-black shadow-md hover:bg-teal-700 transition-all uppercase tracking-widest">Simpan</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDetailModal && selectedDetailItem && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
+          <div className="bg-white rounded-[32px] p-6 md:p-8 max-w-sm w-full shadow-2xl relative border-t-8 border-teal-600">
+            <button onClick={() => setShowDetailModal(false)} className="absolute right-6 top-6 text-gray-400 hover:text-gray-600"><X /></button>
+            <h3 className="text-lg md:text-xl font-black text-gray-800 mb-6 uppercase">Detail Histori</h3>
+            
+            <div className="space-y-4 text-sm">
+              <div className="flex justify-between border-b border-gray-100 pb-2">
+                <span className="text-gray-500 font-bold">Tanggal</span>
+                <span className="font-black text-gray-800">{formatDisplayDate(selectedDetailItem.createdAt)}</span>
+              </div>
+              <div className="flex justify-between border-b border-gray-100 pb-2">
+                <span className="text-gray-500 font-bold">Pelanggan</span>
+                <span className="font-black text-gray-800 uppercase">{selectedDetailItem.customerName || 'Tanpa Nama'}</span>
+              </div>
+              <div className="flex justify-between border-b border-gray-100 pb-2">
+                <span className="text-gray-500 font-bold">Keterangan</span>
+                <span className="font-black text-gray-800 text-right w-1/2">{selectedDetailItem.note || '-'}</span>
+              </div>
+              <div className="flex justify-between border-b border-gray-100 pb-2">
+                <span className="text-gray-500 font-bold">Nominal</span>
+                <span className="font-black text-teal-600 text-base">Rp {(Number(selectedDetailItem.nominal) || 0).toLocaleString()}</span>
+              </div>
+              
+              {selectedDetailItem.items && selectedDetailItem.items.length > 0 && (
+                <div className="pt-2">
+                  <span className="text-gray-500 font-bold block mb-2">Item Terkait:</span>
+                  <ul className="bg-gray-50 p-3 rounded-xl max-h-32 overflow-y-auto custom-scrollbar">
+                    {selectedDetailItem.items.map((i, idx) => (
+                      <li key={idx} className="flex justify-between text-xs mb-2 pb-2 border-b border-gray-200 last:border-0 last:mb-0 last:pb-0 font-bold text-gray-700">
+                        <span>{i.qty}x {i.name}</span>
+                        <span>Rp {(i.price * i.qty).toLocaleString()}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+            
+            <button onClick={() => setShowDetailModal(false)} className="w-full mt-6 bg-gray-100 text-gray-600 py-3 rounded-2xl font-black text-xs md:text-sm shadow-sm hover:bg-gray-200 transition-all">Tutup</button>
+          </div>
+        </div>
+      )}
+
       {showPayDebtModal && selectedCustomer && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
           <div className="bg-white rounded-[40px] p-6 md:p-10 max-w-sm w-full shadow-2xl relative border-t-8 border-teal-600 max-h-[90vh] overflow-y-auto custom-scrollbar">
@@ -964,13 +1181,51 @@ const Dashboard = ({ onShowToast }) => {
         </div>
       )}
 
-      {showDeleteModal && (
+      {showDeleteModal && selectedItem && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
           <div className="bg-white rounded-[32px] p-6 md:p-8 max-w-sm w-full shadow-2xl text-center">
-            <h3 className="text-lg md:text-xl font-black text-gray-800 mb-6">Hapus Data Ini?</h3>
+            <h3 className="text-lg md:text-xl font-black text-gray-800 mb-6">
+              {selectedItem.isCustomerDebt ? 'Nol-kan Hutang?' : selectedItem.isCustomerDeposit ? 'Nol-kan Deposit?' : 'Hapus Data Ini?'}
+            </h3>
+            {selectedItem.isCustomerDebt && (
+              <p className="text-xs text-gray-500 mb-6 font-bold leading-relaxed">
+                Ini akan mengubah sisa hutang <strong>{selectedItem.name}</strong> menjadi Rp 0.
+              </p>
+            )}
+            {selectedItem.isCustomerDeposit && (
+              <p className="text-xs text-gray-500 mb-6 font-bold leading-relaxed">
+                Ini akan mengubah sisa deposit <strong>{selectedItem.name}</strong> menjadi Rp 0.
+              </p>
+            )}
             <div className="flex gap-3 md:gap-4">
-              <button onClick={() => setShowDeleteModal(false)} className="flex-1 py-3 md:py-4 font-black text-gray-400 text-xs md:text-sm">Batal</button>
-              <button onClick={async () => { await deleteDocument(activeTab === 'expenses' ? 'expenses' : activeTab === 'returns' ? 'returns' : 'transactions', selectedItem.id); onShowToast('Dihapus', 'success'); setShowDeleteModal(false); }} className="flex-1 bg-red-600 text-white py-3 md:py-4 rounded-2xl font-black text-xs md:text-sm shadow-md">Hapus</button>
+              <button onClick={() => setShowDeleteModal(false)} className="flex-1 py-3 md:py-4 font-black text-gray-400 text-xs md:text-sm hover:bg-gray-50 rounded-2xl transition-all">Batal</button>
+              <button 
+                onClick={async () => { 
+                  if (selectedItem.isCustomerDebt) {
+                    const oldAmount = Number(selectedItem.remainingDebt) || 0;
+                    await updateDocument('customers', selectedItem.id, { remainingDebt: 0 });
+                    if(oldAmount > 0) {
+                      await addDocument('transactions', { customerName: selectedItem.name, customerId: selectedItem.id, subtotal: oldAmount, total: 0, note: 'Nol-kan Hutang Manual', paymentStatus: 'LUNAS', createdAt: new Date() });
+                    }
+                    onShowToast('Hutang berhasil di-nol-kan', 'success');
+                  } else if (selectedItem.isCustomerDeposit) {
+                    const oldAmount = Number(selectedItem.returnAmount) || 0;
+                    await updateDocument('customers', selectedItem.id, { returnAmount: 0 });
+                    if(oldAmount > 0) {
+                      await addDocument('returns', { customerName: selectedItem.name, customerId: selectedItem.id, amount: oldAmount, type: 'manual_deposit_out', note: 'Nol-kan Deposit Manual', createdAt: new Date() });
+                    }
+                    onShowToast('Deposit berhasil di-nol-kan', 'success');
+                  } else {
+                    const colName = selectedItem.sourceCollection || (activeTab === 'expenses' ? 'expenses' : activeTab === 'returns' ? 'returns' : 'transactions');
+                    await deleteDocument(colName, selectedItem.id); 
+                    onShowToast('Data berhasil dihapus', 'success');
+                  }
+                  setShowDeleteModal(false); 
+                }} 
+                className="flex-1 bg-red-600 text-white py-3 md:py-4 rounded-2xl font-black text-xs md:text-sm shadow-md hover:bg-red-700 transition-all"
+              >
+                Hapus
+              </button>
             </div>
           </div>
         </div>
@@ -978,12 +1233,12 @@ const Dashboard = ({ onShowToast }) => {
 
       {showBulkDeleteModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
-          <div className="bg-white rounded-[32px] p-6 md:p-8 max-w-sm w-full shadow-2xl text-center">
+          <div className="bg-white rounded-[32px] p-6 md:p-8 max-w-sm w-full shadow-2xl text-center border-t-8 border-red-600">
             <h3 className="text-lg md:text-xl font-black text-gray-800 mb-2">Hapus Masal?</h3>
-            <p className="text-xs md:text-sm text-gray-500 mb-6 font-bold">Yakin ingin menghapus seluruh data yang sedang difilter?</p>
+            <p className="text-xs md:text-sm text-gray-500 mb-6 font-bold">Yakin ingin menghapus seluruh histori data yang sedang tampil/difilter pada tab ini?</p>
             <div className="flex flex-col gap-2">
-              <button onClick={handleBulkDelete} className="w-full bg-red-600 text-white py-3 md:py-4 rounded-2xl font-black text-xs md:text-sm shadow-md shadow-red-100">Ya, Hapus Semua</button>
-              <button onClick={() => setShowBulkDeleteModal(false)} className="w-full py-3 md:py-4 font-black text-gray-400 text-xs md:text-sm">Batal</button>
+              <button onClick={handleBulkDelete} className="w-full bg-red-600 text-white py-3 md:py-4 rounded-2xl font-black text-xs md:text-sm shadow-md shadow-red-100 hover:bg-red-700 transition-all">Ya, Hapus Semua</button>
+              <button onClick={() => setShowBulkDeleteModal(false)} className="w-full py-3 md:py-4 font-black text-gray-400 text-xs md:text-sm hover:bg-gray-50 rounded-2xl transition-all">Batal</button>
             </div>
           </div>
         </div>

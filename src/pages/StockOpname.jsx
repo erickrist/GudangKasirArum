@@ -31,6 +31,10 @@ const StockOpname = ({ onShowToast }) => {
   const [showClearHistoryModal, setShowClearHistoryModal] = useState(false);
   const [showClearProductsModal, setShowClearProductsModal] = useState(false);
   
+  // Modal Hapus Per Item di Histori
+  const [showDeleteHistoryModal, setShowDeleteHistoryModal] = useState(false);
+  const [selectedHistoryItem, setSelectedHistoryItem] = useState(null);
+  
   const [modalMode, setModalMode] = useState('add');
   const [stockMode, setStockMode] = useState('in');
   const [selectedProduct, setSelectedProduct] = useState(null);
@@ -84,6 +88,8 @@ const StockOpname = ({ onShowToast }) => {
     stockLogs.forEach(log => {
       combinedLogs.push({
         id: log.id,
+        uniqueKey: log.id,
+        sourceCollection: 'stock_logs',
         createdAt: log.createdAt,
         productId: log.productId,
         productName: log.productName,
@@ -98,7 +104,9 @@ const StockOpname = ({ onShowToast }) => {
     transactions.forEach(t => {
       t.items?.forEach(item => {
         combinedLogs.push({
-          id: `${t.id}-${item.productId}`,
+          id: t.id, // Gunakan ID transaksi aslinya agar bisa dihapus
+          uniqueKey: `${t.id}-${item.productId}`, // Key unik untuk mapping list React
+          sourceCollection: 'transactions',
           createdAt: t.createdAt,
           productId: item.productId,
           productName: item.name,
@@ -621,7 +629,7 @@ const StockOpname = ({ onShowToast }) => {
             </div>
           </div>
 
-          {/* HEADER EXPORT (Desain Sesuai Foto Referensi HP) */}
+          {/* HEADER EXPORT */}
           <div className="bg-white p-4 md:p-6 rounded-2xl md:rounded-[32px] border shadow-sm flex flex-col lg:flex-row gap-4 lg:gap-6 items-start lg:items-center justify-between">
              <div className="w-full lg:w-auto">
                 <h4 className="text-sm md:text-base font-black text-gray-800">Cetak Laporan Histori Stok</h4>
@@ -629,7 +637,6 @@ const StockOpname = ({ onShowToast }) => {
              </div>
              
              <div className="w-full lg:w-auto flex flex-col sm:flex-row gap-3">
-                {/* Date Picker Block */}
                 <div className="flex items-center justify-between bg-gray-50 px-4 py-3 md:py-2.5 rounded-xl border border-gray-200 w-full sm:w-auto">
                   <div className="flex items-center gap-2 flex-1 sm:flex-none">
                     <input type="date" className="bg-transparent text-xs md:text-sm font-black outline-none w-full uppercase text-gray-700" value={startDate} onChange={e => {setStartDate(e.target.value); setHistoryPage(1);}} />
@@ -640,7 +647,6 @@ const StockOpname = ({ onShowToast }) => {
                   </div>
                 </div>
                 
-                {/* Buttons Block */}
                 <div className="grid grid-cols-2 sm:flex gap-3 w-full sm:w-auto">
                   <button onClick={handleDownloadHistoryExcel} title="Download Excel" className="flex items-center justify-center py-3 sm:px-5 bg-green-50 text-green-600 rounded-xl border border-green-200 hover:bg-green-100 transition-colors shadow-sm">
                      <TableIcon className="w-5 h-5" />
@@ -666,15 +672,14 @@ const StockOpname = ({ onShowToast }) => {
               </div>
             </div>
             
-            {/* Action Buttons with Delete Functions (Moved aside search bar) */}
-            {/* <div className="flex gap-2 w-full sm:w-auto">
+            <div className="flex gap-2 w-full sm:w-auto">
                <button onClick={() => setShowClearHistoryModal(true)} className="flex-1 sm:flex-none justify-center px-4 py-3 sm:py-0 bg-red-50 text-red-600 rounded-xl md:rounded-2xl border border-red-200 hover:bg-red-100 flex items-center gap-1.5 text-[10px] md:text-xs font-black transition-colors shadow-sm whitespace-nowrap">
                   <Trash2 className="w-3.5 h-3.5" /> Bersihkan Histori
                </button>
                <button onClick={() => setShowClearProductsModal(true)} className="flex-1 sm:flex-none justify-center px-4 py-3 sm:py-0 bg-red-50 text-red-600 rounded-xl md:rounded-2xl border border-red-200 hover:bg-red-100 flex items-center gap-1.5 text-[10px] md:text-xs font-black transition-colors shadow-sm whitespace-nowrap">
                   <Trash2 className="w-3.5 h-3.5" /> Hapus Semua Barang
                </button>
-            </div> */}
+            </div>
           </div>
 
           <div className="bg-white rounded-[24px] md:rounded-[32px] border overflow-hidden shadow-sm flex flex-col">
@@ -689,11 +694,12 @@ const StockOpname = ({ onShowToast }) => {
                     <th className="p-4 md:p-5 font-black text-gray-400 uppercase text-[9px] md:text-[10px]">Kategori Log</th>
                     <th className="p-4 md:p-5 font-black text-gray-400 uppercase text-[9px] md:text-[10px] text-center">Jumlah Satuan</th>
                     <th className="p-4 md:p-5 font-black text-gray-400 uppercase text-[9px] md:text-[10px] text-right">Keterangan Detail</th>
+                    <th className="p-4 md:p-5 font-black text-gray-400 uppercase text-[9px] md:text-[10px] text-right">Aksi</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {paginatedHistory.length === 0 ? (
-                    <tr><td colSpan="5" className="p-6 md:p-10 text-center text-gray-400 font-bold text-xs md:text-sm">Tidak ada histori ditemukan.</td></tr>
+                    <tr><td colSpan="6" className="p-6 md:p-10 text-center text-gray-400 font-bold text-xs md:text-sm">Tidak ada histori ditemukan.</td></tr>
                   ) : (
                     paginatedHistory.map(log => {
                       let badgeColor = '';
@@ -703,7 +709,7 @@ const StockOpname = ({ onShowToast }) => {
                       else if (log.type === 'TERJUAL') { badgeColor = 'bg-red-100 text-red-700 border-red-200'; symbol = '-'; }
 
                       return (
-                        <tr key={log.id} className="hover:bg-gray-50 transition-colors">
+                        <tr key={log.uniqueKey} className="hover:bg-gray-50 transition-colors">
                           <td className="p-4 md:p-5 font-bold text-gray-500 whitespace-nowrap">{formatDisplayDate(log.createdAt)}</td>
                           <td className="p-4 md:p-5">
                             <p className="font-black text-gray-800 uppercase leading-tight max-w-[150px] md:max-w-[200px] truncate">{log.productName}</p>
@@ -719,6 +725,11 @@ const StockOpname = ({ onShowToast }) => {
                           </td>
                           <td className="p-4 md:p-5 text-right max-w-[200px] md:max-w-xs">
                             <p className="font-bold text-gray-600 text-[10px] md:text-xs leading-relaxed truncate">{log.note}</p>
+                          </td>
+                          <td className="p-4 md:p-5 text-right">
+                            <button onClick={() => { setSelectedHistoryItem(log); setShowDeleteHistoryModal(true); }} className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors" title="Hapus Log">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
                           </td>
                         </tr>
                       );
@@ -914,6 +925,34 @@ const StockOpname = ({ onShowToast }) => {
             <div className="flex flex-col gap-2">
               <button onClick={handleDelete} className="w-full bg-red-600 text-white py-3 md:py-4 rounded-xl md:rounded-2xl font-black text-xs md:text-sm shadow-md shadow-red-100 uppercase tracking-widest active:scale-95">Ya, Hapus Permanen</button>
               <button onClick={() => setShowDeleteModal(false)} className="w-full py-3 md:py-4 font-black text-gray-400 text-xs md:text-sm hover:bg-gray-50 rounded-xl md:rounded-2xl transition-colors">Batal</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL HAPUS PER ITEM DI HISTORI */}
+      {showDeleteHistoryModal && selectedHistoryItem && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
+          <div className="bg-white rounded-[24px] md:rounded-[32px] p-6 md:p-8 max-w-sm w-full shadow-2xl text-center border-t-8 border-red-600">
+            <h3 className="text-lg md:text-xl font-black text-gray-800 mb-2">Hapus Log Ini?</h3>
+            <p className="text-xs md:text-sm text-gray-500 mb-6 font-bold leading-relaxed">
+              {selectedHistoryItem.sourceCollection === 'transactions' 
+                ? 'Peringatan: Ini adalah data penjualan kasir. Jika Anda menghapus log ini, seluruh riwayat transaksi pada nota tersebut juga akan ikut terhapus dari sistem.' 
+                : 'Log histori stok ini akan dihapus secara permanen.'}
+            </p>
+            <div className="flex flex-col gap-2">
+              <button 
+                onClick={async () => {
+                  await deleteDocument(selectedHistoryItem.sourceCollection, selectedHistoryItem.id);
+                  onShowToast('Data log berhasil dihapus', 'success');
+                  setShowDeleteHistoryModal(false);
+                  setSelectedHistoryItem(null);
+                }} 
+                className="w-full bg-red-600 text-white py-3 md:py-4 rounded-xl md:rounded-2xl font-black text-xs md:text-sm shadow-md hover:bg-red-700 transition-all uppercase tracking-widest"
+              >
+                Ya, Hapus
+              </button>
+              <button onClick={() => setShowDeleteHistoryModal(false)} className="w-full py-3 md:py-4 font-black text-gray-400 hover:bg-gray-50 rounded-xl md:rounded-2xl transition-all text-xs md:text-sm">Batal</button>
             </div>
           </div>
         </div>
