@@ -108,7 +108,7 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
         pcsPerCarton: product.pcsPerCarton || 1,
         price: product.price,
         qty: 1,
-        returnUnit: 'pack', // 'pack' (Karton/Bal) atau 'pcs'
+        returnUnit: 'pack', // 'pack' mengacu ke satuan utuh (KARTON/BALL/IKAT)
         isManual: false
       }]);
     }
@@ -126,7 +126,7 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
       pcsPerCarton: 1,
       price: Number(manualItem.price),
       qty: Number(manualItem.qty),
-      returnUnit: 'pack', // Default untuk manual
+      returnUnit: 'pack', 
       isManual: true
     }]);
     
@@ -134,9 +134,7 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
     onShowToast('Barang manual ditambahkan', 'success');
   };
 
-  // Fungsi update Qty dari tombol +/- dan input manual
   const updateQty = (productId, newQty) => {
-    // Menghandle input manual kosong/NaN dengan membiarkannya di state sementara
     if (newQty === '' || isNaN(newQty)) {
         setCart(cart.map(item => item.productId === productId ? { ...item, qty: '' } : item));
         return;
@@ -159,7 +157,6 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
     }));
   };
 
-  // Helper untuk mendapatkan harga yang benar (Harga Pack vs Harga Pcs)
   const getItemPrice = (item) => {
     if (item.returnUnit === 'pcs' && item.pcsPerCarton > 1) {
       return Math.round(item.price / item.pcsPerCarton);
@@ -177,7 +174,6 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
     if (cart.length === 0) return onShowToast('Keranjang retur masih kosong!', 'error');
     if (!reason) return onShowToast('Masukkan alasan retur!', 'error');
 
-    // Validasi tambahan: Pastikan Qty valid (bukan teks kosong dari input manual)
     if (cart.some(i => !i.qty || Number(i.qty) < 1)) {
         return onShowToast('Pastikan semua Qty barang diisi dengan angka valid!', 'error');
     }
@@ -185,7 +181,7 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
     const cust = customers.find(c => c.id === selectedCustomer);
     if (!cust) return;
 
-    // Rangkai rincian barang, perhatikan Pcs atau Pack
+    // Rangkai rincian barang, perhatikan Pcs atau Unit Utuh (Ball/Ikat/Karton)
     const itemDetails = cart.map(item => {
       const unitLabel = item.returnUnit === 'pcs' ? 'Pcs' : item.unitType;
       return `${item.qty} ${unitLabel} ${item.name}`;
@@ -214,7 +210,7 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
         amount: totalReturnAmount,
         reason: finalReason,
         refundType: refundType,
-        items: cart.map(i => ({ ...i, finalPrice: getItemPrice(i) })), // Simpan detail dengan harga final
+        items: cart.map(i => ({ ...i, finalPrice: getItemPrice(i) })), 
         createdAt: new Date()
       });
       
@@ -284,7 +280,10 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
                       >
                         <div className="flex-1 pr-2">
                           <p className="font-black text-gray-800 text-xs md:text-sm uppercase truncate">{p.name}</p>
-                          <p className="text-[10px] md:text-xs text-gray-500 font-bold">Rp {p.price.toLocaleString()} {p.pcsPerCarton > 1 && <span className="text-purple-400"> (Isi {p.pcsPerCarton})</span>}</p>
+                          <p className="text-[10px] md:text-xs text-gray-500 font-bold">
+                            Rp {p.price.toLocaleString()} 
+                            {p.pcsPerCarton > 1 && <span className="text-purple-400"> (Isi {p.pcsPerCarton} Pcs / {p.unitType})</span>}
+                          </p>
                         </div>
                         <span className="bg-purple-100 text-purple-700 text-[9px] md:text-[10px] font-black px-2 py-1 rounded-lg">{p.unitType}</span>
                       </button>
@@ -357,8 +356,9 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
                               <p className="font-black text-xs md:text-sm text-gray-800 uppercase line-clamp-1">
                                 {item.name} {item.isManual && <span className="text-[8px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded ml-1">Manual</span>}
                               </p>
+                              {/* PERBAIKAN: Menyesuaikan teks sesuai Pcs atau Unit Asli (Karton/Ball/Ikat) */}
                               <p className="text-[9px] md:text-[10px] text-gray-500 font-bold mt-0.5 whitespace-nowrap">
-                                {isPcsMode ? 'Ecer' : `Utuh (${item.unitType})`}: Rp {finalPrice.toLocaleString()} / Pcs
+                                {isPcsMode ? 'Eceran (Pcs)' : `Utuh (${item.unitType})`}: Rp {finalPrice.toLocaleString()} / {isPcsMode ? 'Pcs' : item.unitType}
                               </p>
                             </div>
                             <button type="button" onClick={() => updateQty(item.productId, 0)} className="text-gray-400 p-1 hover:bg-red-50 hover:text-red-500 rounded-lg"><Trash2 className="w-4 h-4"/></button>
@@ -366,7 +366,6 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
                           
                           <div className="flex flex-wrap items-center gap-3">
                             
-                            {/* Qty Controls (Revisi 2: Bisa diketik) */}
                             <div className="flex items-center gap-1.5 bg-gray-100/70 p-1 rounded-lg border border-gray-200/50">
                                 <button type="button" onClick={() => updateQty(item.productId, (Number(item.qty) || 1) - 1)} className="w-6 h-6 bg-white border border-gray-300 rounded flex items-center justify-center hover:bg-gray-100 text-gray-600 shadow-sm"><Minus className="w-3.5 h-3.5" /></button>
                                 
@@ -389,7 +388,7 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
                             <span className="font-black text-sm text-purple-700 ml-auto text-right">Rp {(finalPrice * (Number(item.qty) || 0)).toLocaleString()}</span>
                           </div>
 
-                          {/* Tombol Konversi Satuan (Revisi 1: Perjelas) */}
+                          {/* PERBAIKAN: Tombol Ganti Satuan Lebih Dinamis */}
                           {canToggle && (
                             <div className="pt-2 border-t border-gray-100 mt-1">
                                 <button 
@@ -398,7 +397,7 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
                                 className={`w-full text-center flex items-center justify-center gap-1.5 text-[10px] md:text-xs font-extrabold px-3 py-2 rounded-xl border-2 transition-all shadow-sm ${isPcsMode ? 'bg-orange-100 text-orange-800 border-orange-300 hover:bg-orange-200' : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400'}`}
                                 >
                                 <Repeat2 className={`w-4 h-4 ${isPcsMode ? 'text-orange-600' : 'text-gray-400'}`} />
-                                {isPcsMode ? ` Ganti Satuan Retur ke ${item.unitType} (Utuh)` : ` Ganti Satuan Retur ke Pcs (Eceran)`}
+                                {isPcsMode ? `✨ Ganti Satuan Retur ke ${item.unitType} (Utuh)` : `✨ Ganti Satuan Retur ke Pcs (Eceran)`}
                                 </button>
                             </div>
                           )}
