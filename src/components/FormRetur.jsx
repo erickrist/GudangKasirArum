@@ -397,7 +397,7 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
                                 className={`w-full text-center flex items-center justify-center gap-1.5 text-[10px] md:text-xs font-extrabold px-3 py-2 rounded-xl border-2 transition-all shadow-sm ${isPcsMode ? 'bg-orange-100 text-orange-800 border-orange-300 hover:bg-orange-200' : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400'}`}
                                 >
                                 <Repeat2 className={`w-4 h-4 ${isPcsMode ? 'text-orange-600' : 'text-gray-400'}`} />
-                                {isPcsMode ? `✨ Ganti Satuan Retur ke ${item.unitType} (Utuh)` : `✨ Ganti Satuan Retur ke Pcs (Eceran)`}
+                                {isPcsMode ? ` Ganti Satuan Retur ke ${item.unitType} (Utuh)` : ` Ganti Satuan Retur ke Pcs (Eceran)`}
                                 </button>
                             </div>
                           )}
