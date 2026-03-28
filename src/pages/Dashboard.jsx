@@ -4,7 +4,7 @@ import {
 } from 'recharts';
 import { 
   TrendingUp, Trash2, Eye, FileText, Table as TableIcon, Search, Calendar, Wallet, 
-  CreditCard, ArrowDownCircle, ArrowUpCircle, History, Clock, ListFilter, X, RotateCcw, PackagePlus, ChevronDown, ChevronLeft, ChevronRight, AlertTriangle, Edit3
+  CreditCard, ArrowDownCircle, ArrowUpCircle, History, Clock, ListFilter, X, RotateCcw, PackagePlus, ChevronDown, ChevronLeft, ChevronRight, AlertTriangle, Edit3, Download
 } from 'lucide-react';
 import { useCollection, deleteDocument, addDocument, updateDocument } from '../hooks/useFirestore';
 import Loading from '../components/common/Loading';
@@ -104,6 +104,7 @@ const Dashboard = ({ onShowToast }) => {
   const [showReturnModal, setShowReturnModal] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false); 
   const [showDetailModal, setShowDetailModal] = useState(false);
+  const [showDownloadModal, setShowDownloadModal] = useState(false);
 
   // Edit Balance Modals
   const [showEditBalanceModal, setShowEditBalanceModal] = useState(false);
@@ -355,7 +356,7 @@ const Dashboard = ({ onShowToast }) => {
   };
 
   // =====================================================================
-  // --- FUNGSI EXPORT EXCEL (DENGAN TOTAL) ---
+  // --- FUNGSI EXPORT EXCEL (MASTER) ---
   // =====================================================================
   const handleDownloadMasterExcel = () => { 
     if (filteredNetBalance.length === 0 && filteredDebtHistory.length === 0 && filteredDepositHistory.length === 0) {
@@ -448,7 +449,7 @@ const Dashboard = ({ onShowToast }) => {
   };
 
   // =====================================================================
-  // --- FUNGSI EXPORT PDF (DENGAN TOTAL SEPERTI FOTO) ---
+  // --- FUNGSI EXPORT PDF (MASTER) ---
   // =====================================================================
   const handleDownloadMasterPDF = () => { 
     if (filteredNetBalance.length === 0 && filteredDebtHistory.length === 0 && filteredDepositHistory.length === 0) {
@@ -605,6 +606,65 @@ const Dashboard = ({ onShowToast }) => {
     onShowToast('File PDF berhasil diunduh', 'success');
   };
 
+  // =====================================================================
+  // --- FUNGSI EXPORT PDF (NERACA SALDO / LAPORAN POSISI KEUANGAN) ---
+  // =====================================================================
+  const handleDownloadNeracaPDF = () => {
+    const doc = new jsPDF('p', 'mm', 'a4');
+    
+    // Header
+    doc.setFontSize(16); doc.setFont("helvetica", "bold");
+    doc.text("LAPORAN NERACA SALDO", 105, 20, { align: "center" });
+    doc.setFontSize(12); doc.setFont("helvetica", "normal");
+    doc.text("ARZEN Frozen Food", 105, 28, { align: "center" });
+    doc.setFontSize(10);
+    doc.text(`Periode: ${startDate || 'Awal'} s/d ${endDate || 'Sekarang'}`, 105, 34, { align: "center" });
+
+    // Menyusun data baris neraca
+    const body = [
+      ['101', 'Kas & Bank (Saldo Uang Bersih Laci)', `Rp ${balance.toLocaleString('id-ID')}`, '-'],
+      ['102', 'Piutang Usaha (Hutang Pelanggan)', `Rp ${totalUnpaidDebt.toLocaleString('id-ID')}`, '-'],
+      ['201', 'Titipan / Deposit Pelanggan', '-', `Rp ${totalDeposit.toLocaleString('id-ID')}`],
+      ['401', 'Pendapatan Usaha (Total Penjualan)', '-', `Rp ${totalIncome.toLocaleString('id-ID')}`],
+      ['501', 'Beban Operasional (Total Pengeluaran)', `Rp ${totalExpenses.toLocaleString('id-ID')}`, '-'],
+    ];
+
+    // Kalkulasi Total Bawah
+    const totalDebit = balance + totalUnpaidDebt + totalExpenses;
+    const totalKredit = totalDeposit + totalIncome;
+
+    body.push([
+      { content: 'TOTAL KESELURUHAN', colSpan: 2, styles: { halign: 'right', fontStyle: 'bold' } },
+      { content: `Rp ${totalDebit.toLocaleString('id-ID')}`, styles: { fontStyle: 'bold', textColor: [0, 100, 0] } },
+      { content: `Rp ${totalKredit.toLocaleString('id-ID')}`, styles: { fontStyle: 'bold', textColor: [0, 100, 0] } }
+    ]);
+
+    // Render Tabel
+    autoTable(doc, {
+      startY: 45,
+      head: [['No. Akun', 'Nama Akun / Uraian', 'Debit', 'Kredit']],
+      body: body,
+      theme: 'grid',
+      headStyles: { fillColor: [75, 85, 99], halign: 'center' },
+      columnStyles: {
+        0: { halign: 'center', cellWidth: 25 },
+        2: { halign: 'right', cellWidth: 45 },
+        3: { halign: 'right', cellWidth: 45 }
+      }
+    });
+
+    // Catatan Kaki (Penting untuk Single Entry)
+    doc.setFontSize(9);
+    doc.setTextColor(100);
+    doc.text("*Catatan: Laporan ini disusun menggunakan metode Buku Kas Tunggal (Single Entry).", 14, doc.lastAutoTable.finalY + 10);
+    doc.text("Total Debit dan Kredit dapat memiliki selisih wajar (tidak mutlak balance) apabila terdapat ", 14, doc.lastAutoTable.finalY + 15);
+    doc.text("koreksi atau penambahan hutang/deposit manual yang tidak memengaruhi arus kas tunai.", 14, doc.lastAutoTable.finalY + 20);
+
+    // Save
+    doc.save(`Neraca_Saldo_${Date.now()}.pdf`);
+    onShowToast('File PDF Neraca Saldo berhasil diunduh', 'success');
+  };
+
   const navigateToTab = (tabId) => {
     setActiveTab(tabId);
     setCurrentPage(1);
@@ -706,7 +766,7 @@ const Dashboard = ({ onShowToast }) => {
           <div className="bg-white p-4 md:p-5 rounded-3xl border flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between mb-6 shadow-sm">
              <div>
                 <h4 className="text-sm font-black text-gray-800">Cetak Laporan Keseluruhan</h4>
-                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Mencakup Pemasukan, Pengeluaran, Piutang, & Deposit</p>
+                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Pilih format laporan keuangan yang dibutuhkan</p>
              </div>
              <div className="flex flex-col md:flex-row items-center gap-3 w-full lg:w-auto">
                 <div className="flex items-center gap-2 bg-gray-50 px-3 py-2.5 rounded-xl border border-gray-200 w-full md:w-auto">
@@ -716,8 +776,7 @@ const Dashboard = ({ onShowToast }) => {
                   <input type="date" className="bg-transparent text-xs font-black outline-none w-full" value={endDate} onChange={e => setEndDate(e.target.value)} />
                 </div>
                 <div className="flex gap-2 w-full md:w-auto">
-                    <button onClick={handleDownloadMasterExcel} className="flex-1 justify-center p-3 bg-green-50 text-green-700 rounded-xl border border-green-200 hover:bg-green-100 flex items-center gap-2 text-xs font-black shadow-sm"><TableIcon className="w-4 h-4" /> </button>
-                    <button onClick={handleDownloadMasterPDF} className="flex-1 justify-center p-3 bg-blue-50 text-blue-700 rounded-xl border border-blue-200 hover:bg-blue-100 flex items-center gap-2 text-xs font-black shadow-sm"><FileText className="w-4 h-4" /> </button>
+                    <button onClick={() => setShowDownloadModal(true)} className="flex-1 justify-center p-3 bg-blue-50 text-blue-700 rounded-xl border border-blue-200 hover:bg-blue-100 flex items-center gap-2 text-xs font-black shadow-sm"><Download className="w-4 h-4" /> Download Laporan</button>
                     <button onClick={() => setShowResetModal(true)} className="flex-1 justify-center p-3 bg-red-50 text-red-700 rounded-xl border border-red-200 hover:bg-red-100 flex items-center gap-2 text-xs font-black shadow-sm"><AlertTriangle className="w-4 h-4" /> Reset Data</button>
                 </div>
              </div>
@@ -1089,6 +1148,43 @@ const Dashboard = ({ onShowToast }) => {
 
       {/* --- MODALS --- */}
 
+      {/* MODAL PILIH DOWNLOAD LAPORAN */}
+      {showDownloadModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
+          <div className="bg-white rounded-[32px] p-6 md:p-8 max-w-sm w-full shadow-2xl relative border-t-8 border-blue-600">
+            <button onClick={() => setShowDownloadModal(false)} className="absolute right-6 top-6 text-gray-400 hover:text-gray-600"><X /></button>
+            <h3 className="text-lg md:text-xl font-black text-gray-800 mb-2 uppercase">Pilih Jenis Laporan</h3>
+            <p className="text-xs text-gray-500 mb-6 font-bold">Laporan akan dicetak sesuai periode tanggal yang dipilih.</p>
+            
+            <div className="flex flex-col gap-3">
+              <button onClick={() => { handleDownloadMasterExcel(); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-4 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 transition-colors border border-green-200 shadow-sm">
+                <TableIcon className="w-5 h-5 flex-shrink-0" />
+                <div className="text-left">
+                  <p className="font-black text-sm">Excel Master Lengkap</p>
+                  <p className="text-[10px] font-bold opacity-80 mt-0.5">Semua tab (pemasukan, pengeluaran, dll) dalam 1 file Excel</p>
+                </div>
+              </button>
+              
+              <button onClick={() => { handleDownloadMasterPDF(); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-4 bg-blue-50 text-blue-700 rounded-2xl hover:bg-blue-100 transition-colors border border-blue-200 shadow-sm">
+                <FileText className="w-5 h-5 flex-shrink-0" />
+                <div className="text-left">
+                  <p className="font-black text-sm">PDF Master Lengkap</p>
+                  <p className="text-[10px] font-bold opacity-80 mt-0.5">Format cetak A4 untuk seluruh riwayat aktivitas toko</p>
+                </div>
+              </button>
+
+              <button onClick={() => { handleDownloadNeracaPDF(); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-4 bg-purple-50 text-purple-700 rounded-2xl hover:bg-purple-100 transition-colors border border-purple-200 shadow-sm">
+                <FileText className="w-5 h-5 flex-shrink-0" />
+                <div className="text-left">
+                  <p className="font-black text-sm">PDF Neraca Saldo</p>
+                  <p className="text-[10px] font-bold opacity-80 mt-0.5">Ringkasan cepat posisi Debit & Kredit secara keseluruhan</p>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* MODAL EDIT HUTANG & DEPOSIT */}
       {showEditBalanceModal && selectedCustomer && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
@@ -1120,6 +1216,7 @@ const Dashboard = ({ onShowToast }) => {
         </div>
       )}
 
+      {/* MODAL DETAIL HISTORI */}
       {showDetailModal && selectedDetailItem && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
           <div className="bg-white rounded-[32px] p-6 md:p-8 max-w-sm w-full shadow-2xl relative border-t-8 border-teal-600">
@@ -1164,6 +1261,7 @@ const Dashboard = ({ onShowToast }) => {
         </div>
       )}
 
+      {/* MODAL BAYAR HUTANG */}
       {showPayDebtModal && selectedCustomer && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
           <div className="bg-white rounded-[40px] p-6 md:p-10 max-w-sm w-full shadow-2xl relative border-t-8 border-teal-600 max-h-[90vh] overflow-y-auto custom-scrollbar">
@@ -1181,6 +1279,7 @@ const Dashboard = ({ onShowToast }) => {
         </div>
       )}
 
+      {/* MODAL HAPUS DATA */}
       {showDeleteModal && selectedItem && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
           <div className="bg-white rounded-[32px] p-6 md:p-8 max-w-sm w-full shadow-2xl text-center">
@@ -1231,6 +1330,7 @@ const Dashboard = ({ onShowToast }) => {
         </div>
       )}
 
+      {/* MODAL HAPUS MASAL */}
       {showBulkDeleteModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
           <div className="bg-white rounded-[32px] p-6 md:p-8 max-w-sm w-full shadow-2xl text-center border-t-8 border-red-600">
@@ -1244,6 +1344,7 @@ const Dashboard = ({ onShowToast }) => {
         </div>
       )}
 
+      {/* MODAL RESET SEMUA DATA */}
       {showResetModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
           <div className="bg-white rounded-[32px] p-6 md:p-8 max-w-sm w-full shadow-2xl text-center border-t-8 border-red-600 max-h-[90vh] overflow-y-auto custom-scrollbar">
