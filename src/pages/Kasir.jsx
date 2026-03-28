@@ -118,9 +118,9 @@ const Kasir = ({ onShowToast }) => {
     const stockUpdates = [];
     for (const item of cart) {
       let pcsToReduce = item.qty;
-      if (['KARTON', 'BALL', 'IKAT'].includes(item.unitType)) {
-        pcsToReduce = item.qty * (item.pcsPerCarton || 1);
-      }
+      if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType)) {
+         pcsToReduce = item.qty * (item.pcsPerCarton || 1);
+      }   
 
       const newStock = item.stockPcs - pcsToReduce;
 

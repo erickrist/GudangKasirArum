@@ -63,7 +63,7 @@ const StockOpname = ({ onShowToast }) => {
   });
   const [stockAmount, setStockAmount] = useState('');
 
-  const WHOLESALE_TYPES = ['KARTON', 'BALL', 'IKAT'];
+  const WHOLESALE_TYPES = ['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'];
 
   // --- DATE HELPERS ---
   const getSafeDate = (dateSource) => {
@@ -336,6 +336,8 @@ const StockOpname = ({ onShowToast }) => {
       { Nama: 'Susu UHT 1L (Contoh KARTON)', Kategori: 'Minuman', TipeSatuan: 'KARTON', IsiPerUnit: 12, Harga: 150000, StokPcs: 120, UrlGambar: '' },
       { Nama: 'Kerupuk Kaleng (Contoh BALL)', Kategori: 'Makanan', TipeSatuan: 'BALL', IsiPerUnit: 20, Harga: 100000, StokPcs: 100, UrlGambar: '' },
       { Nama: 'Sawi Hijau (Contoh IKAT)', Kategori: 'Sayur', TipeSatuan: 'IKAT', IsiPerUnit: 5, Harga: 5000, StokPcs: 50, UrlGambar: '' },
+      { Nama: 'Kopi Sachet (Contoh RENCENG)', Kategori: 'Minuman', TipeSatuan: 'RENCENG', IsiPerUnit: 10, Harga: 12000, StokPcs: 100, UrlGambar: '' },
+      { Nama: 'Teh Celup (Contoh BOX)', Kategori: 'Minuman', TipeSatuan: 'BOX', IsiPerUnit: 25, Harga: 15000, StokPcs: 50, UrlGambar: '' },
       { Nama: 'Sabun Mandi (Contoh PCS)', Kategori: 'Kebersihan', TipeSatuan: 'PCS', IsiPerUnit: '', Harga: 5000, StokPcs: 10, UrlGambar: '' }
     ];
     const worksheet = XLSX.utils.json_to_sheet(templateData);
@@ -809,6 +811,8 @@ const StockOpname = ({ onShowToast }) => {
                     <option value="KARTON">Grosir (KARTON)</option>
                     <option value="BALL">Grosir (BALL)</option>
                     <option value="IKAT">Grosir (IKAT)</option>
+                    <option value="RENCENG">Grosir (RENCENG)</option>
+                    <option value="BOX">Grosir (BOX)</option>
                   </select>
                 </div>
                 

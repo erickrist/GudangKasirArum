@@ -122,11 +122,11 @@ const Nota = ({ transaction, onClose }) => {
                     <td className="text-center py-2 px-1">{item.qty}</td>
                     <td className="text-center py-2 px-1">
                       {item.unitType}
-                      {['KARTON', 'BALL', 'IKAT'].includes(item.unitType) && (
-                        <span className="text-sm block">
-                          ({item.qty * item.pcsPerCarton}pcs)
-                        </span>
-                      )}
+                      {['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType) && (
+                      <span className="text-sm block">
+                        ({item.qty * item.pcsPerCarton}pcs)
+                      </span>
+                        )}
                     </td>
                     <td className="text-right py-2 px-1">
                       {item.price.toLocaleString('id-ID')}

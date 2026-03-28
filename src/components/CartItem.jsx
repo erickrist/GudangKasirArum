@@ -56,7 +56,7 @@ const CartItem = ({ item, onUpdateQty, onRemove, onUpdateDiscount }) => {
         <div className="flex-1">
           <h4 className="font-semibold text-sm text-gray-800">{item.name}</h4>
           <p className="text-xs text-gray-500">
-            {['KARTON', 'BALL', 'IKAT'].includes(item.unitType) && 
+            {['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType) && 
               `(${item.pcsPerCarton} pcs/${item.unitType.toLowerCase()})`
             }
           </p>
