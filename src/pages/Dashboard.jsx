@@ -473,14 +473,45 @@ const Dashboard = ({ onShowToast }) => {
     ];
 
     const ws = XLSX.utils.aoa_to_sheet(aoaData);
-
-    // Styling kolom otomatis
     ws['!cols'] = [{ wch: 12 }, { wch: 50 }, { wch: 20 }, { wch: 20 }];
 
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Neraca Saldo");
     XLSX.writeFile(wb, `Neraca_Saldo_${Date.now()}.xlsx`);
     onShowToast('File Excel Neraca Saldo berhasil diunduh', 'success');
+  };
+
+  // =====================================================================
+  // --- FUNGSI EXPORT EXCEL (LABA RUGI) ---
+  // =====================================================================
+  const handleDownloadLabaRugiExcel = () => {
+    // Hitung berdasarkan filter tanggal yang sedang aktif
+    const income = filteredTransactions.reduce((sum, t) => sum + (Number(t.total) || 0), 0);
+    const expense = filteredExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+    const laba = income - expense;
+
+    const aoaData = [
+      ['LAPORAN LABA RUGI (CASH BASIS)'],
+      ['ARZEN Frozen Food'],
+      [`Periode: ${startDate || 'Awal'} s/d ${endDate || 'Sekarang'}`],
+      [],
+      ['Keterangan', 'Nominal (Rp)'],
+      ['PENDAPATAN', ''],
+      ['Total Pemasukan Kas (Penjualan & DP)', income],
+      [],
+      ['BEBAN / PENGELUARAN', ''],
+      ['Total Pengeluaran Kas Operasional', expense],
+      [],
+      ['LABA / (RUGI) BERSIH', laba]
+    ];
+
+    const ws = XLSX.utils.aoa_to_sheet(aoaData);
+    ws['!cols'] = [{ wch: 45 }, { wch: 25 }];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Laba Rugi");
+    XLSX.writeFile(wb, `Laba_Rugi_${Date.now()}.xlsx`);
+    onShowToast('File Excel Laba Rugi berhasil diunduh', 'success');
   };
 
   // =====================================================================
@@ -698,6 +729,45 @@ const Dashboard = ({ onShowToast }) => {
     // Save
     doc.save(`Neraca_Saldo_${Date.now()}.pdf`);
     onShowToast('File PDF Neraca Saldo berhasil diunduh', 'success');
+  };
+
+  // =====================================================================
+  // --- FUNGSI EXPORT PDF (LABA RUGI) ---
+  // =====================================================================
+  const handleDownloadLabaRugiPDF = () => {
+    // Hitung berdasarkan filter tanggal yang sedang aktif
+    const income = filteredTransactions.reduce((sum, t) => sum + (Number(t.total) || 0), 0);
+    const expense = filteredExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+    const laba = income - expense;
+
+    const doc = new jsPDF('p', 'mm', 'a4');
+    doc.setFontSize(16); doc.setFont("helvetica", "bold");
+    doc.text("LAPORAN LABA RUGI (CASH BASIS)", 105, 20, { align: "center" });
+    doc.setFontSize(12); doc.setFont("helvetica", "normal");
+    doc.text("ARZEN Frozen Food", 105, 28, { align: "center" });
+    doc.setFontSize(10);
+    doc.text(`Periode: ${startDate || 'Awal'} s/d ${endDate || 'Sekarang'}`, 105, 34, { align: "center" });
+
+    const body = [
+      [{ content: 'PENDAPATAN', colSpan: 2, styles: { fontStyle: 'bold', fillColor: [240, 240, 240] } }],
+      ['Total Pemasukan Kas (Penjualan & DP)', `Rp ${income.toLocaleString('id-ID')}`],
+      [{ content: 'BEBAN / PENGELUARAN', colSpan: 2, styles: { fontStyle: 'bold', fillColor: [240, 240, 240] } }],
+      ['Total Pengeluaran Kas Operasional', `Rp ${expense.toLocaleString('id-ID')}`],
+      [{ content: 'LABA / (RUGI) BERSIH', styles: { fontStyle: 'bold' } }, { content: `Rp ${laba.toLocaleString('id-ID')}`, styles: { fontStyle: 'bold', textColor: laba >= 0 ? [0, 128, 0] : [220, 38, 38] } }]
+    ];
+
+    autoTable(doc, {
+      startY: 45,
+      body: body,
+      theme: 'grid',
+      columnStyles: {
+        0: { cellWidth: 120 },
+        1: { halign: 'right', cellWidth: 50 }
+      }
+    });
+
+    doc.save(`Laba_Rugi_${Date.now()}.pdf`);
+    onShowToast('File PDF Laba Rugi berhasil diunduh', 'success');
   };
 
   const navigateToTab = (tabId) => {
@@ -1189,38 +1259,56 @@ const Dashboard = ({ onShowToast }) => {
           <div className="bg-white rounded-[32px] p-6 md:p-8 max-w-sm w-full shadow-2xl relative border-t-8 border-blue-600 max-h-[90vh] overflow-y-auto custom-scrollbar">
             <button onClick={() => setShowDownloadModal(false)} className="absolute right-6 top-6 text-gray-400 hover:text-gray-600"><X /></button>
             <h3 className="text-lg md:text-xl font-black text-gray-800 mb-2 uppercase">Pilih Jenis Laporan</h3>
-            <p className="text-xs text-gray-500 mb-6 font-bold">Laporan akan dicetak sesuai periode tanggal yang dipilih.</p>
+            <p className="text-xs text-gray-500 mb-6 font-bold">Laporan akan dicetak sesuai filter tanggal saat ini.</p>
             
-            <div className="flex flex-col gap-3">
-              <button onClick={() => { handleDownloadMasterExcel(); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-4 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 transition-colors border border-green-200 shadow-sm">
+            <div className="flex flex-col gap-2">
+              <button onClick={() => { handleDownloadMasterExcel(); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 md:p-4 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 transition-colors border border-green-200 shadow-sm">
                 <TableIcon className="w-5 h-5 flex-shrink-0" />
                 <div className="text-left">
                   <p className="font-black text-sm">Excel Master Lengkap</p>
-                  <p className="text-[10px] font-bold opacity-80 mt-0.5">Semua tab (pemasukan, pengeluaran, dll) dalam 1 file Excel</p>
+                  <p className="text-[10px] font-bold opacity-80 mt-0.5">Semua tab riwayat dalam 1 file</p>
                 </div>
               </button>
 
-              <button onClick={() => { handleDownloadNeracaExcel(); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-4 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 transition-colors border border-green-200 shadow-sm">
+              <button onClick={() => { handleDownloadNeracaExcel(); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 md:p-4 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 transition-colors border border-green-200 shadow-sm">
                 <TableIcon className="w-5 h-5 flex-shrink-0" />
                 <div className="text-left">
                   <p className="font-black text-sm">Excel Neraca Saldo</p>
-                  <p className="text-[10px] font-bold opacity-80 mt-0.5">Ringkasan cepat Debit & Kredit format spreadsheet (bisa diedit)</p>
-                </div>
-              </button>
-              
-              <button onClick={() => { handleDownloadMasterPDF(); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-4 bg-blue-50 text-blue-700 rounded-2xl hover:bg-blue-100 transition-colors border border-blue-200 shadow-sm mt-2">
-                <FileText className="w-5 h-5 flex-shrink-0" />
-                <div className="text-left">
-                  <p className="font-black text-sm">PDF Master Lengkap</p>
-                  <p className="text-[10px] font-bold opacity-80 mt-0.5">Format cetak A4 untuk seluruh riwayat aktivitas toko</p>
+                  <p className="text-[10px] font-bold opacity-80 mt-0.5">Posisi Keuangan (Debit & Kredit)</p>
                 </div>
               </button>
 
-              <button onClick={() => { handleDownloadNeracaPDF(); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-4 bg-purple-50 text-purple-700 rounded-2xl hover:bg-purple-100 transition-colors border border-purple-200 shadow-sm">
+              <button onClick={() => { handleDownloadLabaRugiExcel(); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 md:p-4 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 transition-colors border border-green-200 shadow-sm">
+                <TableIcon className="w-5 h-5 flex-shrink-0" />
+                <div className="text-left">
+                  <p className="font-black text-sm">Excel Laba Rugi</p>
+                  <p className="text-[10px] font-bold opacity-80 mt-0.5">Penjualan dikurangi Beban Operasional</p>
+                </div>
+              </button>
+              
+              <div className="h-px w-full bg-gray-200 my-2"></div>
+
+              <button onClick={() => { handleDownloadMasterPDF(); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 md:p-4 bg-blue-50 text-blue-700 rounded-2xl hover:bg-blue-100 transition-colors border border-blue-200 shadow-sm">
+                <FileText className="w-5 h-5 flex-shrink-0" />
+                <div className="text-left">
+                  <p className="font-black text-sm">PDF Master Lengkap</p>
+                  <p className="text-[10px] font-bold opacity-80 mt-0.5">Semua tab riwayat dalam format A4</p>
+                </div>
+              </button>
+
+              <button onClick={() => { handleDownloadNeracaPDF(); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 md:p-4 bg-purple-50 text-purple-700 rounded-2xl hover:bg-purple-100 transition-colors border border-purple-200 shadow-sm">
                 <FileText className="w-5 h-5 flex-shrink-0" />
                 <div className="text-left">
                   <p className="font-black text-sm">PDF Neraca Saldo</p>
-                  <p className="text-[10px] font-bold opacity-80 mt-0.5">Ringkasan cepat posisi Debit & Kredit secara keseluruhan</p>
+                  <p className="text-[10px] font-bold opacity-80 mt-0.5">Posisi Keuangan (Debit & Kredit)</p>
+                </div>
+              </button>
+
+              <button onClick={() => { handleDownloadLabaRugiPDF(); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 md:p-4 bg-purple-50 text-purple-700 rounded-2xl hover:bg-purple-100 transition-colors border border-purple-200 shadow-sm">
+                <FileText className="w-5 h-5 flex-shrink-0" />
+                <div className="text-left">
+                  <p className="font-black text-sm">PDF Laba Rugi</p>
+                  <p className="text-[10px] font-bold opacity-80 mt-0.5">Penjualan dikurangi Beban Operasional</p>
                 </div>
               </button>
             </div>
