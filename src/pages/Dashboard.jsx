@@ -449,6 +449,41 @@ const Dashboard = ({ onShowToast }) => {
   };
 
   // =====================================================================
+  // --- FUNGSI EXPORT EXCEL (NERACA SALDO) ---
+  // =====================================================================
+  const handleDownloadNeracaExcel = () => {
+    const totalDebit = balance + totalUnpaidDebt + totalExpenses;
+    const totalKredit = totalDeposit + totalIncome;
+
+    const aoaData = [
+      ['LAPORAN NERACA SALDO'],
+      ['ARZEN Frozen Food'],
+      [`Periode: ${startDate || 'Awal'} s/d ${endDate || 'Sekarang'}`],
+      [],
+      ['No. Akun', 'Nama Akun / Uraian', 'Debit', 'Kredit'],
+      ['101', 'Kas & Bank (Saldo Uang Bersih Laci)', balance, 0],
+      ['102', 'Piutang Usaha (Hutang Pelanggan)', totalUnpaidDebt, 0],
+      ['201', 'Titipan / Deposit Pelanggan', 0, totalDeposit],
+      ['401', 'Pendapatan Usaha (Total Penjualan)', 0, totalIncome],
+      ['501', 'Beban Operasional (Total Pengeluaran)', totalExpenses, 0],
+      ['', 'TOTAL KESELURUHAN', totalDebit, totalKredit],
+      [],
+      ['*Catatan: Laporan ini disusun menggunakan metode Buku Kas Tunggal (Single Entry).'],
+      ['Total Debit dan Kredit dapat memiliki selisih wajar (tidak mutlak balance) apabila terdapat koreksi atau penambahan hutang/deposit manual yang tidak memengaruhi arus kas tunai.']
+    ];
+
+    const ws = XLSX.utils.aoa_to_sheet(aoaData);
+
+    // Styling kolom otomatis
+    ws['!cols'] = [{ wch: 12 }, { wch: 50 }, { wch: 20 }, { wch: 20 }];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Neraca Saldo");
+    XLSX.writeFile(wb, `Neraca_Saldo_${Date.now()}.xlsx`);
+    onShowToast('File Excel Neraca Saldo berhasil diunduh', 'success');
+  };
+
+  // =====================================================================
   // --- FUNGSI EXPORT PDF (MASTER) ---
   // =====================================================================
   const handleDownloadMasterPDF = () => { 
@@ -1151,7 +1186,7 @@ const Dashboard = ({ onShowToast }) => {
       {/* MODAL PILIH DOWNLOAD LAPORAN */}
       {showDownloadModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
-          <div className="bg-white rounded-[32px] p-6 md:p-8 max-w-sm w-full shadow-2xl relative border-t-8 border-blue-600">
+          <div className="bg-white rounded-[32px] p-6 md:p-8 max-w-sm w-full shadow-2xl relative border-t-8 border-blue-600 max-h-[90vh] overflow-y-auto custom-scrollbar">
             <button onClick={() => setShowDownloadModal(false)} className="absolute right-6 top-6 text-gray-400 hover:text-gray-600"><X /></button>
             <h3 className="text-lg md:text-xl font-black text-gray-800 mb-2 uppercase">Pilih Jenis Laporan</h3>
             <p className="text-xs text-gray-500 mb-6 font-bold">Laporan akan dicetak sesuai periode tanggal yang dipilih.</p>
@@ -1164,8 +1199,16 @@ const Dashboard = ({ onShowToast }) => {
                   <p className="text-[10px] font-bold opacity-80 mt-0.5">Semua tab (pemasukan, pengeluaran, dll) dalam 1 file Excel</p>
                 </div>
               </button>
+
+              <button onClick={() => { handleDownloadNeracaExcel(); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-4 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 transition-colors border border-green-200 shadow-sm">
+                <TableIcon className="w-5 h-5 flex-shrink-0" />
+                <div className="text-left">
+                  <p className="font-black text-sm">Excel Neraca Saldo</p>
+                  <p className="text-[10px] font-bold opacity-80 mt-0.5">Ringkasan cepat Debit & Kredit format spreadsheet (bisa diedit)</p>
+                </div>
+              </button>
               
-              <button onClick={() => { handleDownloadMasterPDF(); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-4 bg-blue-50 text-blue-700 rounded-2xl hover:bg-blue-100 transition-colors border border-blue-200 shadow-sm">
+              <button onClick={() => { handleDownloadMasterPDF(); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-4 bg-blue-50 text-blue-700 rounded-2xl hover:bg-blue-100 transition-colors border border-blue-200 shadow-sm mt-2">
                 <FileText className="w-5 h-5 flex-shrink-0" />
                 <div className="text-left">
                   <p className="font-black text-sm">PDF Master Lengkap</p>
