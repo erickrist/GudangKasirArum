@@ -51,6 +51,14 @@ const Kasir = ({ onShowToast }) => {
         stockPcs: product.stockPcs,
       }]);
     }
+
+    // FITUR AUTO SCROLL: Menggulir mulus ke item yang baru saja di-klik
+    setTimeout(() => {
+      const element = document.getElementById(`cart-item-${product.id}`);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }, 100);
   };
 
   const updateQty = (productId, newQty) => {
@@ -248,9 +256,8 @@ const Kasir = ({ onShowToast }) => {
   const subtotal = calculateSubtotal();
 
   return (
-    <div className="pb-24 lg:pb-10"> {/* pb-24 untuk memberi ruang bagi menu navigasi bawah di HP */}
+    <div className="pb-24 lg:pb-10">
       
-      {/* MENGGUNAKAN flex-col-reverse AGAR KERANJANG DI ATAS SAAT DI HP */}
       <div className="flex flex-col-reverse lg:grid lg:grid-cols-3 gap-6">
         
         {/* BAGIAN KIRI: DAFTAR PRODUK */}
@@ -396,7 +403,7 @@ const Kasir = ({ onShowToast }) => {
             )}
 
             {/* DAFTAR ITEM KERANJANG */}
-            <div className="space-y-2 md:space-y-3 mb-4 md:mb-6 max-h-[35vh] md:max-h-[350px] overflow-y-auto custom-scrollbar pr-1 md:pr-2">
+            <div className="space-y-2 md:space-y-3 mb-4 md:mb-6 max-h-[35vh] md:max-h-[350px] overflow-y-auto custom-scrollbar pr-1 md:pr-2 scroll-smooth">
               {cart.length === 0 ? (
                 <div className="text-center py-6 md:py-10 border-2 border-dashed border-gray-100 rounded-xl md:rounded-2xl">
                   <ShoppingCart className="w-8 h-8 md:w-12 md:h-12 mx-auto mb-2 md:mb-3 text-gray-200" />
@@ -404,13 +411,14 @@ const Kasir = ({ onShowToast }) => {
                 </div>
               ) : (
                 cart.map((item) => (
-                  <CartItem
-                    key={item.productId}
-                    item={item}
-                    onUpdateQty={updateQty}
-                    onRemove={removeFromCart}
-                    onUpdateDiscount={updateDiscount}
-                  />
+                  <div key={item.productId} id={`cart-item-${item.productId}`}>
+                    <CartItem
+                      item={item}
+                      onUpdateQty={updateQty}
+                      onRemove={removeFromCart}
+                      onUpdateDiscount={updateDiscount}
+                    />
+                  </div>
                 ))
               )}
             </div>
