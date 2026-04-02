@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect} from 'react';
 import { Plus, Minus, Trash2, ShoppingCart, User, X, AlertCircle as AlertCircle, Search, Store } from 'lucide-react';
 import { useCollection, addDocument, updateDocument, updateStockBatch } from '../hooks/useFirestore';
 import Loading from '../components/common/Loading';
@@ -11,8 +11,15 @@ import PaymentModal from '../components/PaymentModal';
 const Kasir = ({ onShowToast }) => {
   const { data: products, loading: loadingProducts } = useCollection('products');
   const { data: customers, loading: loadingCustomers } = useCollection('customers');
-  const [cart, setCart] = useState([]);
-  const [selectedCustomer, setSelectedCustomer] = useState(null);
+  const [cart, setCart] = useState(() => {
+  const savedCart = localStorage.getItem('kasir_cart');
+  return savedCart ? JSON.parse(savedCart) : [];
+});
+
+const [selectedCustomer, setSelectedCustomer] = useState(() => {
+  const savedCustomer = localStorage.getItem('kasir_customer');
+  return savedCustomer ? JSON.parse(savedCustomer) : null;
+});
   const [showCustomerModal, setShowCustomerModal] = useState(false);
   const [showAddCustomerModal, setShowAddCustomerModal] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
@@ -21,7 +28,32 @@ const Kasir = ({ onShowToast }) => {
   const [searchProduct, setSearchProduct] = useState('');
   const [searchCustomer, setSearchCustomer] = useState('');
   const [addingCustomer, setAddingCustomer] = useState(false);
+  const [showResetModal, setShowResetModal] = useState(false);
+  const executeResetTransaction = () => {
+  setCart([]);
+  setSelectedCustomer(null);
+  localStorage.removeItem('kasir_cart');
+  localStorage.removeItem('kasir_customer');
+  setShowResetModal(false); // Tutup modal setelah selesai
+  onShowToast('Transaksi berhasil dibatalkan', 'success');
+};
+  useEffect(() => {
+  localStorage.setItem('kasir_cart', JSON.stringify(cart));
+  }, [cart]);
 
+  useEffect(() => {
+  localStorage.setItem('kasir_customer', JSON.stringify(selectedCustomer));
+  }, [selectedCustomer]);
+
+  const handleResetTransaction = () => {
+  if (window.confirm('Apakah Anda yakin ingin membatalkan transaksi dan mengosongkan keranjang?')) {
+    setCart([]);
+    setSelectedCustomer(null);
+    localStorage.removeItem('kasir_cart');
+    localStorage.removeItem('kasir_customer');
+    onShowToast('Transaksi berhasil dibatalkan', 'success');
+  }
+};
   const filteredProducts = products.filter(p =>
     p.name.toLowerCase().includes(searchProduct.toLowerCase()) ||
     p.category.toLowerCase().includes(searchProduct.toLowerCase())
@@ -345,13 +377,29 @@ const Kasir = ({ onShowToast }) => {
           <div className="bg-white rounded-[24px] md:rounded-[32px] shadow-sm border p-4 md:p-6 lg:sticky lg:top-4 z-10">
             <div className="flex items-center justify-between mb-4 md:mb-6 border-b border-gray-100 pb-3 md:pb-4">
               <h3 className="text-base md:text-lg font-black text-gray-800 uppercase tracking-tighter">Keranjang</h3>
-              <div className="bg-teal-50 p-2 rounded-xl relative">
-                <ShoppingCart className="w-4 h-4 md:w-5 md:h-5 text-teal-600" />
-                {cart.length > 0 && (
-                  <span className="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                    {cart.reduce((total, item) => total + item.qty, 0)}
-                  </span>
+              <div className="flex items-center gap-2">
+                
+                {/* TOMBOL RESET / HAPUS SEMUA */}
+                {(cart.length > 0 || selectedCustomer) && (
+                  <button
+                    onClick={() => setShowResetModal(true)} // Ubah bagian ini
+                    className="bg-red-50 p-2 rounded-xl text-red-500 hover:bg-red-100 hover:text-red-600 transition-colors"
+                    title="Batalkan Transaksi"
+                  >
+                    <Trash2 className="w-4 h-4 md:w-5 md:h-5" />
+                  </button>
                 )}
+
+                {/* ICON KERANJANG BAWAAN */}
+                <div className="bg-teal-50 p-2 rounded-xl relative">
+                  <ShoppingCart className="w-4 h-4 md:w-5 md:h-5 text-teal-600" />
+                  {cart.length > 0 && (
+                    <span className="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                      {cart.reduce((total, item) => total + item.qty, 0)}
+                    </span>
+                  )}
+                </div>
+                
               </div>
             </div>
 
@@ -581,6 +629,41 @@ const Kasir = ({ onShowToast }) => {
             setLastTransaction(null);
           }}
         />
+      )}
+      {/* MODAL KONFIRMASI RESET TRANSAKSI */}
+      {showResetModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[120] p-4">
+          <div className="bg-white rounded-[24px] md:rounded-[32px] p-6 md:p-8 w-full max-w-sm shadow-2xl text-center transform transition-all animate-in zoom-in-95 duration-200">
+            
+            <div className="bg-red-50 w-16 h-16 md:w-20 md:h-20 rounded-full flex items-center justify-center mx-auto mb-4 md:mb-5">
+              <Trash2 className="w-8 h-8 md:w-10 md:h-10 text-red-500" />
+            </div>
+            
+            <h3 className="text-lg md:text-xl font-black text-gray-800 mb-2 uppercase tracking-tight">
+              Kosongkan Keranjang?
+            </h3>
+            
+            <p className="text-xs md:text-sm text-gray-500 mb-6 md:mb-8">
+              Apakah Anda yakin ingin membatalkan transaksi ini? Semua barang dan pembeli yang sudah dipilih akan dihapus.
+            </p>
+            
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowResetModal(false)}
+                className="flex-1 py-3 rounded-xl font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors text-xs md:text-sm"
+              >
+                Batal
+              </button>
+              <button
+                onClick={executeResetTransaction}
+                className="flex-1 py-3 rounded-xl font-bold text-white bg-red-500 hover:bg-red-600 shadow-lg shadow-red-200 transition-colors text-xs md:text-sm active:scale-95"
+              >
+                Ya, Kosongkan
+              </button>
+            </div>
+            
+          </div>
+        </div>
       )}
     </div>
   );
