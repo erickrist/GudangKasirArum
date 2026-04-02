@@ -4,12 +4,13 @@ import {
 } from 'recharts';
 import { 
   TrendingUp, Trash2, Eye, FileText, Table as TableIcon, Search, Calendar, Wallet, 
-  CreditCard, ArrowDownCircle, ArrowUpCircle, History, Clock, ListFilter, X, RotateCcw, PackagePlus, ChevronDown, ChevronLeft, ChevronRight, AlertTriangle, Edit3, Download
+  CreditCard, ArrowDownCircle, ArrowUpCircle, History, Clock, ListFilter, X, RotateCcw, PackagePlus, ChevronDown, ChevronLeft, ChevronRight, AlertTriangle, Edit3, Download, ShoppingCart
 } from 'lucide-react';
 import { useCollection, deleteDocument, addDocument, updateDocument } from '../hooks/useFirestore';
 import Loading from '../components/common/Loading';
 import Nota from '../components/Nota';
 import FormRetur from '../components/FormRetur';
+import EditTransactionModal from '../components/EditTransactionModal';
 
 // Library untuk Export
 import * as XLSX from 'xlsx';
@@ -92,6 +93,7 @@ const Dashboard = ({ onShowToast }) => {
   const { data: expenses, loading: loadingExp } = useCollection('expenses', 'createdAt');
   const { data: customers, loading: loadingCust } = useCollection('customers');
   const { data: returnsData = [], loading: loadingRet } = useCollection('returns', 'createdAt');
+  const { data: products, loading: loadingProd } = useCollection('products');
 
   const [activeTab, setActiveTab] = useState('overview');
   const [chartPeriod, setChartPeriod] = useState('daily');
@@ -105,6 +107,10 @@ const Dashboard = ({ onShowToast }) => {
   const [showResetModal, setShowResetModal] = useState(false); 
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showDownloadModal, setShowDownloadModal] = useState(false);
+
+  // Edit Transaction Modals
+  const [showEditTransModal, setShowEditTransModal] = useState(false);
+  const [selectedEditTransaction, setSelectedEditTransaction] = useState(null);
 
   // Edit Balance Modals
   const [showEditBalanceModal, setShowEditBalanceModal] = useState(false);
@@ -328,7 +334,12 @@ const Dashboard = ({ onShowToast }) => {
     return matchesSearch && matchesDate;
   });
 
-  const filteredTransactions = useMemo(() => applyFilters(transactions, ['customerName', 'note']), [transactions, searchTerm, startDate, endDate]);
+  // PEMISAHAN DATA PENJUALAN VS PEMASUKAN MANUAL
+  const salesData = transactions.filter(t => t.items && t.items.length > 0);
+  const incomeData = transactions.filter(t => !t.items || t.items.length === 0);
+
+  const filteredSales = useMemo(() => applyFilters(salesData, ['customerName', 'note']), [salesData, searchTerm, startDate, endDate]);
+  const filteredTransactions = useMemo(() => applyFilters(incomeData, ['customerName', 'note']), [incomeData, searchTerm, startDate, endDate]);
   const filteredExpenses = useMemo(() => applyFilters(expenses, ['title']), [expenses, searchTerm, startDate, endDate]);
   const filteredDebtHistory = useMemo(() => applyFilters(debtLogs, ['customerName', 'note']), [debtLogs, searchTerm, startDate, endDate]);
   const filteredDepositHistory = useMemo(() => applyFilters(depositLogs, ['customerName', 'note', 'reason']), [depositLogs, searchTerm, startDate, endDate]);
@@ -336,7 +347,8 @@ const Dashboard = ({ onShowToast }) => {
 
   const handleBulkDelete = async () => {
     let target = []; 
-    if (activeTab === 'transactions') target = filteredTransactions; 
+    if (activeTab === 'sales') target = filteredSales; 
+    else if (activeTab === 'transactions') target = filteredTransactions; 
     else if (activeTab === 'expenses') target = filteredExpenses; 
     else if (activeTab === 'debts') target = filteredDebtHistory;
     else if (activeTab === 'returns') target = filteredDepositHistory;
@@ -366,7 +378,7 @@ const Dashboard = ({ onShowToast }) => {
 
     // 1. PEMASUKAN
     let totalIn = 0;
-    const inData = filteredTransactions.filter(t => Number(t.total) > 0).map(t => {
+    const inData = transactions.filter(t => Number(t.total) > 0).map(t => {
       totalIn += Number(t.total);
       return { 'Tanggal & Jam': formatDisplayDate(t.createdAt), 'Nama Pembeli': t.customerName || 'Tanpa Nama', 'Keterangan Rinci': t.note || (t.items ? t.items.map(i => i.name).join(', ') : 'Transaksi Pemasukan'), 'Nominal': `+ Rp ${Number(t.total).toLocaleString('id-ID')}` };
     });
@@ -485,8 +497,7 @@ const Dashboard = ({ onShowToast }) => {
   // --- FUNGSI EXPORT EXCEL (LABA RUGI) ---
   // =====================================================================
   const handleDownloadLabaRugiExcel = () => {
-    // Hitung berdasarkan filter tanggal yang sedang aktif
-    const income = filteredTransactions.reduce((sum, t) => sum + (Number(t.total) || 0), 0);
+    const income = transactions.reduce((sum, t) => sum + (Number(t.total) || 0), 0);
     const expense = filteredExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
     const laba = income - expense;
 
@@ -545,7 +556,7 @@ const Dashboard = ({ onShowToast }) => {
     };
 
     // 1. PEMASUKAN
-    const inList = filteredTransactions.filter(t => Number(t.total) > 0);
+    const inList = transactions.filter(t => Number(t.total) > 0);
     if (inList.length > 0) {
       checkPageBreak(30);
       doc.setFontSize(11); doc.setFont("helvetica", "bold"); doc.text("1. PEMASUKAN  ", 14, currentY); currentY += 5;
@@ -735,8 +746,7 @@ const Dashboard = ({ onShowToast }) => {
   // --- FUNGSI EXPORT PDF (LABA RUGI) ---
   // =====================================================================
   const handleDownloadLabaRugiPDF = () => {
-    // Hitung berdasarkan filter tanggal yang sedang aktif
-    const income = filteredTransactions.reduce((sum, t) => sum + (Number(t.total) || 0), 0);
+    const income = transactions.reduce((sum, t) => sum + (Number(t.total) || 0), 0);
     const expense = filteredExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
     const laba = income - expense;
 
@@ -777,10 +787,11 @@ const Dashboard = ({ onShowToast }) => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  if (loadingTrans || loadingExp || loadingCust || loadingRet) return <Loading />;
+  if (loadingTrans || loadingExp || loadingCust || loadingRet || loadingProd) return <Loading />;
 
   let currentList = [];
-  if (activeTab === 'transactions') currentList = filteredTransactions;
+  if (activeTab === 'sales') currentList = filteredSales;
+  else if (activeTab === 'transactions') currentList = filteredTransactions;
   else if (activeTab === 'expenses') currentList = filteredExpenses;
   else if (activeTab === 'debts') currentList = filteredDebtHistory;
   else if (activeTab === 'returns') currentList = filteredDepositHistory;
@@ -829,6 +840,7 @@ const Dashboard = ({ onShowToast }) => {
       <div className="flex gap-2 mb-6 bg-white p-2 rounded-xl shadow-sm border no-print overflow-x-auto custom-scrollbar whitespace-nowrap">
         {[
           { id: 'overview', label: 'Ringkasan', icon: TrendingUp }, 
+          { id: 'sales', label: 'Transaksi', icon: ShoppingCart },
           { id: 'transactions', label: 'Pemasukan', icon: ArrowUpCircle }, 
           { id: 'expenses', label: 'Pengeluaran', icon: ArrowDownCircle }, 
           { id: 'debts', label: 'Hutang', icon: CreditCard },
@@ -976,6 +988,59 @@ const Dashboard = ({ onShowToast }) => {
             <span className="text-gray-300">-</span><input type="date" className="bg-transparent text-xs font-black outline-none w-full" value={endDate} onChange={e => setEndDate(e.target.value)} />
           </div>
           <button onClick={() => setShowBulkDeleteModal(true)} className="w-full md:w-auto flex justify-center p-2.5 bg-red-50 text-red-600 rounded-xl border border-red-100 hover:bg-red-100 transition-colors"><Trash2 className="w-5 h-5" /></button>
+        </div>
+      )}
+
+      {/* --- TAB SALES (TRANSAKSI PENJUALAN) --- */}
+      {activeTab === 'sales' && (
+        <div className="space-y-6">
+          <div className="bg-white rounded-[32px] border shadow-sm flex flex-col">
+            <div className="overflow-x-auto w-full custom-scrollbar">
+              <table className="w-full min-w-[700px] text-left">
+                <thead>
+                  <tr className="bg-gray-50/50 border-b">
+                    <th className="p-4 font-black text-gray-400 uppercase text-[10px]">Tgl & Jam</th>
+                    <th className="p-4 font-black text-gray-400 uppercase text-[10px]">Nota</th>
+                    <th className="p-4 font-black text-gray-400 uppercase text-[10px]">Nama Pembeli</th>
+                    <th className="p-4 font-black text-gray-400 uppercase text-[10px]">Status</th>
+                    <th className="p-4 font-black text-gray-400 uppercase text-[10px]">Item Dibeli</th>
+                    <th className="p-4 font-black text-gray-400 uppercase text-[10px] text-right">Total Belanja</th>
+                    <th className="p-4 font-black text-gray-400 uppercase text-[10px] text-right">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {paginatedItems.map(item => {
+                    const itemNameList = item.items ? item.items.map(i => `${i.qty}x ${i.name}`).join(', ') : '-';
+                    // Pakai subtotal agar nilainya tidak 0 meskipun ngutang
+                    const nilaiBelanja = Number(item.subtotal) || Number(item.total) || 0; 
+                    
+                    return (
+                      <tr key={item.id} className="hover:bg-gray-50 transition-colors text-xs md:text-sm">
+                        <td className="p-4 font-bold text-gray-500 whitespace-nowrap">{formatDisplayDate(item.createdAt)}</td>
+                        <td className="p-4 font-black text-teal-600 uppercase">#{item.id?.substring(0,6)}</td>
+                        <td className="p-4 font-black text-gray-800 uppercase max-w-[120px] truncate">{item.customerName || 'Umum'}</td>
+                        <td className="p-4">
+                          <span className={`px-2 py-1 text-[9px] font-black uppercase rounded-lg ${item.paymentStatus === 'HUTANG' ? 'bg-orange-100 text-orange-600' : 'bg-teal-100 text-teal-600'}`}>
+                            {item.paymentStatus || 'LUNAS'}
+                          </span>
+                        </td>
+                        <td className="p-4 font-bold text-gray-600 max-w-[200px] truncate" title={itemNameList}>{itemNameList}</td>
+                        <td className="p-4 font-black text-right text-gray-700 whitespace-nowrap">Rp {nilaiBelanja.toLocaleString('id-ID')}</td>
+                        <td className="p-4 text-right">
+                          <div className="flex justify-end gap-2">
+                            <button onClick={() => { setSelectedNotaTransaction(item); setShowNota(true); }} className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg" title="Lihat Nota"><Eye className="w-4 h-4"/></button>
+                            <button onClick={() => { setSelectedEditTransaction(item); setShowEditTransModal(true); }} className="p-2 text-orange-500 hover:bg-orange-50 rounded-lg" title="Edit Transaksi"><Edit3 className="w-4 h-4"/></button>
+                            <button onClick={() => { setSelectedItem({...item, isSale: true}); setShowDeleteModal(true); }} className="p-2 text-red-500 hover:bg-red-50 rounded-lg" title="Hapus (Revert)"><Trash2 className="w-4 h-4"/></button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            {renderPagination()}
+          </div>
         </div>
       )}
 
@@ -1410,13 +1475,19 @@ const Dashboard = ({ onShowToast }) => {
         </div>
       )}
 
-      {/* MODAL HAPUS DATA */}
+      {/* MODAL HAPUS DATA DENGAN REVERT OTOMATIS */}
       {showDeleteModal && selectedItem && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
           <div className="bg-white rounded-[32px] p-6 md:p-8 max-w-sm w-full shadow-2xl text-center">
             <h3 className="text-lg md:text-xl font-black text-gray-800 mb-6">
-              {selectedItem.isCustomerDebt ? 'Nol-kan Hutang?' : selectedItem.isCustomerDeposit ? 'Nol-kan Deposit?' : 'Hapus Data Ini?'}
+              {selectedItem.isSale ? 'Hapus & Batalkan Transaksi?' : selectedItem.isCustomerDebt ? 'Nol-kan Hutang?' : selectedItem.isCustomerDeposit ? 'Nol-kan Deposit?' : 'Hapus Data Ini?'}
             </h3>
+            
+            {selectedItem.isSale && (
+               <p className="text-xs text-gray-500 mb-6 font-bold leading-relaxed">
+                 Menghapus data ini akan membatalkan pemasukan, dan otomatis <strong>mengembalikan stok barang, serta saldo hutang/deposit</strong> pembeli jika digunakan pada nota ini.
+               </p>
+            )}
             {selectedItem.isCustomerDebt && (
               <p className="text-xs text-gray-500 mb-6 font-bold leading-relaxed">
                 Ini akan mengubah sisa hutang <strong>{selectedItem.name}</strong> menjadi Rp 0.
@@ -1427,11 +1498,52 @@ const Dashboard = ({ onShowToast }) => {
                 Ini akan mengubah sisa deposit <strong>{selectedItem.name}</strong> menjadi Rp 0.
               </p>
             )}
+
             <div className="flex gap-3 md:gap-4">
               <button onClick={() => setShowDeleteModal(false)} className="flex-1 py-3 md:py-4 font-black text-gray-400 text-xs md:text-sm hover:bg-gray-50 rounded-2xl transition-all">Batal</button>
               <button 
                 onClick={async () => { 
-                  if (selectedItem.isCustomerDebt) {
+                  // LOGIKA REVERT (BATALKAN TRANSAKSI PENJUALAN)
+                  if (selectedItem.isSale) {
+                      // 1. Kembalikan Stok Barang
+                      if (selectedItem.items && selectedItem.items.length > 0) {
+                          for (const item of selectedItem.items) {
+                              const product = products.find(p => p.id === item.productId);
+                              if (product) {
+                                  const multiplier = ['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType) ? (item.pcsPerCarton || 1) : 1;
+                                  const pcsToRestore = item.qty * multiplier;
+                                  await updateDocument('products', product.id, { stockPcs: product.stockPcs + pcsToRestore });
+                                  await addDocument('stock_logs', {
+                                      productId: product.id, productName: product.name, type: 'in', 
+                                      amount: item.qty, unitType: item.unitType, totalPcs: pcsToRestore,
+                                      note: `Batal Nota #${selectedItem.id.substring(0,6)}`, createdAt: new Date()
+                                  });
+                              }
+                          }
+                      }
+
+                      // 2. Kembalikan Hutang / Deposit
+                      if (selectedItem.customerId) {
+                          const customer = customers.find(c => c.id === selectedItem.customerId);
+                          if (customer) {
+                              let newDebt = Number(customer.remainingDebt) || 0;
+                              let newDeposit = Number(customer.returnAmount) || 0;
+
+                              if (selectedItem.paymentStatus === 'HUTANG') {
+                                  let debtAdded = Number(selectedItem.subtotal) - Number(selectedItem.returnUsed || 0);
+                                  if (debtAdded > 0) newDebt = Math.max(0, newDebt - debtAdded);
+                              }
+                              if (Number(selectedItem.returnUsed) > 0) {
+                                  newDeposit += Number(selectedItem.returnUsed);
+                              }
+
+                              await updateDocument('customers', customer.id, { remainingDebt: newDebt, returnAmount: newDeposit });
+                          }
+                      }
+                      await deleteDocument('transactions', selectedItem.id); 
+                      onShowToast('Transaksi dibatalkan. Stok, uang & hutang telah disesuaikan ulang', 'success');
+
+                  } else if (selectedItem.isCustomerDebt) {
                     const oldAmount = Number(selectedItem.remainingDebt) || 0;
                     await updateDocument('customers', selectedItem.id, { remainingDebt: 0 });
                     if(oldAmount > 0) {
@@ -1495,6 +1607,18 @@ const Dashboard = ({ onShowToast }) => {
       )}
 
       <FormRetur isOpen={showReturnModal} onClose={() => setShowReturnModal(false)} onShowToast={onShowToast} />
+
+      {/* COMPONENT EDIT TRANSAKSI (Modal Terpisah) */}
+      {showEditTransModal && selectedEditTransaction && (
+         <EditTransactionModal 
+            isOpen={showEditTransModal}
+            transaction={selectedEditTransaction} 
+            products={products}
+            customers={customers}
+            onClose={() => setShowEditTransModal(false)} 
+            onShowToast={onShowToast} 
+         />
+      )}
 
       <style>{`
         @media print {
