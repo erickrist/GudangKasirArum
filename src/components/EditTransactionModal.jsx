@@ -1,10 +1,15 @@
-import React, { useState, useEffect } from 'react';
-import { X, Save, AlertTriangle, Minus, Plus, Trash2, ArrowLeft } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { X, Save, AlertTriangle, Minus, Plus, Trash2, ArrowLeft, Search, PlusCircle } from 'lucide-react';
 import { updateDocument, addDocument } from '../hooks/useFirestore';
 
 const EditTransactionModal = ({ isOpen, onClose, transaction, products = [], customers = [], onShowToast }) => {
   const [items, setItems] = useState([]);
   const [isSaving, setIsSaving] = useState(false);
+  
+  // State untuk fitur pencarian tambah produk
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showDropdown, setShowDropdown] = useState(false);
+  const searchRef = useRef(null);
 
   // Cari data pelanggan untuk referensi
   const currentCustomer = customers.find(c => c.id === transaction?.customerId);
@@ -13,10 +18,55 @@ const EditTransactionModal = ({ isOpen, onClose, transaction, products = [], cus
   useEffect(() => {
     if (transaction && isOpen) {
       setItems(JSON.parse(JSON.stringify(transaction.items || [])));
+      setSearchQuery('');
+      setShowDropdown(false);
     }
   }, [transaction, isOpen]);
 
+  // Handle klik di luar dropdown pencarian untuk menutupnya
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (searchRef.current && !searchRef.current.contains(event.target)) {
+        setShowDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   if (!isOpen || !transaction) return null;
+
+  // --- FILTER PRODUK UNTUK PENCARIAN ---
+  const filteredProducts = products.filter(p => 
+    p.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  // --- HANDLER TAMBAH PRODUK BARU ---
+  const handleAddProduct = (product) => {
+    const existingIndex = items.findIndex(i => i.productId === product.id);
+    
+    if (existingIndex >= 0) {
+      // Jika barang sudah ada di list, tambah Qty saja
+      handleQtyClickAdjustment(existingIndex, 1);
+    } else {
+      // Jika barang belum ada, tambahkan sebagai baris baru
+      const price = Number(product.sellPrice || product.price || 0);
+      const newItem = {
+        productId: product.id,
+        name: product.name,
+        price: price,
+        qty: 1,
+        unitType: product.unit || product.unitType || 'PCS',
+        pcsPerCarton: product.pcsPerCarton || 1,
+        discount: 0,
+        subtotal: price
+      };
+      setItems([...items, newItem]);
+    }
+    setSearchQuery('');
+    setShowDropdown(false);
+    onShowToast(`${product.name} ditambahkan`, 'success');
+  };
 
   // Handler untuk tombol +/-
   const handleQtyClickAdjustment = (index, delta) => {
@@ -111,6 +161,8 @@ const EditTransactionModal = ({ isOpen, onClose, transaction, products = [], cus
         const oldItem = oldItemsMap[newItem.productId] || { qty: 0 };
         const qtyDiff = newItem.qty - oldItem.qty; 
 
+        // qtyDiff > 0 artinya barang ditambah/baru masuk ke nota -> kurangi stok
+        // qtyDiff < 0 artinya barang dikurangi dari nota -> kembalikan stok
         if (qtyDiff !== 0) {
           const product = products.find(p => p.id === newItem.productId);
           if (product) {
@@ -127,11 +179,17 @@ const EditTransactionModal = ({ isOpen, onClose, transaction, products = [], cus
         delete oldItemsMap[newItem.productId]; 
       }
 
+      // Barang yang dihapus dari list sepenuhnya -> kembalikan stok utuh
       for (const oldItem of Object.values(oldItemsMap)) {
         const product = products.find(p => p.id === oldItem.productId);
         if (product) {
           const multiplier = ['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(oldItem.unitType) ? (oldItem.pcsPerCarton || 1) : 1;
           await updateDocument('products', product.id, { stockPcs: product.stockPcs + (oldItem.qty * multiplier) });
+          await addDocument('stock_logs', {
+            productId: product.id, productName: product.name, type: 'in', 
+            amount: oldItem.qty, unitType: oldItem.unitType, totalPcs: oldItem.qty * multiplier,
+            note: `Hapus dr Nota #${transaction.id.substring(0,6)}`, createdAt: new Date()
+          });
         }
       }
 
@@ -179,16 +237,14 @@ const EditTransactionModal = ({ isOpen, onClose, transaction, products = [], cus
   };
 
   return (
-    // Backdrop fix: inset-0, z-index tinggi
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[100] md:p-4">
       
-      {/* Container Modal: Full screen di mobile, centered box di desktop */}
+      {/* Container Modal */}
       <div className="bg-white md:rounded-[24px] w-full h-full md:h-auto md:max-w-4xl shadow-2xl relative border-t-8 border-blue-500 md:max-h-[95vh] flex flex-col overflow-hidden transition-all duration-300">
         
         {/* HEADER MODAL */}
-        <div className="flex justify-between items-center p-4 md:p-6 border-b shrink-0 bg-white z-10 sticky top-0">
+        <div className="flex justify-between items-center p-4 md:p-6 border-b shrink-0 bg-white z-20 sticky top-0">
           <div className="flex items-center gap-3">
-            {/* Tombol Back di Mobile */}
             <button onClick={onClose} disabled={isSaving} className="md:hidden text-gray-600 p-1.5 bg-gray-100 rounded-lg active:scale-95">
                 <ArrowLeft className="w-5 h-5" />
             </button>
@@ -197,17 +253,61 @@ const EditTransactionModal = ({ isOpen, onClose, transaction, products = [], cus
                 <p className="text-[11px] md:text-xs text-gray-500 font-bold mt-0.5">#{transaction.id?.substring(0,8).toUpperCase()} | <span className="text-blue-600 font-extrabold">{transaction.customerName}</span></p>
             </div>
           </div>
-          {/* Tombol Tutup Silang di Desktop */}
           <button onClick={onClose} disabled={isSaving} className="hidden md:block text-gray-400 hover:text-gray-600 bg-gray-100 p-2 rounded-xl active:scale-95 transition-all">
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* AREA KONTEN (SCROLLABLE) */}
-        <div className="flex-1 overflow-y-auto custom-scrollbar p-3 md:p-6 space-y-5 bg-gray-50/50">
+        <div className="flex-1 overflow-y-auto custom-scrollbar p-3 md:p-6 bg-gray-50/50">
           
-          {/* DAFTAR BARANG (Card style di mobile, compact table di desktop) */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          {/* FITUR PENCARIAN & TAMBAH BARANG */}
+          <div className="mb-4 relative" ref={searchRef}>
+            <div className="relative">
+              <Search className="absolute left-3.5 top-3 w-5 h-5 text-blue-400" />
+              <input
+                type="text"
+                placeholder="Ketik nama barang untuk ditambahkan ke nota..."
+                className="w-full bg-white border border-blue-200 rounded-xl pl-11 pr-4 py-3 text-sm font-black text-gray-800 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 shadow-sm transition-all placeholder:font-bold placeholder:text-gray-300"
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setShowDropdown(true);
+                }}
+                onFocus={() => setShowDropdown(true)}
+              />
+            </div>
+            
+            {/* DROPDOWN HASIL PENCARIAN */}
+            {showDropdown && (
+               <div className="absolute z-50 w-full mt-2 bg-white border border-gray-200 rounded-xl shadow-xl max-h-60 overflow-y-auto custom-scrollbar">
+                 {filteredProducts.length === 0 ? (
+                   <div className="p-4 text-center text-sm text-gray-400 font-bold">Barang tidak ditemukan di stok</div>
+                 ) : (
+                   filteredProducts.map(p => (
+                     <div
+                       key={p.id}
+                       className="p-3 md:p-4 border-b border-gray-50 hover:bg-blue-50 cursor-pointer flex justify-between items-center group transition-colors"
+                       onClick={() => handleAddProduct(p)}
+                     >
+                       <div>
+                         <p className="font-black text-sm text-gray-800 group-hover:text-blue-700 transition-colors">{p.name}</p>
+                         <p className="text-[10px] md:text-xs text-gray-500 font-bold mt-0.5">
+                           Sisa Stok: <span className="text-orange-500">{p.stockPcs}</span> | Rp {(p.sellPrice || p.price || 0).toLocaleString('id-ID')}
+                         </p>
+                       </div>
+                       <button className="bg-blue-100 text-blue-600 p-1.5 md:p-2 rounded-lg group-hover:bg-blue-600 group-hover:text-white transition-all">
+                         <PlusCircle className="w-4 h-4 md:w-5 md:h-5" />
+                       </button>
+                     </div>
+                   ))
+                 )}
+               </div>
+            )}
+          </div>
+
+          {/* DAFTAR BARANG */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden mb-6 relative z-10">
             <div className="p-4 border-b border-gray-100 bg-gray-50/50 hidden md:block">
                 <h4 className="text-sm font-bold text-gray-700">Detail Item Belanja</h4>
             </div>
@@ -238,7 +338,6 @@ const EditTransactionModal = ({ isOpen, onClose, transaction, products = [], cus
                       {/* Kolom Qty (Typeable + Buttons) */}
                       <td className="p-1 md:p-4 md:table-cell mb-3 md:mb-0">
                         <div className="flex items-center gap-1.5 bg-gray-50 md:bg-white border border-gray-200 md:border-gray-100 rounded-xl p-1 shadow-inner md:shadow-sm w-full md:w-max md:mx-auto justify-between md:justify-center">
-                          {/* Tombol Minus */}
                           <button 
                             onClick={() => handleQtyClickAdjustment(index, -1)} 
                             className="p-2 md:p-1.5 text-gray-500 hover:text-red-500 hover:bg-red-50 rounded-lg active:scale-90 transition-all"
@@ -247,7 +346,6 @@ const EditTransactionModal = ({ isOpen, onClose, transaction, products = [], cus
                             <Minus className="w-4 h-4 md:w-3.5 md:h-3.5" />
                           </button>
                           
-                          {/* INPUT NUMBER (Bisa diketik) */}
                           <input 
                             type="number" 
                             value={item.qty}
@@ -257,7 +355,6 @@ const EditTransactionModal = ({ isOpen, onClose, transaction, products = [], cus
                             placeholder="0"
                           />
                           
-                          {/* Tombol Plus */}
                           <button 
                             onClick={() => handleQtyClickAdjustment(index, 1)} 
                             className="p-2 md:p-1.5 text-gray-500 hover:text-blue-500 hover:bg-blue-50 rounded-lg active:scale-90 transition-all"
@@ -265,8 +362,6 @@ const EditTransactionModal = ({ isOpen, onClose, transaction, products = [], cus
                           >
                             <Plus className="w-4 h-4 md:w-3.5 md:h-3.5" />
                           </button>
-                          
-                          {/* Label Satuan (Hanya Mobile) */}
                           <span className="text-[10px] font-bold text-gray-400 md:hidden pr-2">{item.unitType}</span>
                         </div>
                       </td>
@@ -293,17 +388,17 @@ const EditTransactionModal = ({ isOpen, onClose, transaction, products = [], cus
               </table>
               {items.length === 0 && (
                 <div className="text-center py-10 text-gray-400 font-bold text-sm bg-white rounded-xl">
-                    <Trash2 className="w-10 h-10 mx-auto mb-3 opacity-50" />
-                    Semua item dihapus. Transaksi akan kosong.
+                    <Trash2 className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                    Semua item dihapus. <br/> <span className="text-xs font-medium">Nota akan dikosongkan.</span>
                 </div>
               )}
             </div>
           </div>
 
-          {/* SUMMARY SECTION (Stacked di mobile, Grid di desktop) */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t pt-5 shrink-0">
+          {/* SUMMARY SECTION */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 shrink-0">
              
-             {/* INFO STATUS & BAYAR HUTANG (Read-Only) */}
+             {/* INFO STATUS & BAYAR HUTANG */}
              <div className="space-y-3.5 bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
                <div className="flex items-center justify-between border-b border-gray-100 pb-3">
                  <span className="text-xs font-black text-gray-500 uppercase tracking-wider">Status Nota</span>
@@ -318,7 +413,7 @@ const EditTransactionModal = ({ isOpen, onClose, transaction, products = [], cus
                      {transaction.paymentStatus === 'HUTANG' ? 'Info Tagihan Hutang Lama' : 'Terima Cicilan Hutang Lama'}
                    </span>
                    {currentCustomer && (
-                     <span className="text-[9px] font-bold text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded">
+                     <span className="text-[9px] font-bold text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded border border-orange-100">
                        Sisa: Rp {(currentCustomer.remainingDebt || 0).toLocaleString('id-ID')}
                      </span>
                    )}
@@ -363,7 +458,7 @@ const EditTransactionModal = ({ isOpen, onClose, transaction, products = [], cus
         </div>
 
         {/* BOTTOM FIXED PANEL (KAS vs HUTANG + ACTIONS) */}
-        <div className="p-4 md:p-6 border-t bg-white shrink-0 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.03)] z-10 sticky bottom-0">
+        <div className="p-4 md:p-6 border-t bg-white shrink-0 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.03)] z-20 sticky bottom-0">
            
            {/* TOTAL KAS VS HUTANG CARD */}
            <div className="grid grid-cols-2 gap-3 mb-4">
