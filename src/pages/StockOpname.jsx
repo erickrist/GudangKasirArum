@@ -19,6 +19,7 @@ const StockOpname = ({ onShowToast }) => {
   const { data: products, loading: loadingProducts } = useCollection('products');
   const { data: transactions, loading: loadingTrans } = useCollection('transactions', 'createdAt');
   const { data: stockLogs, loading: loadingStockLogs } = useCollection('stock_logs', 'createdAt');
+  const { data: returnsData = [], loading: loadingRet } = useCollection('returns', 'createdAt');
 
   // --- UI STATES ---
   const [activeTab, setActiveTab] = useState('products'); 
@@ -197,6 +198,7 @@ const StockOpname = ({ onShowToast }) => {
   const getProfitData = () => {
     const salesMap = {};
 
+    // 1. Hitung Penjualan dari Kasir (Barang Keluar)
     transactions.forEach(t => {
       const date = getSafeDate(t.createdAt);
       let matchesDate = true;
@@ -215,20 +217,52 @@ const StockOpname = ({ onShowToast }) => {
               name: item.name,
               unitType: item.unitType,
               qtySold: 0,
+              qtyReturned: 0, // Tambahan untuk barang hangus
               hpp: currentProduct ? (currentProduct.hpp || 0) : 0,
-              totalSales: 0,
+              totalSalesValue: 0,
+              totalReturnValue: 0 // Tambahan untuk memotong pendapatan
             };
           }
-          salesMap[item.productId].qtySold += item.qty;
-          salesMap[item.productId].totalSales += item.subtotal;
+          salesMap[item.productId].qtySold += Number(item.qty);
+          salesMap[item.productId].totalSalesValue += Number(item.subtotal || (item.qty * item.price));
         });
       }
     });
 
+    // 2. Potong Pendapatan dengan Data Retur
+    returnsData.forEach(r => {
+      const date = getSafeDate(r.createdAt);
+      let matchesDate = true;
+      if (startDate && endDate) {
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59);
+        matchesDate = date >= start && date <= end;
+      }
+
+      if (matchesDate && r.items) {
+        r.items.forEach(item => {
+          if (salesMap[item.productId]) {
+            salesMap[item.productId].qtyReturned += Number(item.qty);
+            // item.finalPrice didapat dari FormRetur saat proses retur
+            salesMap[item.productId].totalReturnValue += Number(item.qty * (item.finalPrice || item.price));
+          }
+        });
+      }
+    });
+
+    // 3. Kalkulasi Laba / Rugi Akhir
     return Object.values(salesMap).map(data => {
+      // Modal (HPP) tetap dihitung penuh dari qtySold awal, karena barang retur hangus/tidak bisa dijual lagi
       const totalHpp = data.hpp * data.qtySold;
-      const profit = data.totalSales - totalHpp;
-      return { ...data, totalHpp, profit };
+      
+      // Pendapatan dipotong senilai barang yang dikembalikan
+      const netSales = data.totalSalesValue - data.totalReturnValue; 
+      
+      // Keuntungan = Pendapatan Bersih - Semua Modal yang keluar
+      const profit = netSales - totalHpp;
+      
+      return { ...data, netSales, totalHpp, profit };
     }).sort((a, b) => b.qtySold - a.qtySold); 
   };
 
@@ -524,37 +558,41 @@ const StockOpname = ({ onShowToast }) => {
   };
 
   // --- EXPORT KEUNTUNGAN (DENGAN HARGA JUAL SATUAN) ---
+  // --- EXPORT KEUNTUNGAN EXCEL ---
   const handleDownloadProfitExcel = () => {
     const data = getProfitData();
     if (data.length === 0) return onShowToast('Tidak ada data penjualan kasir di periode ini', 'error');
 
     const reportData = data.map(item => {
-      const avgSellPrice = item.qtySold > 0 ? Math.round(item.totalSales / item.qtySold) : 0;
+      // Hitung rata-rata harga jual sebelum dipotong retur
+      const avgSellPrice = item.qtySold > 0 ? Math.round(item.totalSalesValue / item.qtySold) : 0;
+      
       return {
         'Nama Barang': item.name,
-        'Satuan': item.unitType,
-        'Terjual (Qty)': item.qtySold,
+        'Keluar (Qty)': `${item.qtySold} ${item.unitType}`,
+        'Retur / Hangus': `${item.qtyReturned} ${item.unitType}`,
         'Modal Satuan': item.hpp,
         'Harga Jual Satuan': avgSellPrice,
-        'Total Modal': item.totalHpp,
-        'Total Penjualan': item.totalSales,
-        'Laba Bersih': item.profit
+        'Total Modal (HPP)': item.totalHpp, 
+        'Pendapatan Bersih': item.netSales, 
+        'Laba / (Rugi) Bersih': item.profit 
       };
     });
 
+    // Menghitung total bawah
     const totalModal = data.reduce((sum, item) => sum + item.totalHpp, 0);
-    const totalJual = data.reduce((sum, item) => sum + item.totalSales, 0);
-    const totalUntung = data.reduce((sum, item) => sum + item.profit, 0);
+    const totalPendapatan = data.reduce((sum, item) => sum + item.netSales, 0);
+    const totalUntungRugi = data.reduce((sum, item) => sum + item.profit, 0);
 
     reportData.push({
       'Nama Barang': 'TOTAL KESELURUHAN',
-      'Satuan': '',
-      'Terjual (Qty)': data.reduce((sum, item) => sum + item.qtySold, 0),
+      'Keluar (Qty)': '',
+      'Retur / Hangus': '',
       'Modal Satuan': '',
       'Harga Jual Satuan': '',
-      'Total Modal': totalModal,
-      'Total Penjualan': totalJual,
-      'Laba Bersih': totalUntung
+      'Total Modal (HPP)': totalModal,
+      'Pendapatan Bersih': totalPendapatan,
+      'Laba / (Rugi) Bersih': totalUntungRugi
     });
 
     const ws = XLSX.utils.json_to_sheet(reportData);
@@ -563,60 +601,72 @@ const StockOpname = ({ onShowToast }) => {
     XLSX.writeFile(wb, `Laporan_Keuntungan_${startDate||'Awal'}_sd_${endDate||'Sekarang'}.xlsx`);
   };
 
+  // --- EXPORT KEUNTUNGAN PDF ---
   const handleDownloadProfitPDF = () => {
     const data = getProfitData();
-    if (data.length === 0) return onShowToast('Tidak ada data penjualan kasir di periode ini', 'error');
+    if (data.length === 0) return onShowToast('Tidak ada data penjualan di periode ini', 'error');
 
     const doc = new jsPDF('l', 'mm', 'a4');
+    
     doc.setFontSize(14);
     doc.setFont("helvetica", "bold");
     doc.text(`Laporan Laba / Keuntungan Penjualan`, 14, 15);
     doc.setFontSize(10);
     doc.setFont("helvetica", "normal");
-    doc.text(`Berdasarkan Nota Terjual di Kasir`, 14, 20);
+    doc.text(`Berdasarkan Data Kasir & Retur Barang Hangus`, 14, 20);
     doc.text(`Periode: ${startDate || 'Semua Data'} s/d ${endDate || 'Sekarang'}`, 14, 25);
 
-    let totalModal = 0, totalJual = 0, totalUntung = 0;
+    let totalModal = 0, totalPendapatan = 0, totalUntung = 0;
 
     const body = data.map(item => {
       totalModal += item.totalHpp;
-      totalJual += item.totalSales;
+      totalPendapatan += item.netSales;
       totalUntung += item.profit;
-      const avgSellPrice = item.qtySold > 0 ? Math.round(item.totalSales / item.qtySold) : 0;
+      
+      const avgSellPrice = item.qtySold > 0 ? Math.round(item.totalSalesValue / item.qtySold) : 0;
+      
       return [
         item.name,
         `${item.qtySold} ${item.unitType}`,
+        `${item.qtyReturned} ${item.unitType}`, 
         `Rp ${item.hpp.toLocaleString('id-ID')}`,
         `Rp ${avgSellPrice.toLocaleString('id-ID')}`,
         `Rp ${item.totalHpp.toLocaleString('id-ID')}`,
-        `Rp ${item.totalSales.toLocaleString('id-ID')}`,
+        `Rp ${item.netSales.toLocaleString('id-ID')}`, 
         `Rp ${item.profit.toLocaleString('id-ID')}`
       ];
     });
 
     body.push([
-      { content: 'TOTAL KESELURUHAN', styles: { fontStyle: 'bold' } },
-      '',
-      '',
-      '',
+      { content: 'TOTAL KESELURUHAN', colSpan: 5, styles: { halign: 'right', fontStyle: 'bold' } },
       { content: `Rp ${totalModal.toLocaleString('id-ID')}`, styles: { fontStyle: 'bold' } },
-      { content: `Rp ${totalJual.toLocaleString('id-ID')}`, styles: { fontStyle: 'bold' } },
-      { content: `Rp ${totalUntung.toLocaleString('id-ID')}`, styles: { fontStyle: 'bold', textColor: [0, 128, 0] } }
+      { content: `Rp ${totalPendapatan.toLocaleString('id-ID')}`, styles: { fontStyle: 'bold' } },
+      { 
+        content: `Rp ${totalUntung.toLocaleString('id-ID')}`, 
+        styles: { fontStyle: 'bold', textColor: totalUntung < 0 ? [220, 38, 38] : [0, 128, 0] } 
+      }
     ]);
 
     autoTable(doc, { 
-      head: [['Nama Barang', 'Terjual', 'Modal Satuan', 'Harga Jual Satuan', 'Total Modal', 'Total Penjualan', 'Laba Bersih']], 
+      head: [['Nama Barang', 'Keluar', 'Retur', 'Modal Sat', 'Jual Sat', 'Tot Modal', 'Pendapatan', 'Laba/(Rugi)']], 
       body, 
       startY: 30,
+      styles: { fontSize: 8 }, // Dikecilkan sedikit agar muat 8 kolom
       didParseCell: function(data) {
-        if (data.section === 'body' && data.column.index === 6 && data.row.index < body.length - 1) {
-           data.cell.styles.textColor = [0, 128, 0];
+        // Logika warna untuk kolom Laba/Rugi (Index 7)
+        if (data.section === 'body' && data.column.index === 7 && data.row.index < body.length - 1) {
+          const profitValue = parseInt(data.cell.raw.replace(/Rp |\./g, '').replace(/-/g, '-')); 
+          if (profitValue < 0) {
+            data.cell.styles.textColor = [220, 38, 38]; 
+          } else {
+            data.cell.styles.textColor = [0, 128, 0]; 
+          }
         }
       }
     });
+    
     doc.save(`Laporan_Keuntungan_${Date.now()}.pdf`);
   };
-
   // --- PAGINATION COMPONENT ---
   const renderPagination = (listLength, currentPage, setPage, itemsPerPage, setItemsPerPage) => {
     const totalPages = Math.ceil(listLength / itemsPerPage);
