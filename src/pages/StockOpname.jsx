@@ -447,7 +447,29 @@ const StockOpname = ({ onShowToast }) => {
     XLSX.writeFile(workbook, "Template_Import_Produk.xlsx");
     onShowToast('Template Excel berhasil diunduh', 'success');
   };
+  // --- EXPORT DATA PRODUK (BISA DI-IMPORT KEMBALI) ---
+  const handleExportProducts = () => {
+    if (products.length === 0) return onShowToast('Tidak ada produk untuk diexport', 'error');
 
+    // Format disamakan persis dengan template Import
+    const exportData = products.map(p => ({
+      'Nama': p.name || '',
+      'Kategori': p.category || '',
+      'TipeSatuan': p.unitType || 'PCS',
+      'IsiPerUnit': p.pcsPerCarton || '',
+      'HargaBeli': p.hpp || 0,
+      'HargaJual': p.price || 0,
+      'StokPcs': p.stockPcs || 0,
+      'UrlGambar': p.image || ''
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(exportData);
+    worksheet['!cols'] = [{ wch: 30 }, { wch: 15 }, { wch: 12 }, { wch: 12 }, { wch: 15 }, { wch: 15 }, { wch: 10 }, { wch: 35 }];
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Data_Produk");
+    XLSX.writeFile(workbook, `Backup_Data_Produk_${Date.now()}.xlsx`);
+    onShowToast('Data produk berhasil diexport', 'success');
+  };
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -461,6 +483,8 @@ const StockOpname = ({ onShowToast }) => {
         if (excelData.length === 0) return onShowToast('File Excel kosong', 'error');
 
         let successCount = 0;
+        let updateCount = 0; // Tambahan counter untuk update
+
         for (const row of excelData) {
           if (!row.Nama) continue;
           const unit = row.TipeSatuan?.toUpperCase() || 'PCS';
@@ -476,25 +500,50 @@ const StockOpname = ({ onShowToast }) => {
             stockPcs: parseInt(row.StokPcs) || 0,
             image: row.UrlGambar || '',
           };
-          const result = await addDocument('products', productData);
-          
-          if (result.success) {
-            successCount++;
-            if (productData.stockPcs > 0) {
-              await addDocument('stock_logs', {
-                productId: result.id,
-                productName: productData.name,
-                type: 'in',
-                amount: productData.stockPcs,
-                unitType: 'PCS',
-                totalPcs: productData.stockPcs,
-                note: `Import Excel (Stok Awal)`,
-                createdAt: new Date()
-              });
-            }
+
+          // CEK APAKAH BARANG SUDAH ADA DI DATABASE BERDASARKAN NAMA
+          const existingProduct = products.find(p => p.name.toLowerCase() === productData.name.toLowerCase());
+
+          if (existingProduct) {
+             // JIKA ADA: Lakukan Update Data
+             await updateDocument('products', existingProduct.id, productData);
+             updateCount++;
+             
+             // Catat histori jika stok Excel berbeda dengan stok di database
+             if (productData.stockPcs !== existingProduct.stockPcs) {
+                const diff = productData.stockPcs - existingProduct.stockPcs;
+                await addDocument('stock_logs', {
+                  productId: existingProduct.id,
+                  productName: productData.name,
+                  type: diff > 0 ? 'in' : 'out',
+                  amount: Math.abs(diff),
+                  unitType: 'PCS',
+                  totalPcs: Math.abs(diff),
+                  note: 'Import Excel (Update Stok)',
+                  createdAt: new Date()
+                });
+             }
+          } else {
+             // JIKA BELUM ADA: Lakukan Tambah Baru
+             const result = await addDocument('products', productData);
+             if (result.success) {
+               successCount++;
+               if (productData.stockPcs > 0) {
+                 await addDocument('stock_logs', {
+                   productId: result.id,
+                   productName: productData.name,
+                   type: 'in',
+                   amount: productData.stockPcs,
+                   unitType: 'PCS',
+                   totalPcs: productData.stockPcs,
+                   note: `Import Excel (Stok Awal)`,
+                   createdAt: new Date()
+                 });
+               }
+             }
           }
         }
-        onShowToast(`${successCount} produk berhasil diimpor`, 'success');
+        onShowToast(`${successCount} barang baru, ${updateCount} barang diupdate`, 'success');
       } catch (error) {
         onShowToast('Gagal memproses file Excel', 'error');
       }
@@ -755,6 +804,9 @@ const StockOpname = ({ onShowToast }) => {
             <div className="grid grid-cols-2 md:flex gap-2 w-full md:w-auto">
               <button onClick={handleDownloadTemplate} className="col-span-1 md:col-auto flex justify-center items-center gap-1.5 md:gap-2 bg-gray-50 text-gray-700 border border-gray-200 px-3 md:px-4 py-2 md:py-2.5 rounded-lg md:rounded-xl hover:bg-gray-100 transition-colors text-[10px] md:text-xs font-black shadow-sm">
                 <Download className="w-3.5 h-3.5" /> Template
+              </button>
+              <button onClick={handleExportProducts} className="col-span-1 md:col-auto flex justify-center items-center gap-1.5 md:gap-2 bg-purple-50 text-purple-700 border border-purple-200 px-3 md:px-4 py-2 md:py-2.5 rounded-lg md:rounded-xl hover:bg-purple-100 transition-colors text-[10px] md:text-xs font-black shadow-sm">
+                <Upload className="w-3.5 h-3.5 rotate-180" /> Export Data
               </button>
               <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".xlsx, .xls" className="hidden" />
               <button onClick={() => fileInputRef.current?.click()} className="col-span-1 md:col-auto flex justify-center items-center gap-1.5 md:gap-2 bg-blue-50 text-blue-700 border border-blue-200 px-3 md:px-4 py-2 md:py-2.5 rounded-lg md:rounded-xl hover:bg-blue-100 transition-colors text-[10px] md:text-xs font-black shadow-sm">
