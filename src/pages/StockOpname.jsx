@@ -254,7 +254,7 @@ const StockOpname = ({ onShowToast }) => {
     // 3. Kalkulasi Laba / Rugi Akhir
     return Object.values(salesMap).map(data => {
       // Modal (HPP) tetap dihitung penuh dari qtySold awal, karena barang retur hangus/tidak bisa dijual lagi
-      const totalHpp = data.hpp * data.qtySold;
+      const totalHpp = data.hpp * (data.qtySold - data.qtyReturned);
       
       // Pendapatan dipotong senilai barang yang dikembalikan
       const netSales = data.totalSalesValue - data.totalReturnValue; 
