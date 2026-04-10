@@ -60,6 +60,7 @@ const CustomerSearchSelect = ({ customers, value, onChange, placeholder }) => {
 };
 
 const TabDebt = ({
+  stores,
   customers,
   activeStoreCustomersDebt,
   totalUnpaidDebtDisplay,
@@ -81,6 +82,18 @@ const TabDebt = ({
       <div className="bg-white p-4 md:p-6 rounded-3xl border shadow-sm relative z-10">
         <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3 md:mb-4">Penambahan Hutang Manual</h4>
         <form onSubmit={handleAddManualDebt} className="flex flex-col md:flex-row gap-3">
+          {/* TAMBAHAN: DROPDOWN PILIH TOKO/CABANG */}
+          <select 
+            value={newManualDebt.storeId} 
+            onChange={e => setNewManualDebt({...newManualDebt, storeId: e.target.value})} 
+            className="w-full md:w-48 bg-gray-50 rounded-xl px-4 py-3 text-sm font-bold border-none outline-none focus:ring-2 focus:ring-orange-500" 
+            required
+          >
+            <option value="" disabled>-- Pilih Cabang --</option>
+            <option value="pusat">🏢 Cabang Pusat</option>
+            {stores && stores.map(s => <option key={s.id} value={s.id}>🏪 {s.name}</option>)}
+          </select>
+
           <CustomerSearchSelect customers={customers} value={newManualDebt.customerId} onChange={(id) => setNewManualDebt({...newManualDebt, customerId: id})} placeholder="-- Cari Pembeli --" />
           <input type="text" placeholder="Keterangan" required className="w-full md:flex-1 bg-gray-50 rounded-xl px-4 py-3 text-sm font-bold border-none outline-none focus:ring-2 focus:ring-orange-500" value={newManualDebt.note} onChange={e => setNewManualDebt({...newManualDebt, note: e.target.value})} />
           <input type="number" placeholder="Rp" required className="w-full md:w-44 bg-gray-50 rounded-xl px-4 py-3 text-sm font-black border-none outline-none focus:ring-2 focus:ring-orange-500" value={newManualDebt.amount} onChange={e => setNewManualDebt({...newManualDebt, amount: e.target.value})} />
@@ -90,7 +103,6 @@ const TabDebt = ({
 
       <div className="bg-white rounded-3xl border shadow-sm mb-6 flex flex-col">
         <div className="p-4 md:p-6 bg-gray-50/50 border-b flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-           {/* NAMA JUDUL TABEL DINAMIS */}
            <h3 className="text-base md:text-lg font-black text-gray-800 uppercase tracking-tighter">Daftar Piutang {isGlobal ? 'Global' : 'Cabang'}</h3>
            <div className="px-4 py-1.5 rounded-xl font-black text-xs uppercase bg-orange-100 text-orange-600">Total: Rp {totalUnpaidDebtDisplay.toLocaleString('id-ID')}</div>
         </div>
@@ -120,13 +132,24 @@ const TabDebt = ({
          <div className="p-4 md:p-6 bg-gray-50/50 border-b"><h3 className="text-base md:text-lg font-black text-gray-800 uppercase flex items-center gap-2"><History className="text-gray-500 w-5 h-5"/> Histori Hutang</h3></div>
          <div className="overflow-x-auto w-full custom-scrollbar">
             <table className="w-full min-w-[700px] text-left text-xs md:text-sm">
-               <thead><tr className="bg-gray-50/50 border-b"><th className="p-4 font-black text-gray-400 uppercase text-[10px]">Tgl & Jam</th><th className="p-4 font-black text-gray-400 uppercase text-[10px]">Pelanggan</th><th className="p-4 font-black text-gray-400 uppercase text-[10px]">Keterangan</th><th className="p-4 font-black text-gray-400 uppercase text-[10px] text-right">Nominal</th><th className="p-4 font-black text-gray-400 uppercase text-[10px] text-right">Aksi</th></tr></thead>
+               <thead>
+                 <tr className="bg-gray-50/50 border-b">
+                   <th className="p-4 font-black text-gray-400 uppercase text-[10px]">Tgl & Jam</th>
+                   <th className="p-4 font-black text-gray-400 uppercase text-[10px]">Cabang</th>
+                   <th className="p-4 font-black text-gray-400 uppercase text-[10px]">Pelanggan</th>
+                   <th className="p-4 font-black text-gray-400 uppercase text-[10px]">Keterangan</th>
+                   <th className="p-4 font-black text-gray-400 uppercase text-[10px] text-right">Nominal</th>
+                   <th className="p-4 font-black text-gray-400 uppercase text-[10px] text-right">Aksi</th>
+                 </tr>
+               </thead>
                <tbody className="divide-y">
                  {paginatedItems.map(item => {
                    const isIn = item.debtType === 'in'; 
                    return (
                      <tr key={item.id + (item.debtType || '')} className="hover:bg-gray-50 transition-colors">
                         <td className="p-4 font-bold text-gray-500 whitespace-nowrap">{formatDisplayDate(item.createdAt)}</td>
+                        {/* TAMBAHAN KOLOM CABANG DI HISTORI */}
+                        <td className="p-4 font-black text-gray-800 uppercase text-[10px]">{item.storeName || 'Pusat'}</td>
                         <td className="p-4 font-black text-gray-800 uppercase">{item.customerName}</td>
                         <td className="p-4 font-bold text-gray-600">{item.note}</td>
                         <td className={`p-4 font-black text-right whitespace-nowrap ${isIn ? 'text-red-600' : 'text-teal-600'}`}>{isIn ? '(+)' : '(-)'} Rp {(Number(item.nominal)||0).toLocaleString('id-ID')}</td>

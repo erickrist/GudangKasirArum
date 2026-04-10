@@ -414,13 +414,47 @@ const Kasir = ({ onShowToast }) => {
               </div>
             ) : (
               <div className="space-y-2 md:space-y-3 mb-4 md:mb-6">
-                {filteredCustomers.map((customer) => (
-                  <button key={customer.id} onClick={() => { setSelectedCustomer(customer); setShowCustomerModal(false); setSearchCustomer(''); }} className={`w-full text-left p-3 md:p-4 border rounded-xl md:rounded-2xl transition-all duration-300 ${ selectedCustomer?.id === customer.id ? 'border-teal-500 bg-teal-50 shadow-sm' : 'border-gray-200 hover:border-teal-300 bg-white hover:shadow-md' }`}>
-                    <h4 className="font-black text-gray-800 text-xs md:text-sm uppercase tracking-tight">{customer.name}</h4>
-                    <p className="text-[9px] md:text-[10px] font-bold text-gray-500 tracking-widest mt-0.5">{customer.phone || 'Tanpa No HP'}</p>
-                    {customer.address && (<p className="text-[9px] md:text-[10px] text-gray-500 mt-1.5 md:mt-2 line-clamp-2 bg-gray-50 p-1.5 md:p-2 rounded-lg leading-relaxed">{customer.address}</p>)}
-                  </button>
-                ))}
+                {filteredCustomers.map((customer) => {
+                  const hasDebt = (Number(customer.remainingDebt) || 0) > 0;
+                  const hasDeposit = (Number(customer.returnAmount) || 0) > 0;
+
+                  return (
+                    <button 
+                      key={customer.id} 
+                      onClick={() => { setSelectedCustomer(customer); setShowCustomerModal(false); setSearchCustomer(''); }} 
+                      className={`w-full text-left p-3 md:p-4 border rounded-xl md:rounded-2xl transition-all duration-300 ${ selectedCustomer?.id === customer.id ? 'border-teal-500 bg-teal-50 shadow-sm' : 'border-gray-200 hover:border-teal-300 bg-white hover:shadow-md' }`}
+                    >
+                      <div className="flex justify-between items-start gap-2">
+                        <div className="flex-1">
+                          <h4 className="font-black text-gray-800 text-xs md:text-sm uppercase tracking-tight">{customer.name}</h4>
+                          <p className="text-[9px] md:text-[10px] font-bold text-gray-500 tracking-widest mt-0.5">{customer.phone || 'Tanpa No HP'}</p>
+                        </div>
+                        
+                        {/* BAGIAN INI YANG DIKEMBALIKAN: Menampilkan Label Hutang/Deposit */}
+                        {(hasDebt || hasDeposit) && (
+                          <div className="flex flex-col items-end gap-1 shrink-0">
+                            {hasDebt && (
+                              <span className="text-[9px] font-black bg-red-50 text-red-600 px-2 py-0.5 rounded-md border border-red-100 whitespace-nowrap">
+                                Hutang: Rp {(customer.remainingDebt).toLocaleString('id-ID')}
+                              </span>
+                            )}
+                            {hasDeposit && (
+                              <span className="text-[9px] font-black bg-green-50 text-green-700 px-2 py-0.5 rounded-md border border-green-100 whitespace-nowrap">
+                                Deposit: Rp {(customer.returnAmount).toLocaleString('id-ID')}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {customer.address && (
+                        <p className="text-[9px] md:text-[10px] text-gray-500 mt-2 line-clamp-2 bg-gray-50 p-1.5 md:p-2 rounded-lg leading-relaxed">
+                          {customer.address}
+                        </p>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>

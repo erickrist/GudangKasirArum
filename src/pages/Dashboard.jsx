@@ -60,7 +60,9 @@ const Dashboard = ({ onShowToast }) => {
   const [isFullPayment, setIsFullPayment] = useState(true);
   const [newManualIncome, setNewManualIncome] = useState({ note: '', amount: '', method: 'TUNAI', storeId: '' });
   const [newExpense, setNewExpense] = useState({ title: '', amount: '', category: 'Operasional', storeId: '' });
-  const [newManualDebt, setNewManualDebt] = useState({ customerId: '', amount: '', note: '' });
+  
+  // TAMBAHAN: newManualDebt sekarang menyimpan state storeId
+  const [newManualDebt, setNewManualDebt] = useState({ customerId: '', amount: '', note: '', storeId: '' });
 
   const getSafeDate = (dateSource) => {
     if (!dateSource) return new Date();
@@ -254,17 +256,22 @@ const Dashboard = ({ onShowToast }) => {
     }
   };
 
+  // TAMBAHAN: handleAddManualDebt agar membaca StoreId dengan tepat
   const handleAddManualDebt = async (e) => {
     e.preventDefault();
-    if (!newManualDebt.customerId || !newManualDebt.amount) return onShowToast('Pilih pelanggan dan isi nominal', 'error');
+    if (!newManualDebt.customerId || !newManualDebt.amount || !newManualDebt.storeId) return onShowToast('Pilih pelanggan, cabang, dan isi nominal!', 'error');
     const cust = customers.find(c => c.id === newManualDebt.customerId);
     if (!cust) return;
     const amount = Number(newManualDebt.amount);
+    
+    const storeObj = stores.find(s => s.id === newManualDebt.storeId);
+    const storeName = storeObj ? storeObj.name : 'Pusat';
+
     const updateRes = await updateDocument('customers', cust.id, { remainingDebt: (Number(cust.remainingDebt) || 0) + amount });
     if (updateRes.success) {
-      await addDocument('transactions', { customerName: cust.name, customerId: cust.id, subtotal: amount, total: 0, note: newManualDebt.note || 'Penambahan Hutang Manual', paymentStatus: 'HUTANG', storeId: selectedStoreFilter !== 'ALL' ? selectedStoreFilter : 'pusat', storeName: selectedStoreName, createdAt: new Date() });
+      await addDocument('transactions', { customerName: cust.name, customerId: cust.id, subtotal: amount, total: 0, note: newManualDebt.note || 'Penambahan Hutang Manual', paymentStatus: 'HUTANG', storeId: newManualDebt.storeId, storeName: storeName, createdAt: new Date() });
       onShowToast('Hutang manual berhasil ditambahkan', 'success');
-      setNewManualDebt({ customerId: '', amount: '', note: '' });
+      setNewManualDebt({ customerId: '', amount: '', note: '', storeId: '' });
     }
   };
 
@@ -663,6 +670,7 @@ const Dashboard = ({ onShowToast }) => {
       {/* TAB DEBTS - MENGGUNAKAN KOMPONEN BARU */}
       {activeTab === 'debts' && (
         <TabDebt 
+          stores={stores}
           customers={customers}
           activeStoreCustomersDebt={activeStoreCustomersDebt}
           totalUnpaidDebtDisplay={totalUnpaidDebtDisplay}
