@@ -1,7 +1,6 @@
 import { Search, History, Eye, Trash2, Edit3, ChevronDown } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 
-// Komponen Dropdown dipindah ke sini agar file induk lebih bersih
 const CustomerSearchSelect = ({ customers, value, onChange, placeholder }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -62,7 +61,9 @@ const CustomerSearchSelect = ({ customers, value, onChange, placeholder }) => {
 
 const TabDebt = ({
   customers,
-  totalUnpaidDebt,
+  activeStoreCustomersDebt,
+  totalUnpaidDebtDisplay,
+  isGlobal,
   paginatedItems,
   formatDisplayDate,
   newManualDebt,
@@ -77,7 +78,6 @@ const TabDebt = ({
 }) => {
   return (
     <div className="space-y-6">
-      {/* FORM TAMBAH HUTANG MANUAL */}
       <div className="bg-white p-4 md:p-6 rounded-3xl border shadow-sm relative z-10">
         <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3 md:mb-4">Penambahan Hutang Manual</h4>
         <form onSubmit={handleAddManualDebt} className="flex flex-col md:flex-row gap-3">
@@ -88,25 +88,25 @@ const TabDebt = ({
         </form>
       </div>
 
-      {/* DAFTAR PIUTANG AKTIF */}
       <div className="bg-white rounded-3xl border shadow-sm mb-6 flex flex-col">
         <div className="p-4 md:p-6 bg-gray-50/50 border-b flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-           <h3 className="text-base md:text-lg font-black text-gray-800 uppercase tracking-tighter">Daftar Piutang Global</h3>
-           <div className="px-4 py-1.5 rounded-xl font-black text-xs uppercase bg-orange-100 text-orange-600">Total: Rp {totalUnpaidDebt.toLocaleString('id-ID')}</div>
+           {/* NAMA JUDUL TABEL DINAMIS */}
+           <h3 className="text-base md:text-lg font-black text-gray-800 uppercase tracking-tighter">Daftar Piutang {isGlobal ? 'Global' : 'Cabang'}</h3>
+           <div className="px-4 py-1.5 rounded-xl font-black text-xs uppercase bg-orange-100 text-orange-600">Total: Rp {totalUnpaidDebtDisplay.toLocaleString('id-ID')}</div>
         </div>
         <div className="overflow-x-auto w-full custom-scrollbar">
            <table className="w-full min-w-[500px] text-left text-xs md:text-sm">
              <thead><tr className="border-b"><th className="p-4 font-black text-gray-400 uppercase text-[10px]">Pelanggan</th><th className="p-4 font-black text-gray-400 uppercase text-[10px]">Saldo</th><th className="p-4 font-black text-gray-400 uppercase text-[10px] text-right">Aksi</th></tr></thead>
              <tbody className="divide-y">
-               {customers.filter(c => c.remainingDebt > 0).map(c => (
+               {activeStoreCustomersDebt && activeStoreCustomersDebt.map(c => (
                  <tr key={c.id} className="hover:bg-gray-50 transition-all">
                    <td className="p-4"><div><p className="font-black text-gray-800 uppercase">{c.name}</p><p className="text-[10px] text-gray-400 font-bold">{c.phone || '-'}</p></div></td>
-                   <td className="p-4 font-black italic text-sm md:text-lg whitespace-nowrap text-red-600">Rp {c.remainingDebt.toLocaleString('id-ID')}</td>
+                   <td className="p-4 font-black italic text-sm md:text-lg whitespace-nowrap text-red-600">Rp {(c.displayDebt || 0).toLocaleString('id-ID')}</td>
                    <td className="p-4 text-right">
                      <div className="flex justify-end items-center gap-2">
                        <button onClick={() => onPayDebt(c)} className="bg-teal-600 text-white px-4 py-2 rounded-xl text-[10px] md:text-xs font-black shadow-md uppercase whitespace-nowrap hover:bg-teal-700 transition-colors">Bayar</button>
                        <button onClick={() => onEditDebt(c)} className="bg-white border text-gray-600 p-2 rounded-xl hover:bg-gray-50 hover:text-teal-600 transition-colors"><Edit3 className="w-4 h-4 inline-block"/></button>
-                       <button onClick={() => onDeleteCustomerDebt(c)} className="bg-red-50 text-red-600 p-2 rounded-xl hover:bg-red-100 transition-colors"><Trash2 className="w-4 h-4" /></button>
+                       {isGlobal && <button onClick={() => onDeleteCustomerDebt(c)} className="bg-red-50 text-red-600 p-2 rounded-xl hover:bg-red-100 transition-colors"><Trash2 className="w-4 h-4" /></button>}
                      </div>
                    </td>
                  </tr>
@@ -116,7 +116,6 @@ const TabDebt = ({
         </div>
       </div>
 
-      {/* HISTORI HUTANG */}
       <div className="bg-white rounded-[32px] border shadow-sm overflow-hidden flex flex-col">
          <div className="p-4 md:p-6 bg-gray-50/50 border-b"><h3 className="text-base md:text-lg font-black text-gray-800 uppercase flex items-center gap-2"><History className="text-gray-500 w-5 h-5"/> Histori Hutang</h3></div>
          <div className="overflow-x-auto w-full custom-scrollbar">

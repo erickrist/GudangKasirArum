@@ -5,11 +5,12 @@ import * as XLSX from 'xlsx';
 // ==========================================
 
 export const exportMasterExcel = ({
-  transactions, filteredExpenses, filteredDebtHistory, customers, 
-  filteredDepositHistory, filteredNetBalance, startDate, endDate, 
-  formatDisplayDate, onShowToast
+  transactions, filteredExpenses, filteredDebtHistory, activeStoreCustomersDebt, 
+  activeStoreCustomersDeposit, filteredDepositHistory, filteredNetBalance, startDate, endDate, 
+  storeName, formatDisplayDate, onShowToast
 }) => {
-  if (filteredNetBalance.length === 0 && filteredDebtHistory.length === 0 && filteredDepositHistory.length === 0) {
+  // Perbaikan: Cek jika semua data benar-benar kosong
+  if (transactions.length === 0 && filteredExpenses.length === 0 && filteredNetBalance.length === 0) {
     return onShowToast('Tidak ada data untuk dicetak pada periode ini', 'error');
   }
   const wb = XLSX.utils.book_new();
@@ -38,7 +39,7 @@ export const exportMasterExcel = ({
 
   // 3. HISTORI HUTANG
   let inDebtEx = 0, outDebtEx = 0;
-  const debtHistData = filteredDebtHistory.map(item => {
+  const debtHistData = (filteredDebtHistory || []).map(item => {
     const nominal = Number(item.nominal) || 0;
     if (item.debtType === 'in') inDebtEx += nominal; else outDebtEx += nominal;
     return { 'Tanggal & Jam': formatDisplayDate(item.createdAt), 'Status': item.debtType === 'in' ? 'BERTAMBAH' : 'BERKURANG', 'Nama Pembeli': item.customerName || 'Tanpa Nama', 'Keterangan': item.note || 'Belanja Hutang', 'Nominal': (item.debtType === 'in' ? '+' : '-') + ` Rp ${nominal.toLocaleString('id-ID')}` };
@@ -48,11 +49,11 @@ export const exportMasterExcel = ({
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(debtHistData), "3. Histori Hutang");
   }
 
-  // 4. DAFTAR HUTANG
+  // 4. DAFTAR HUTANG (DIFILTER PER CABANG)
   let totalDebtAct = 0;
-  const activeDebts = customers.filter(c => (Number(c.remainingDebt) || 0) > 0).map(c => {
-    totalDebtAct += Number(c.remainingDebt);
-    return { 'Nama Pembeli': c.name, 'No. Telepon': c.phone || '-', 'Sisa Hutang': Number(c.remainingDebt).toLocaleString('id-ID') };
+  const activeDebts = (activeStoreCustomersDebt || []).map(c => {
+    totalDebtAct += Number(c.displayDebt);
+    return { 'Nama Pembeli': c.name, 'No. Telepon': c.phone || '-', 'Sisa Hutang': Number(c.displayDebt).toLocaleString('id-ID') };
   });
   if (activeDebts.length > 0) {
     activeDebts.push({ 'Nama Pembeli': 'TOTAL KESELURUHAN PIUTANG', 'No. Telepon': '', 'Sisa Hutang': totalDebtAct.toLocaleString('id-ID') });
@@ -61,7 +62,7 @@ export const exportMasterExcel = ({
 
   // 5. HISTORI DEPOSIT
   let inDepEx = 0, outDepEx = 0;
-  const depHistData = filteredDepositHistory.map(item => {
+  const depHistData = (filteredDepositHistory || []).map(item => {
     const nominal = Number(item.nominal) || 0;
     if (item.depType === 'in') inDepEx += nominal; else outDepEx += nominal;
     return { 'Tanggal & Jam': formatDisplayDate(item.createdAt), 'Status': item.depType === 'in' ? 'BERTAMBAH' : 'BERKURANG', 'Nama Pembeli': item.customerName || 'Tanpa Nama', 'Keterangan': item.note || 'Retur', 'Nominal': (item.depType === 'in' ? '+' : '-') + ` Rp ${nominal.toLocaleString('id-ID')}` };
@@ -71,11 +72,11 @@ export const exportMasterExcel = ({
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(depHistData), "5. Histori Deposit");
   }
 
-  // 6. DAFTAR DEPOSIT
+  // 6. DAFTAR DEPOSIT (DIFILTER PER CABANG)
   let totalDepAct = 0;
-  const activeDeposits = customers.filter(c => (Number(c.returnAmount) || 0) > 0).map(c => {
-    totalDepAct += Number(c.returnAmount);
-    return { 'Nama Pembeli': c.name, 'No. Telepon': c.phone || '-', 'Saldo Deposit': Number(c.returnAmount).toLocaleString('id-ID') };
+  const activeDeposits = (activeStoreCustomersDeposit || []).map(c => {
+    totalDepAct += Number(c.displayDeposit);
+    return { 'Nama Pembeli': c.name, 'No. Telepon': c.phone || '-', 'Saldo Deposit': Number(c.displayDeposit).toLocaleString('id-ID') };
   });
   if (activeDeposits.length > 0) {
     activeDeposits.push({ 'Nama Pembeli': 'TOTAL KESELURUHAN DEPOSIT', 'No. Telepon': '', 'Saldo Deposit': totalDepAct.toLocaleString('id-ID') });
@@ -84,7 +85,7 @@ export const exportMasterExcel = ({
 
   // 7. SALDO BERSIH
   let netInEx = 0, netOutEx = 0;
-  const netData = filteredNetBalance.map(item => {
+  const netData = (filteredNetBalance || []).map(item => {
     const nominal = Number(item.nominal) || 0;
     if (item.netType === 'in') netInEx += nominal; else netOutEx += nominal;
     return { 'Tanggal & Jam': formatDisplayDate(item.createdAt), 'Kategori': item.netType === 'in' ? 'PEMASUKAN' : 'PENGELUARAN', 'Nama / Subjek': item.subjName, 'Keterangan Rinci': item.detailNote, 'Metode (Masuk)': item.paymentMethod || '-', 'Nominal Kas': (item.netType === 'in' ? '+' : '-') + ` Rp ${nominal.toLocaleString('id-ID')}` };
@@ -94,16 +95,19 @@ export const exportMasterExcel = ({
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(netData), "7. Saldo Bersih");
   }
 
-  XLSX.writeFile(wb, `Laporan_Buku_Kas_${startDate||'Awal'}_sd_${endDate||'Sekarang'}.xlsx`);
+  const fileName = storeName === 'Semua Cabang' ? 'Laporan_Global' : `Laporan_${storeName.replace(/\s+/g, '_')}`;
+  XLSX.writeFile(wb, `${fileName}_${startDate||'Awal'}_sd_${endDate||'Sekarang'}.xlsx`);
   onShowToast('File Excel berhasil diunduh', 'success');
 };
 
-export const exportNeracaExcel = ({ balance, totalUnpaidDebt, totalExpenses, totalDeposit, totalIncome, startDate, endDate, onShowToast }) => {
+export const exportNeracaExcel = ({ balance, totalUnpaidDebt, totalExpenses, totalDeposit, totalIncome, startDate, endDate, storeName, onShowToast }) => {
   const totalDebit = balance + totalUnpaidDebt + totalExpenses;
   const totalKredit = totalDeposit + totalIncome;
 
   const aoaData = [
-    ['LAPORAN NERACA SALDO'], ['ARZEN Frozen Food'], [`Periode: ${startDate || 'Awal'} s/d ${endDate || 'Sekarang'}`], [],
+    ['LAPORAN NERACA SALDO'], 
+    [`ARZEN Frozen Food ${storeName && storeName !== 'Semua Cabang' ? `- Cabang ${storeName}` : ''}`], 
+    [`Periode: ${startDate || 'Awal'} s/d ${endDate || 'Sekarang'}`], [],
     ['No. Akun', 'Nama Akun / Uraian', 'Debit', 'Kredit'],
     ['101', 'Kas & Bank (Saldo Bersih Keseluruhan)', balance, 0],
     ['102', 'Piutang Usaha (Hutang Pelanggan)', totalUnpaidDebt, 0],
@@ -118,17 +122,21 @@ export const exportNeracaExcel = ({ balance, totalUnpaidDebt, totalExpenses, tot
   const ws = XLSX.utils.aoa_to_sheet(aoaData);
   ws['!cols'] = [{ wch: 12 }, { wch: 50 }, { wch: 20 }, { wch: 20 }];
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Neraca Saldo");
-  XLSX.writeFile(wb, `Neraca_Saldo_${Date.now()}.xlsx`);
+  
+  const sheetName = storeName === 'Semua Cabang' ? 'Neraca_Global' : `Neraca_${storeName}`;
+  XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  XLSX.writeFile(wb, `${sheetName}_${Date.now()}.xlsx`);
   onShowToast('File Excel Neraca Saldo berhasil diunduh', 'success');
 };
 
-export const exportLabaRugiExcel = ({ totalIncome, totalHPP, totalExpenses, startDate, endDate, onShowToast }) => {
+export const exportLabaRugiExcel = ({ totalIncome, totalHPP, totalExpenses, startDate, endDate, storeName, onShowToast }) => {
   const labaKotor = totalIncome - totalHPP;
   const labaBersih = labaKotor - totalExpenses;
 
   const aoaData = [
-    ['LAPORAN LABA RUGI (CASH BASIS)'], ['ARZEN Frozen Food'], [`Periode: ${startDate || 'Awal'} s/d ${endDate || 'Sekarang'}`], [],
+    ['LAPORAN LABA RUGI (CASH BASIS)'], 
+    [`ARZEN Frozen Food ${storeName && storeName !== 'Semua Cabang' ? `- Cabang ${storeName}` : ''}`], 
+    [`Periode: ${startDate || 'Awal'} s/d ${endDate || 'Sekarang'}`], [],
     ['Keterangan', 'Nominal (Rp)'],
     ['PENDAPATAN', ''],
     ['Total Pemasukan Penjualan', totalIncome],
@@ -142,13 +150,18 @@ export const exportLabaRugiExcel = ({ totalIncome, totalHPP, totalExpenses, star
   const ws = XLSX.utils.aoa_to_sheet(aoaData);
   ws['!cols'] = [{ wch: 45 }, { wch: 25 }];
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Laba Rugi");
-  XLSX.writeFile(wb, `Laba_Rugi_${Date.now()}.xlsx`);
+  
+  const sheetName = storeName === 'Semua Cabang' ? 'LabaRugi_Global' : `LabaRugi_${storeName}`;
+  XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  XLSX.writeFile(wb, `${sheetName}_${Date.now()}.xlsx`);
   onShowToast('File Excel Laba Rugi berhasil diunduh', 'success');
 };
 
+// ==========================================
+// EXPORT EXCEL UNTUK STOCK OPNAME
+// ==========================================
+
 export const exportTemplateProduk = (stores, onShowToast) => {
-  // Data dasar barang
   const baseData = {
     "Nama Barang": 'Susu UHT 1L (Contoh)',
     "Kategori": 'Minuman',
@@ -158,7 +171,6 @@ export const exportTemplateProduk = (stores, onShowToast) => {
     "Harga Jual Default (Satuan)": 150000,
   };
 
-  // OTOMATIS: Tambahkan kolom Harga Jual khusus untuk setiap toko yang ada di database
   stores.forEach(store => {
     baseData[`Harga Jual (${store.name})`] = 155000;
   });
@@ -189,7 +201,6 @@ export const exportDataProduk = (products, stores, onShowToast) => {
       "Harga Jual Default (Satuan)": Number(p.defaultPrice || p.price) || 0,
     };
 
-    // OTOMATIS: Masukkan harga masing-masing toko ke kolomnya
     stores.forEach(store => {
        row[`Harga Jual (${store.name})`] = p.storePrices?.[store.id] !== undefined ? p.storePrices[store.id] : (p.defaultPrice || p.price || 0);
     });

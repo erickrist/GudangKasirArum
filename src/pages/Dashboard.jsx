@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { 
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar
 } from 'recharts';
@@ -10,18 +10,15 @@ import { useCollection, deleteDocument, addDocument, updateDocument } from '../h
 import Loading from '../components/common/Loading';
 import Nota from '../components/Nota';
 import FormRetur from '../components/FormRetur';
-import EditTransactionModal from '../components/EditTransactionModal';
+import EditTransactionModal from '../components/EditTransactionModals';
 
-// IMPORT FUNGSI EXPORT DARI UTILS
 import { exportMasterExcel, exportNeracaExcel, exportLabaRugiExcel } from '../utils/exportExcel';
 import { exportMasterPDF, exportNeracaPDF, exportLabaRugiPDF } from '../utils/exportPdf';
 
-// IMPORT KOMPONEN TAB YANG BARU KITA BUAT
 import TabSales from './Dashboard/TabSales';
 import TabDebt from './Dashboard/TabDebt';
 
 const Dashboard = ({ onShowToast }) => {
-  // === DATA FETCHING ===
   const { data: transactions, loading: loadingTrans } = useCollection('transactions', 'createdAt');
   const { data: expenses, loading: loadingExp } = useCollection('expenses', 'createdAt');
   const { data: customers, loading: loadingCust } = useCollection('customers');
@@ -29,13 +26,11 @@ const Dashboard = ({ onShowToast }) => {
   const { data: products, loading: loadingProd } = useCollection('products');
   const { data: stores, loading: loadingStores } = useCollection('stores');
 
-  // === STATES ===
   const [selectedStoreFilter, setSelectedStoreFilter] = useState('ALL');
   const [activeTab, setActiveTab] = useState('overview');
   const [chartPeriod, setChartPeriod] = useState('daily');
   const [showAllLogs, setShowAllLogs] = useState(false); 
   
-  // Modals
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showPayDebtModal, setShowPayDebtModal] = useState(false);
   const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
@@ -46,7 +41,6 @@ const Dashboard = ({ onShowToast }) => {
   const [showEditTransModal, setShowEditTransModal] = useState(false);
   const [showEditBalanceModal, setShowEditBalanceModal] = useState(false);
 
-  // Selected Items
   const [selectedEditTransaction, setSelectedEditTransaction] = useState(null);
   const [editBalanceType, setEditBalanceType] = useState('debt');
   const [editBalanceAmount, setEditBalanceAmount] = useState('');
@@ -56,21 +50,18 @@ const Dashboard = ({ onShowToast }) => {
   const [showNota, setShowNota] = useState(false);
   const [selectedNotaTransaction, setSelectedNotaTransaction] = useState(null);
 
-  // Filters & Pagination
   const [searchTerm, setSearchTerm] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   
-  // Forms
   const [debtPaymentAmount, setDebtPaymentAmount] = useState('');
   const [isFullPayment, setIsFullPayment] = useState(true);
   const [newManualIncome, setNewManualIncome] = useState({ note: '', amount: '', method: 'TUNAI', storeId: '' });
   const [newExpense, setNewExpense] = useState({ title: '', amount: '', category: 'Operasional', storeId: '' });
   const [newManualDebt, setNewManualDebt] = useState({ customerId: '', amount: '', note: '' });
 
-  // === HELPERS ===
   const getSafeDate = (dateSource) => {
     if (!dateSource) return new Date();
     try {
@@ -86,7 +77,8 @@ const Dashboard = ({ onShowToast }) => {
     return date.toLocaleString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
   };
 
-  // === LOGIC: FILTER BERDASARKAN TOKO ===
+  const selectedStoreName = selectedStoreFilter === 'ALL' ? 'Semua Cabang' : selectedStoreFilter === 'pusat' ? 'Pusat' : stores.find(s => s.id === selectedStoreFilter)?.name;
+
   const activeStoreTransactions = useMemo(() => {
     if (selectedStoreFilter === 'ALL') return transactions;
     return transactions.filter(t => t.storeId === selectedStoreFilter || (!t.storeId && selectedStoreFilter === 'pusat'));
@@ -102,11 +94,8 @@ const Dashboard = ({ onShowToast }) => {
     return returnsData.filter(r => r.storeId === selectedStoreFilter || (!r.storeId && selectedStoreFilter === 'pusat'));
   }, [returnsData, selectedStoreFilter]);
 
-  // === KALKULASI KEUANGAN ===
   const totalIncome = useMemo(() => activeStoreTransactions.reduce((sum, t) => sum + (Number(t.total) || 0), 0), [activeStoreTransactions]);
   const totalExpenses = useMemo(() => activeStoreExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0), [activeStoreExpenses]);
-  const totalUnpaidDebt = useMemo(() => customers.reduce((sum, c) => sum + (Number(c.remainingDebt) || 0), 0), [customers]);
-  const totalDeposit = useMemo(() => customers.reduce((sum, c) => sum + (Number(c.returnAmount) || 0), 0), [customers]);
   const balance = totalIncome - totalExpenses;
 
   const totalHPP = useMemo(() => activeStoreTransactions.reduce((sum, t) => {
@@ -115,7 +104,6 @@ const Dashboard = ({ onShowToast }) => {
     return sum + itemHpp;
   }, 0), [activeStoreTransactions]);
 
-  // === LOGIKA HISTORI ===
   const debtLogs = useMemo(() => {
     let logs = [];
     activeStoreTransactions.forEach(t => {
@@ -152,6 +140,51 @@ const Dashboard = ({ onShowToast }) => {
     });
     return logs.sort((a, b) => getSafeDate(b.createdAt) - getSafeDate(a.createdAt));
   }, [activeStoreReturns, activeStoreTransactions]);
+
+  // === KALKULASI HUTANG & DEPOSIT BERDASARKAN CABANG ===
+  const { activeStoreCustomersDebt, activeStoreCustomersDeposit } = useMemo(() => {
+    if (selectedStoreFilter === 'ALL') {
+      return {
+        activeStoreCustomersDebt: customers.filter(c => c.remainingDebt > 0).map(c => ({...c, displayDebt: c.remainingDebt})),
+        activeStoreCustomersDeposit: customers.filter(c => c.returnAmount > 0).map(c => ({...c, displayDeposit: c.returnAmount}))
+      };
+    }
+
+    const debtMap = {};
+    debtLogs.forEach(log => {
+      if (!log.customerId) return;
+      if (!debtMap[log.customerId]) debtMap[log.customerId] = 0;
+      debtMap[log.customerId] += log.debtType === 'in' ? Number(log.nominal) : -Number(log.nominal);
+    });
+
+    const depMap = {};
+    depositLogs.forEach(log => {
+      if (!log.customerId) return;
+      if (!depMap[log.customerId]) depMap[log.customerId] = 0;
+      depMap[log.customerId] += log.depType === 'in' ? Number(log.nominal) : -Number(log.nominal);
+    });
+
+    const debtArr = [];
+    Object.keys(debtMap).forEach(cid => {
+      if (debtMap[cid] > 0) {
+        const c = customers.find(x => x.id === cid);
+        if (c) debtArr.push({...c, displayDebt: debtMap[cid]});
+      }
+    });
+
+    const depArr = [];
+    Object.keys(depMap).forEach(cid => {
+      if (depMap[cid] > 0) {
+        const c = customers.find(x => x.id === cid);
+        if (c) depArr.push({...c, displayDeposit: depMap[cid]});
+      }
+    });
+
+    return { activeStoreCustomersDebt: debtArr, activeStoreCustomersDeposit: depArr };
+  }, [selectedStoreFilter, customers, debtLogs, depositLogs]);
+
+  const totalUnpaidDebtDisplay = activeStoreCustomersDebt.reduce((sum, c) => sum + c.displayDebt, 0);
+  const totalDepositDisplay = activeStoreCustomersDeposit.reduce((sum, c) => sum + c.displayDeposit, 0);
 
   const netLogs = useMemo(() => {
     let logs = [];
@@ -209,11 +242,13 @@ const Dashboard = ({ onShowToast }) => {
   };
 
   const handlePayDebt = async () => {
-    const amount = isFullPayment ? selectedCustomer.remainingDebt : Number(debtPaymentAmount);
-    if (amount <= 0 || amount > selectedCustomer.remainingDebt) return onShowToast('Nominal tidak valid', 'error');
+    const maxAmount = selectedCustomer.displayDebt ?? selectedCustomer.remainingDebt;
+    const amount = isFullPayment ? maxAmount : Number(debtPaymentAmount);
+    if (amount <= 0 || amount > maxAmount) return onShowToast('Nominal tidak valid', 'error');
+    
     const updateRes = await updateDocument('customers', selectedCustomer.id, { remainingDebt: selectedCustomer.remainingDebt - amount });
     if (updateRes.success) {
-      await addDocument('transactions', { customerName: selectedCustomer.name, customerId: selectedCustomer.id, subtotal: amount, total: amount, note: 'Pelunasan Hutang Manual', paymentStatus: 'LUNAS', paymentMethod: 'TUNAI', storeId: selectedStoreFilter !== 'ALL' ? selectedStoreFilter : 'pusat', createdAt: new Date() });
+      await addDocument('transactions', { customerName: selectedCustomer.name, customerId: selectedCustomer.id, subtotal: amount, total: amount, note: 'Pelunasan Hutang Manual', paymentStatus: 'LUNAS', paymentMethod: 'TUNAI', storeId: selectedStoreFilter !== 'ALL' ? selectedStoreFilter : 'pusat', storeName: selectedStoreName, createdAt: new Date() });
       onShowToast('Hutang diperbarui', 'success');
       setShowPayDebtModal(false);
     }
@@ -227,7 +262,7 @@ const Dashboard = ({ onShowToast }) => {
     const amount = Number(newManualDebt.amount);
     const updateRes = await updateDocument('customers', cust.id, { remainingDebt: (Number(cust.remainingDebt) || 0) + amount });
     if (updateRes.success) {
-      await addDocument('transactions', { customerName: cust.name, customerId: cust.id, subtotal: amount, total: 0, note: newManualDebt.note || 'Penambahan Hutang Manual', paymentStatus: 'HUTANG', storeId: selectedStoreFilter !== 'ALL' ? selectedStoreFilter : 'pusat', createdAt: new Date() });
+      await addDocument('transactions', { customerName: cust.name, customerId: cust.id, subtotal: amount, total: 0, note: newManualDebt.note || 'Penambahan Hutang Manual', paymentStatus: 'HUTANG', storeId: selectedStoreFilter !== 'ALL' ? selectedStoreFilter : 'pusat', storeName: selectedStoreName, createdAt: new Date() });
       onShowToast('Hutang manual berhasil ditambahkan', 'success');
       setNewManualDebt({ customerId: '', amount: '', note: '' });
     }
@@ -238,27 +273,27 @@ const Dashboard = ({ onShowToast }) => {
     if (isNaN(newAmount) || newAmount < 0) return onShowToast('Nominal tidak valid', 'error');
     
     if (editBalanceType === 'debt') {
-      const oldAmount = Number(selectedCustomer.remainingDebt) || 0;
-      const diff = newAmount - oldAmount;
+      const oldStoreAmount = selectedCustomer.displayDebt ?? selectedCustomer.remainingDebt;
+      const diff = newAmount - oldStoreAmount;
       if (diff === 0) { setShowEditBalanceModal(false); return; }
       
-      await updateDocument('customers', selectedCustomer.id, { remainingDebt: newAmount });
+      await updateDocument('customers', selectedCustomer.id, { remainingDebt: (selectedCustomer.remainingDebt || 0) + diff });
       if (diff > 0) {
-        await addDocument('transactions', { customerName: selectedCustomer.name, customerId: selectedCustomer.id, subtotal: diff, total: 0, note: 'Koreksi Hutang (Bertambah)', paymentStatus: 'HUTANG', createdAt: new Date() });
+        await addDocument('transactions', { customerName: selectedCustomer.name, customerId: selectedCustomer.id, subtotal: diff, total: 0, note: 'Koreksi Hutang (Bertambah)', paymentStatus: 'HUTANG', storeId: selectedStoreFilter !== 'ALL' ? selectedStoreFilter : 'pusat', storeName: selectedStoreName, createdAt: new Date() });
       } else {
-        await addDocument('transactions', { customerName: selectedCustomer.name, customerId: selectedCustomer.id, subtotal: Math.abs(diff), total: 0, note: 'Koreksi Hutang (Berkurang)', paymentStatus: 'LUNAS', createdAt: new Date() });
+        await addDocument('transactions', { customerName: selectedCustomer.name, customerId: selectedCustomer.id, subtotal: Math.abs(diff), total: 0, note: 'Koreksi Hutang (Berkurang)', paymentStatus: 'LUNAS', storeId: selectedStoreFilter !== 'ALL' ? selectedStoreFilter : 'pusat', storeName: selectedStoreName, createdAt: new Date() });
       }
       onShowToast('Hutang berhasil diubah', 'success');
     } else {
-      const oldAmount = Number(selectedCustomer.returnAmount) || 0;
-      const diff = newAmount - oldAmount;
+      const oldStoreAmount = selectedCustomer.displayDeposit ?? selectedCustomer.returnAmount;
+      const diff = newAmount - oldStoreAmount;
       if (diff === 0) { setShowEditBalanceModal(false); return; }
 
-      await updateDocument('customers', selectedCustomer.id, { returnAmount: newAmount });
+      await updateDocument('customers', selectedCustomer.id, { returnAmount: (selectedCustomer.returnAmount || 0) + diff });
       if (diff > 0) {
-        await addDocument('returns', { customerName: selectedCustomer.name, customerId: selectedCustomer.id, amount: diff, type: 'manual_deposit_in', note: 'Koreksi Deposit (Bertambah)', createdAt: new Date() });
+        await addDocument('returns', { customerName: selectedCustomer.name, customerId: selectedCustomer.id, amount: diff, type: 'manual_deposit_in', note: 'Koreksi Deposit (Bertambah)', storeId: selectedStoreFilter !== 'ALL' ? selectedStoreFilter : 'pusat', storeName: selectedStoreName, createdAt: new Date() });
       } else {
-        await addDocument('returns', { customerName: selectedCustomer.name, customerId: selectedCustomer.id, amount: Math.abs(diff), type: 'manual_deposit_out', note: 'Koreksi Deposit (Berkurang)', createdAt: new Date() });
+        await addDocument('returns', { customerName: selectedCustomer.name, customerId: selectedCustomer.id, amount: Math.abs(diff), type: 'manual_deposit_out', note: 'Koreksi Deposit (Berkurang)', storeId: selectedStoreFilter !== 'ALL' ? selectedStoreFilter : 'pusat', storeName: selectedStoreName, createdAt: new Date() });
       }
       onShowToast('Deposit berhasil diubah', 'success');
     }
@@ -433,12 +468,12 @@ const Dashboard = ({ onShowToast }) => {
           <h3 className="text-base md:text-xl font-black text-red-600">Rp {(totalExpenses || 0).toLocaleString()}</h3>
         </div>
         <div onClick={() => navigateToTab('debts')} className="bg-white rounded-2xl shadow-sm p-4 md:p-6 border-b-4 border-orange-500 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all">
-          <p className="text-[9px] md:text-[10px] font-black text-gray-400 uppercase mb-1">Piutang Global</p>
-          <h3 className="text-base md:text-xl font-black text-orange-600">Rp {(totalUnpaidDebt || 0).toLocaleString()}</h3>
+          <p className="text-[9px] md:text-[10px] font-black text-gray-400 uppercase mb-1">Piutang {selectedStoreFilter === 'ALL' ? 'Global' : 'Cabang'}</p>
+          <h3 className="text-base md:text-xl font-black text-orange-600">Rp {(totalUnpaidDebtDisplay || 0).toLocaleString()}</h3>
         </div>
         <div onClick={() => navigateToTab('returns')} className="bg-white rounded-2xl shadow-sm p-4 md:p-6 border-b-4 border-purple-500 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all">
-          <p className="text-[9px] md:text-[10px] font-black text-gray-400 uppercase mb-1">Deposit Global</p>
-          <h3 className="text-base md:text-xl font-black text-purple-600">Rp {(totalDeposit || 0).toLocaleString()}</h3>
+          <p className="text-[9px] md:text-[10px] font-black text-gray-400 uppercase mb-1">Deposit {selectedStoreFilter === 'ALL' ? 'Global' : 'Cabang'}</p>
+          <h3 className="text-base md:text-xl font-black text-purple-600">Rp {(totalDepositDisplay || 0).toLocaleString()}</h3>
         </div>
         <div onClick={() => navigateToTab('netbalance')} className="col-span-2 md:col-span-1 bg-white rounded-2xl shadow-sm p-4 md:p-6 border-b-4 border-blue-600 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all bg-blue-50/30">
           <p className="text-[9px] md:text-[10px] font-black text-gray-500 uppercase mb-1">Uang Bersih (Net)</p>
@@ -629,14 +664,16 @@ const Dashboard = ({ onShowToast }) => {
       {activeTab === 'debts' && (
         <TabDebt 
           customers={customers}
-          totalUnpaidDebt={totalUnpaidDebt}
+          activeStoreCustomersDebt={activeStoreCustomersDebt}
+          totalUnpaidDebtDisplay={totalUnpaidDebtDisplay}
+          isGlobal={selectedStoreFilter === 'ALL'}
           paginatedItems={paginatedItems}
           formatDisplayDate={formatDisplayDate}
           newManualDebt={newManualDebt}
           setNewManualDebt={setNewManualDebt}
           handleAddManualDebt={handleAddManualDebt}
           onPayDebt={(c) => { setSelectedCustomer(c); setShowPayDebtModal(true); setDebtPaymentAmount(''); setIsFullPayment(true); }}
-          onEditDebt={(c) => { setEditBalanceType('debt'); setSelectedCustomer(c); setEditBalanceAmount(c.remainingDebt); setShowEditBalanceModal(true); }}
+          onEditDebt={(c) => { setEditBalanceType('debt'); setSelectedCustomer(c); setEditBalanceAmount(c.displayDebt); setShowEditBalanceModal(true); }}
           onDeleteCustomerDebt={(c) => { setSelectedItem({...c, isCustomerDebt: true}); setShowDeleteModal(true); }}
           onViewHistoryDetail={(item) => { setSelectedDetailItem(item); setShowDetailModal(true); }}
           onDeleteHistory={(item) => { setSelectedItem(item); setShowDeleteModal(true); }}
@@ -654,21 +691,21 @@ const Dashboard = ({ onShowToast }) => {
 
           <div className="bg-white rounded-3xl border shadow-sm mb-6 flex flex-col">
             <div className="p-4 md:p-6 bg-gray-50/50 border-b flex flex-col sm:flex-row justify-between gap-3">
-               <h3 className="text-base md:text-lg font-black text-gray-800 uppercase tracking-tighter">Daftar Deposit Global</h3>
-               <div className="px-4 py-1.5 rounded-xl font-black text-xs uppercase bg-purple-100 text-purple-600">Total: Rp {totalDeposit.toLocaleString()}</div>
+               <h3 className="text-base md:text-lg font-black text-gray-800 uppercase tracking-tighter">Daftar Deposit {selectedStoreFilter === 'ALL' ? 'Global' : 'Cabang'}</h3>
+               <div className="px-4 py-1.5 rounded-xl font-black text-xs uppercase bg-purple-100 text-purple-600">Total: Rp {totalDepositDisplay.toLocaleString()}</div>
             </div>
             <div className="overflow-x-auto w-full custom-scrollbar">
                <table className="w-full min-w-[500px] text-left text-xs md:text-sm">
                  <thead><tr className="border-b"><th className="p-4 font-black text-gray-400 uppercase text-[10px]">Pelanggan</th><th className="p-4 font-black text-gray-400 uppercase text-[10px]">Saldo</th><th className="p-4 font-black text-gray-400 uppercase text-[10px] text-right">Aksi</th></tr></thead>
                  <tbody className="divide-y">
-                   {customers.filter(c => c.returnAmount > 0).map(c => (
+                   {activeStoreCustomersDeposit.map(c => (
                      <tr key={c.id} className="hover:bg-gray-50 transition-all">
                        <td className="p-4"><div><p className="font-black text-gray-800 uppercase">{c.name}</p><p className="text-[10px] text-gray-400 font-bold">{c.phone || '-'}</p></div></td>
-                       <td className="p-4 font-black italic text-sm md:text-lg whitespace-nowrap text-purple-600">Rp {c.returnAmount.toLocaleString()}</td>
+                       <td className="p-4 font-black italic text-sm md:text-lg whitespace-nowrap text-purple-600">Rp {c.displayDeposit.toLocaleString()}</td>
                        <td className="p-4 text-right">
                          <div className="flex justify-end items-center gap-2">
-                           <button onClick={() => { setEditBalanceType('deposit'); setSelectedCustomer(c); setEditBalanceAmount(c.returnAmount); setShowEditBalanceModal(true); }} className="bg-white border text-gray-600 p-2 rounded-xl hover:bg-gray-50 hover:text-teal-600"><Edit3 className="w-4 h-4 inline-block"/></button>
-                           <button onClick={() => { setSelectedItem({...c, isCustomerDeposit: true}); setShowDeleteModal(true); }} className="bg-red-50 text-red-600 p-2 rounded-xl hover:bg-red-100"><Trash2 className="w-4 h-4" /></button>
+                           <button onClick={() => { setEditBalanceType('deposit'); setSelectedCustomer(c); setEditBalanceAmount(c.displayDeposit); setShowEditBalanceModal(true); }} className="bg-white border text-gray-600 p-2 rounded-xl hover:bg-gray-50 hover:text-teal-600"><Edit3 className="w-4 h-4 inline-block"/></button>
+                           {selectedStoreFilter === 'ALL' && <button onClick={() => { setSelectedItem({...c, isCustomerDeposit: true}); setShowDeleteModal(true); }} className="bg-red-50 text-red-600 p-2 rounded-xl hover:bg-red-100"><Trash2 className="w-4 h-4" /></button>}
                          </div>
                        </td>
                      </tr>
@@ -746,13 +783,13 @@ const Dashboard = ({ onShowToast }) => {
             <h3 className="text-lg md:text-xl font-black text-gray-800 mb-2 uppercase">Pilih Jenis Laporan</h3>
             <p className="text-xs text-gray-500 mb-6 font-bold">Laporan dicetak sesuai filter tanggal dan cabang saat ini.</p>
             <div className="flex flex-col gap-2 max-h-[60vh] overflow-y-auto">
-              <button onClick={() => { exportMasterExcel({transactions: activeStoreTransactions, filteredExpenses, filteredDebtHistory, customers, filteredDepositHistory, filteredNetBalance, startDate, endDate, formatDisplayDate, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 border border-green-200"><TableIcon className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">Excel Master Lengkap</p></div></button>
-              <button onClick={() => { exportNeracaExcel({balance, totalUnpaidDebt, totalExpenses, totalDeposit, totalIncome, startDate, endDate, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 border border-green-200"><TableIcon className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">Excel Neraca Saldo</p></div></button>
-              <button onClick={() => { exportLabaRugiExcel({totalIncome, totalHPP, totalExpenses, startDate, endDate, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 border border-green-200"><TableIcon className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">Excel Laba Rugi</p></div></button>
+              <button onClick={() => { exportMasterExcel({transactions: activeStoreTransactions, filteredExpenses, filteredDebtHistory, activeStoreCustomersDebt, activeStoreCustomersDeposit, filteredDepositHistory, filteredNetBalance, startDate, endDate, storeName: selectedStoreName, formatDisplayDate, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 border border-green-200"><TableIcon className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">Excel Master Lengkap</p></div></button>
+              <button onClick={() => { exportNeracaExcel({balance, totalUnpaidDebt: totalUnpaidDebtDisplay, totalExpenses, totalDeposit: totalDepositDisplay, totalIncome, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 border border-green-200"><TableIcon className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">Excel Neraca Saldo</p></div></button>
+              <button onClick={() => { exportLabaRugiExcel({totalIncome, totalHPP, totalExpenses, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 border border-green-200"><TableIcon className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">Excel Laba Rugi</p></div></button>
               <div className="h-px w-full bg-gray-200 my-2"></div>
-              <button onClick={() => { exportMasterPDF({transactions: activeStoreTransactions, filteredExpenses, filteredDebtHistory, customers, filteredDepositHistory, filteredNetBalance, startDate, endDate, formatDisplayDate, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-blue-50 text-blue-700 rounded-2xl hover:bg-blue-100 border border-blue-200"><FileText className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">PDF Master Lengkap</p></div></button>
-              <button onClick={() => { exportNeracaPDF({balance, totalUnpaidDebt, totalExpenses, totalDeposit, totalIncome, startDate, endDate, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-purple-50 text-purple-700 rounded-2xl hover:bg-purple-100 border border-purple-200"><FileText className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">PDF Neraca Saldo</p></div></button>
-              <button onClick={() => { exportLabaRugiPDF({totalIncome, totalHPP, totalExpenses, startDate, endDate, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-purple-50 text-purple-700 rounded-2xl hover:bg-purple-100 border border-purple-200"><FileText className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">PDF Laba Rugi</p></div></button>
+              <button onClick={() => { exportMasterPDF({transactions: activeStoreTransactions, filteredExpenses, filteredDebtHistory, activeStoreCustomersDebt, activeStoreCustomersDeposit, filteredDepositHistory, filteredNetBalance, startDate, endDate, storeName: selectedStoreName, formatDisplayDate, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-blue-50 text-blue-700 rounded-2xl hover:bg-blue-100 border border-blue-200"><FileText className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">PDF Master Lengkap</p></div></button>
+              <button onClick={() => { exportNeracaPDF({balance, totalUnpaidDebt: totalUnpaidDebtDisplay, totalExpenses, totalDeposit: totalDepositDisplay, totalIncome, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-purple-50 text-purple-700 rounded-2xl hover:bg-purple-100 border border-purple-200"><FileText className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">PDF Neraca Saldo</p></div></button>
+              <button onClick={() => { exportLabaRugiPDF({totalIncome, totalHPP, totalExpenses, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-purple-50 text-purple-700 rounded-2xl hover:bg-purple-100 border border-purple-200"><FileText className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">PDF Laba Rugi</p></div></button>
             </div>
           </div>
         </div>
@@ -772,6 +809,72 @@ const Dashboard = ({ onShowToast }) => {
               <button onClick={() => setShowEditBalanceModal(false)} className="flex-1 py-3 font-black text-gray-400 bg-gray-100 rounded-xl">Batal</button>
               <button onClick={handleSaveEditBalance} className="flex-1 bg-teal-600 text-white py-3 rounded-xl font-black shadow-md">Simpan</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL TERIMA PEMBAYARAN HUTANG (DIPERBAIKI) */}
+      {showPayDebtModal && selectedCustomer && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
+          <div className="bg-white rounded-[32px] p-6 md:p-8 w-full max-w-sm shadow-2xl relative border-t-8 border-teal-600 flex flex-col max-h-[90vh]">
+            
+            <button onClick={() => setShowPayDebtModal(false)} className="absolute right-6 top-6 text-gray-400 hover:text-red-500 transition-colors">
+               <X className="w-5 h-5" />
+            </button>
+            
+            <h3 className="text-xl font-black text-gray-800 mb-2 uppercase flex items-center gap-2">
+               <CreditCard className="w-5 h-5 text-teal-600"/> Bayar Hutang
+            </h3>
+            
+            <div className="bg-gray-50 p-3 rounded-xl border border-gray-100 mb-4">
+               <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Pelanggan</p>
+               <p className="font-black text-gray-800 text-sm">{selectedCustomer.name}</p>
+               <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-2 mb-1">Sisa Hutang</p>
+               <p className="font-black text-red-600 text-lg">Rp {(selectedCustomer.displayDebt ?? selectedCustomer.remainingDebt).toLocaleString('id-ID')}</p>
+            </div>
+
+            <div className="space-y-4 overflow-y-auto custom-scrollbar flex-1 pr-1">
+              <div>
+                <label className="text-[10px] font-black text-gray-400 uppercase mb-2 block">Jenis Pembayaran</label>
+                <div className="flex gap-2">
+                  <button 
+                    onClick={() => { setIsFullPayment(true); setDebtPaymentAmount(''); }} 
+                    className={`flex-1 py-2.5 rounded-xl text-xs font-black uppercase transition-all ${isFullPayment ? 'bg-teal-600 text-white shadow-md' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                  >
+                    Lunas
+                  </button>
+                  <button 
+                    onClick={() => setIsFullPayment(false)} 
+                    className={`flex-1 py-2.5 rounded-xl text-xs font-black uppercase transition-all ${!isFullPayment ? 'bg-teal-600 text-white shadow-md' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                  >
+                    Cicil
+                  </button>
+                </div>
+              </div>
+
+              {!isFullPayment && (
+                <div className="animate-in fade-in slide-in-from-top-2 duration-200">
+                  <label className="text-[10px] font-black text-gray-400 uppercase mb-2 block">Nominal Cicilan</label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-3.5 font-black text-gray-400">Rp</span>
+                    <input 
+                      type="number" 
+                      className="w-full bg-white border-2 border-gray-200 rounded-xl pl-12 pr-4 py-3 text-lg font-black text-teal-700 outline-none focus:border-teal-500 transition-colors" 
+                      value={debtPaymentAmount} 
+                      onChange={e => setDebtPaymentAmount(e.target.value)} 
+                      placeholder="0"
+                      autoFocus
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-2 pt-4 mt-2 border-t border-gray-100 shrink-0">
+              <button onClick={() => setShowPayDebtModal(false)} className="flex-1 py-3.5 font-black text-gray-500 bg-gray-100 rounded-xl text-sm uppercase hover:bg-gray-200 transition-colors">Batal</button>
+              <button onClick={handlePayDebt} className="flex-1 bg-teal-600 text-white py-3.5 rounded-xl font-black text-sm uppercase shadow-md shadow-teal-200 hover:bg-teal-700 transition-colors active:scale-95">Proses</button>
+            </div>
+
           </div>
         </div>
       )}
@@ -843,9 +946,6 @@ const Dashboard = ({ onShowToast }) => {
       {/* DETAIL MODALS */}
       {showDetailModal && selectedDetailItem && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4"><div className="bg-white p-8 rounded-[32px] w-full max-w-sm"><h3 className="text-xl font-black mb-4">Detail</h3><button onClick={() => setShowDetailModal(false)} className="w-full py-3 bg-gray-100 rounded-xl font-black">Tutup</button></div></div>
-      )}
-      {showPayDebtModal && selectedCustomer && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4"><div className="bg-white p-8 rounded-[32px] w-full max-w-sm"><h3 className="text-xl font-black mb-4">Terima Pembayaran</h3><input type="number" className="w-full bg-gray-50 p-4 rounded-xl font-black mb-4" value={debtPaymentAmount} onChange={e => setDebtPaymentAmount(e.target.value)} placeholder="Nominal"/><button onClick={handlePayDebt} className="w-full py-3 bg-teal-600 text-white rounded-xl font-black">Simpan</button></div></div>
       )}
 
       <FormRetur isOpen={showReturnModal} onClose={() => setShowReturnModal(false)} onShowToast={onShowToast} />
