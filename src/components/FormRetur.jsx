@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
-import { X, Search, Plus, Minus, Trash2, Package, User, ChevronDown, Edit3, Database, Repeat2 } from 'lucide-react';
+import { X, Search, Plus, Minus, Trash2, Package, User, ChevronDown, Edit3, Database, Repeat2, Store } from 'lucide-react';
 import { useCollection, addDocument, updateDocument } from '../hooks/useFirestore';
+import { usePricing } from '../hooks/usePricing'; // <-- IMPORT HOOK KITA
 
 // --- KOMPONEN SMART DROPDOWN PENCARIAN PEMBELI ---
 const CustomerSearchSelect = ({ customers, value, onChange, placeholder }) => {
@@ -76,6 +77,10 @@ const CustomerSearchSelect = ({ customers, value, onChange, placeholder }) => {
 const FormRetur = ({ isOpen, onClose, onShowToast }) => {
   const { data: products, loading: loadingProducts } = useCollection('products');
   const { data: customers, loading: loadingCust } = useCollection('customers');
+  
+  // AMBIL DATA TOKO & FUNGSI HARGA
+  const { data: stores, loading: loadingStores } = useCollection('stores');
+  const { activeStoreId, handleStoreChange, getProductPrice } = usePricing(stores);
 
   const [cart, setCart] = useState([]);
   const [selectedCustomer, setSelectedCustomer] = useState('');
@@ -97,6 +102,9 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
   // --- FUNGSI KERANJANG ---
 
   const addToCartAuto = (product) => {
+    // 1. Ambil harga khusus toko aktif
+    const resolvedPrice = getProductPrice(product);
+
     const existing = cart.find(item => item.productId === product.id);
     if (existing) {
       setCart(cart.map(item => item.productId === product.id ? { ...item, qty: Number(item.qty) + 1 } : item));
@@ -106,9 +114,9 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
         name: product.name,
         unitType: product.unitType,
         pcsPerCarton: product.pcsPerCarton || 1,
-        price: product.price,
+        price: resolvedPrice, // Menggunakan harga cabang
         qty: 1,
-        returnUnit: 'pack', // 'pack' mengacu ke satuan utuh (KARTON/BALL/IKAT)
+        returnUnit: 'pack', 
         isManual: false
       }]);
     }
@@ -130,7 +138,7 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
       isManual: true
     }]);
     
-    setManualItem({ name: '', price: '', qty: 1 }); // Reset form manual
+    setManualItem({ name: '', price: '', qty: 1 }); 
     onShowToast('Barang manual ditambahkan', 'success');
   };
 
@@ -181,13 +189,16 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
     const cust = customers.find(c => c.id === selectedCustomer);
     if (!cust) return;
 
-    // Rangkai rincian barang, perhatikan Pcs atau Unit Utuh (Ball/Ikat/Karton)
     const itemDetails = cart.map(item => {
       const unitLabel = item.returnUnit === 'pcs' ? 'Pcs' : item.unitType;
       return `${item.qty} ${unitLabel} ${item.name}`;
     }).join(', ');
     
     const finalReason = `${reason} (${itemDetails})`;
+    
+    // Siapkan data cabang untuk laporan
+    const finalStoreId = activeStoreId || 'pusat';
+    const activeStoreName = stores.find(s => s.id === finalStoreId)?.name || 'Cabang Pusat / Utama';
 
     let updateRes;
     if (refundType === 'deposit') {
@@ -199,6 +210,8 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
         title: `Retur Dana (${cust.name}): ${reason}`,
         amount: totalReturnAmount,
         category: 'Retur',
+        storeId: finalStoreId,        // <-- Simpan ID Toko
+        storeName: activeStoreName,   // <-- Simpan Nama Toko
         createdAt: new Date()
       });
     }
@@ -211,6 +224,8 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
         reason: finalReason,
         refundType: refundType,
         items: cart.map(i => ({ ...i, finalPrice: getItemPrice(i) })), 
+        storeId: finalStoreId,        // <-- Simpan ID Toko
+        storeName: activeStoreName,   // <-- Simpan Nama Toko
         createdAt: new Date()
       });
       
@@ -272,22 +287,26 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
                 <div className="flex-1 overflow-y-auto space-y-2 md:space-y-3 custom-scrollbar pr-1 md:pr-2">
                   {loadingProducts ? <p className="text-center text-gray-400 font-bold text-xs py-10">Memuat produk...</p> : 
                     filteredProducts.length === 0 ? <p className="text-center text-gray-400 font-bold text-xs py-10">Barang tidak ditemukan</p> :
-                    filteredProducts.map(p => (
-                      <button 
-                        key={p.id} 
-                        onClick={() => addToCartAuto(p)}
-                        className="w-full flex justify-between items-center p-3 md:p-4 bg-white border border-gray-200 rounded-xl hover:border-purple-500 hover:shadow-md transition-all text-left active:scale-95"
-                      >
-                        <div className="flex-1 pr-2">
-                          <p className="font-black text-gray-800 text-xs md:text-sm uppercase truncate">{p.name}</p>
-                          <p className="text-[10px] md:text-xs text-gray-500 font-bold">
-                            Rp {p.price.toLocaleString()} 
-                            {p.pcsPerCarton > 1 && <span className="text-purple-400"> (Isi {p.pcsPerCarton} Pcs / {p.unitType})</span>}
-                          </p>
-                        </div>
-                        <span className="bg-purple-100 text-purple-700 text-[9px] md:text-[10px] font-black px-2 py-1 rounded-lg">{p.unitType}</span>
-                      </button>
-                  ))}
+                    filteredProducts.map(p => {
+                      const dynamicPrice = getProductPrice(p);
+                      
+                      return (
+                        <button 
+                          key={p.id} 
+                          onClick={() => addToCartAuto(p)}
+                          className="w-full flex justify-between items-center p-3 md:p-4 bg-white border border-gray-200 rounded-xl hover:border-purple-500 hover:shadow-md transition-all text-left active:scale-95"
+                        >
+                          <div className="flex-1 pr-2">
+                            <p className="font-black text-gray-800 text-xs md:text-sm uppercase truncate">{p.name}</p>
+                            <p className="text-[10px] md:text-xs text-gray-500 font-bold">
+                              Rp {dynamicPrice.toLocaleString()} 
+                              {p.pcsPerCarton > 1 && <span className="text-purple-400"> (Isi {p.pcsPerCarton} Pcs / {p.unitType})</span>}
+                            </p>
+                          </div>
+                          <span className="bg-purple-100 text-purple-700 text-[9px] md:text-[10px] font-black px-2 py-1 rounded-lg">{p.unitType}</span>
+                        </button>
+                      );
+                    })}
                 </div>
               </>
             )}
@@ -323,6 +342,30 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
           <div className="w-full lg:w-1/2 p-4 md:p-6 flex flex-col bg-white overflow-y-auto custom-scrollbar">
             <form id="return-form" onSubmit={handleSubmit} className="space-y-4 md:space-y-5">
               
+              {/* PILIHAN CABANG TOKO UNTUK RETUR */}
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-gray-400 uppercase ml-1 md:ml-2">Lokasi Cabang Retur</label>
+                <div className="relative">
+                   <Store className="absolute left-3 md:left-4 top-3 md:top-3.5 w-4 h-4 text-teal-600 z-10 pointer-events-none" />
+                   <select 
+                     value={activeStoreId} 
+                     onChange={(e) => {
+                       handleStoreChange(e.target.value, () => {
+                         if (cart.length > 0) {
+                           setCart([]);
+                           onShowToast('Daftar retur dikosongkan karena ganti cabang', 'error');
+                         }
+                       });
+                     }}
+                     className="w-full pl-10 md:pl-11 pr-4 py-2.5 md:py-3 bg-teal-50 border border-teal-100 rounded-xl text-xs md:text-sm font-bold text-teal-800 outline-none focus:ring-2 focus:ring-teal-500 appearance-none cursor-pointer"
+                   >
+                     <option value="pusat">🏢 CABANG PUSAT / UTAMA</option>
+                     {stores && stores.map(s => <option key={s.id} value={s.id}>🏪 {s.name.toUpperCase()}</option>)}
+                   </select>
+                   <ChevronDown className="absolute right-4 top-3.5 w-4 h-4 text-teal-600 pointer-events-none" />
+                </div>
+              </div>
+
               {/* Pilihan Pelanggan Menggunakan Smart Dropdown */}
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-gray-400 uppercase ml-1 md:ml-2">Pembeli yang Meretur</label>
@@ -356,7 +399,6 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
                               <p className="font-black text-xs md:text-sm text-gray-800 uppercase line-clamp-1">
                                 {item.name} {item.isManual && <span className="text-[8px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded ml-1">Manual</span>}
                               </p>
-                              {/* PERBAIKAN: Menyesuaikan teks sesuai Pcs atau Unit Asli (Karton/Ball/Ikat) */}
                               <p className="text-[9px] md:text-[10px] text-gray-500 font-bold mt-0.5 whitespace-nowrap">
                                 {isPcsMode ? 'Eceran (Pcs)' : `Utuh (${item.unitType})`}: Rp {finalPrice.toLocaleString()} / {isPcsMode ? 'Pcs' : item.unitType}
                               </p>
@@ -388,7 +430,6 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
                             <span className="font-black text-sm text-purple-700 ml-auto text-right">Rp {(finalPrice * (Number(item.qty) || 0)).toLocaleString()}</span>
                           </div>
 
-                          {/* PERBAIKAN: Tombol Ganti Satuan Lebih Dinamis */}
                           {canToggle && (
                             <div className="pt-2 border-t border-gray-100 mt-1">
                                 <button 

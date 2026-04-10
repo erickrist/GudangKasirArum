@@ -5,6 +5,7 @@ import Dashboard from './pages/Dashboard';
 import Kasir from './pages/Kasir';
 import StockOpname from './pages/StockOpname';
 import DataPembeli from './pages/DataPembeli';
+import DataToko from './pages/DataToko'; // <--- IMPORT HALAMAN BARU
 import Toast from './components/common/Toast';
 
 // OPTIMASI 1: Pindahkan ke luar agar tidak dirender ulang terus-menerus
@@ -13,6 +14,7 @@ const PAGE_TITLES = {
   kasir: 'Kasir',
   stock: 'Stock Opname',
   pembeli: 'Data Pembeli',
+  toko: 'Data Toko', // <--- TAMBAHAN TITLE HALAMAN BARU
 };
 
 function App() {
@@ -37,6 +39,8 @@ function App() {
         return <StockOpname onShowToast={showToast} />;
       case 'pembeli':
         return <DataPembeli onShowToast={showToast} />;
+      case 'toko': // <--- RENDER HALAMAN TOKO
+        return <DataToko onShowToast={showToast} />;
       default:
         return <Dashboard onShowToast={showToast} />;
     }

@@ -6,6 +6,7 @@ const Sidebar = ({ currentPage, onNavigate }) => {
     { id: 'kasir', label: 'Kasir', icon: ShoppingCart },
     { id: 'stock', label: 'Stok', icon: Package }, // Teks disingkat agar muat di layar HP
     { id: 'pembeli', label: 'Pembeli', icon: Users },
+    { id: 'toko', label: 'Toko', icon: Store }, // <--- TAMBAHAN MENU TOKO
   ];
 
   return (
