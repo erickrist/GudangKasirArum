@@ -198,7 +198,6 @@ const StockOpname = ({ onShowToast }) => {
   const getProfitData = () => {
     const salesMap = {};
 
-    // 1. Hitung Penjualan dari Kasir (Barang Keluar)
     transactions.forEach(t => {
       const date = getSafeDate(t.createdAt);
       let matchesDate = true;
@@ -217,10 +216,10 @@ const StockOpname = ({ onShowToast }) => {
               name: item.name,
               unitType: item.unitType,
               qtySold: 0,
-              qtyReturned: 0, // Tambahan untuk barang hangus
+              qtyReturned: 0, 
               hpp: currentProduct ? (currentProduct.hpp || 0) : 0,
               totalSalesValue: 0,
-              totalReturnValue: 0 // Tambahan untuk memotong pendapatan
+              totalReturnValue: 0 
             };
           }
           salesMap[item.productId].qtySold += Number(item.qty);
@@ -229,7 +228,6 @@ const StockOpname = ({ onShowToast }) => {
       }
     });
 
-    // 2. Potong Pendapatan dengan Data Retur
     returnsData.forEach(r => {
       const date = getSafeDate(r.createdAt);
       let matchesDate = true;
@@ -244,22 +242,15 @@ const StockOpname = ({ onShowToast }) => {
         r.items.forEach(item => {
           if (salesMap[item.productId]) {
             salesMap[item.productId].qtyReturned += Number(item.qty);
-            // item.finalPrice didapat dari FormRetur saat proses retur
             salesMap[item.productId].totalReturnValue += Number(item.qty * (item.finalPrice || item.price));
           }
         });
       }
     });
 
-    // 3. Kalkulasi Laba / Rugi Akhir
     return Object.values(salesMap).map(data => {
-      // Modal (HPP) tetap dihitung penuh dari qtySold awal, karena barang retur hangus/tidak bisa dijual lagi
       const totalHpp = data.hpp * (data.qtySold - data.qtyReturned);
-      
-      // Pendapatan dipotong senilai barang yang dikembalikan
       const netSales = data.totalSalesValue - data.totalReturnValue; 
-      
-      // Keuntungan = Pendapatan Bersih - Semua Modal yang keluar
       const profit = netSales - totalHpp;
       
       return { ...data, netSales, totalHpp, profit };
@@ -430,50 +421,61 @@ const StockOpname = ({ onShowToast }) => {
     }
   };
 
-  // --- IMPORT / EXPORT TEMPLATE ---
+  // ============================================================================
+  // --- IMPORT / EXPORT TEMPLATE (DIPERBARUI SESUAI FORMAT GAMBAR) ---
+  // ============================================================================
+  
   const handleDownloadTemplate = () => {
     const templateData = [
-      { Nama: 'Susu UHT 1L (Contoh KARTON)', Kategori: 'Minuman', TipeSatuan: 'KARTON', IsiPerUnit: 12, HargaBeli: 130000, HargaJual: 150000, StokPcs: 120, UrlGambar: '' },
-      { Nama: 'Kerupuk Kaleng (Contoh BALL)', Kategori: 'Makanan', TipeSatuan: 'BALL', IsiPerUnit: 20, HargaBeli: 80000, HargaJual: 100000, StokPcs: 100, UrlGambar: '' },
-      { Nama: 'Sawi Hijau (Contoh IKAT)', Kategori: 'Sayur', TipeSatuan: 'IKAT', IsiPerUnit: 5, HargaBeli: 3000, HargaJual: 5000, StokPcs: 50, UrlGambar: '' },
-      { Nama: 'Kopi Sachet (Contoh RENCENG)', Kategori: 'Minuman', TipeSatuan: 'RENCENG', IsiPerUnit: 10, HargaBeli: 10000, HargaJual: 12000, StokPcs: 100, UrlGambar: '' },
-      { Nama: 'Teh Celup (Contoh BOX)', Kategori: 'Minuman', TipeSatuan: 'BOX', IsiPerUnit: 25, HargaBeli: 12000, HargaJual: 15000, StokPcs: 50, UrlGambar: '' },
-      { Nama: 'Sabun Mandi (Contoh PCS)', Kategori: 'Kebersihan', TipeSatuan: 'PCS', IsiPerUnit: '', HargaBeli: 3500, HargaJual: 5000, StokPcs: 10, UrlGambar: '' }
+      { "Nama Barang": 'Susu UHT 1L (Contoh)', "Kategori": 'Minuman', "Satuan (Karton/Ball/Pcs/dll)": 'KARTON', "Isi per Satuan (Pcs)": 12, "Harga Beli Modal (Satuan)": 130000, "Harga Jual (Satuan)": 150000, "Stok Saat Ini (Satuan)": 10, "Url Gambar": '' },
+      { "Nama Barang": 'Kerupuk Kaleng (Contoh)', "Kategori": 'Makanan', "Satuan (Karton/Ball/Pcs/dll)": 'BALL', "Isi per Satuan (Pcs)": 20, "Harga Beli Modal (Satuan)": 80000, "Harga Jual (Satuan)": 100000, "Stok Saat Ini (Satuan)": 5, "Url Gambar": '' },
+      { "Nama Barang": 'Sabun Mandi (Contoh)', "Kategori": 'Kebersihan', "Satuan (Karton/Ball/Pcs/dll)": 'PCS', "Isi per Satuan (Pcs)": 1, "Harga Beli Modal (Satuan)": 3500, "Harga Jual (Satuan)": 5000, "Stok Saat Ini (Satuan)": 50, "Url Gambar": '' }
     ];
+    
     const worksheet = XLSX.utils.json_to_sheet(templateData);
-    worksheet['!cols'] = [{ wch: 30 }, { wch: 15 }, { wch: 12 }, { wch: 12 }, { wch: 15 }, { wch: 15 }, { wch: 10 }, { wch: 35 }];
+    // Atur lebar kolom agar rapi saat dibuka di Excel
+    worksheet['!cols'] = [{ wch: 35 }, { wch: 15 }, { wch: 25 }, { wch: 20 }, { wch: 25 }, { wch: 20 }, { wch: 25 }, { wch: 30 }];
+    
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Template_Produk");
     XLSX.writeFile(workbook, "Template_Import_Produk.xlsx");
     onShowToast('Template Excel berhasil diunduh', 'success');
   };
-  // --- EXPORT DATA PRODUK (BISA DI-IMPORT KEMBALI) ---
+
   const handleExportProducts = () => {
     if (products.length === 0) return onShowToast('Tidak ada produk untuk diexport', 'error');
 
-    // Format disamakan persis dengan template Import
-    const exportData = products.map(p => ({
-      'Nama': p.name || '',
-      'Kategori': p.category || '',
-      'TipeSatuan': p.unitType || 'PCS',
-      'IsiPerUnit': p.pcsPerCarton || '',
-      'HargaBeli': p.hpp || 0,
-      'HargaJual': p.price || 0,
-      'StokPcs': p.stockPcs || 0,
-      'UrlGambar': p.image || ''
-    }));
+    // Format disamakan persis dengan template Import dan Gambar yang Anda berikan
+    const exportData = products.map(p => {
+      const isiPerSatuan = Number(p.pcsPerCarton) || 1;
+      const stokSatuan = Math.floor((Number(p.stockPcs) || 0) / isiPerSatuan);
+
+      return {
+        "Nama Barang": p.name || '',
+        "Kategori": p.category || 'Umum',
+        "Satuan (Karton/Ball/Pcs/dll)": p.unitType || 'PCS',
+        "Isi per Satuan (Pcs)": isiPerSatuan,
+        "Harga Beli Modal (Satuan)": Number(p.hpp) || 0,
+        "Harga Jual (Satuan)": Number(p.price) || 0,
+        "Stok Saat Ini (Satuan)": stokSatuan,
+        "Url Gambar": p.image || ''
+      };
+    });
 
     const worksheet = XLSX.utils.json_to_sheet(exportData);
-    worksheet['!cols'] = [{ wch: 30 }, { wch: 15 }, { wch: 12 }, { wch: 12 }, { wch: 15 }, { wch: 15 }, { wch: 10 }, { wch: 35 }];
+    worksheet['!cols'] = [{ wch: 35 }, { wch: 15 }, { wch: 25 }, { wch: 20 }, { wch: 25 }, { wch: 20 }, { wch: 25 }, { wch: 30 }];
+    
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Data_Produk");
     XLSX.writeFile(workbook, `Backup_Data_Produk_${Date.now()}.xlsx`);
     onShowToast('Data produk berhasil diexport', 'success');
   };
+
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
+    
     reader.onload = async (evt) => {
       try {
         const data = new Uint8Array(evt.target.result);
@@ -483,22 +485,29 @@ const StockOpname = ({ onShowToast }) => {
         if (excelData.length === 0) return onShowToast('File Excel kosong', 'error');
 
         let successCount = 0;
-        let updateCount = 0; // Tambahan counter untuk update
+        let updateCount = 0; 
 
         for (const row of excelData) {
-          if (!row.Nama) continue;
-          const unit = row.TipeSatuan?.toUpperCase() || 'PCS';
+          // Kompatibilitas dengan nama header baru (dari template) atau lama
+          const rawName = row["Nama Barang"] || row.Nama;
+          if (!rawName) continue;
+
+          const unit = (row["Satuan (Karton/Ball/Pcs/dll)"] || row.TipeSatuan || 'PCS').toUpperCase();
           const isWholesale = WHOLESALE_TYPES.includes(unit);
+          
+          const isiPerSatuan = Number(row["Isi per Satuan (Pcs)"] || row.IsiPerUnit) || 1;
+          const stokSatuan = Number(row["Stok Saat Ini (Satuan)"] || row.StokPcs) || 0;
 
           const productData = {
-            name: row.Nama || '',
-            category: row.Kategori || '',
+            name: rawName,
+            category: row["Kategori"] || row.Kategori || 'Umum',
             unitType: unit,
-            hpp: parseFloat(row.HargaBeli) || 0,
-            price: parseFloat(row.HargaJual || row.Harga) || 0,
-            pcsPerCarton: isWholesale ? (parseInt(row.IsiPerUnit) || 1) : 1,
-            stockPcs: parseInt(row.StokPcs) || 0,
-            image: row.UrlGambar || '',
+            hpp: parseFloat(row["Harga Beli Modal (Satuan)"] || row.HargaBeli) || 0,
+            price: parseFloat(row["Harga Jual (Satuan)"] || row.HargaJual || row.Harga) || 0,
+            pcsPerCarton: isWholesale ? isiPerSatuan : 1,
+            // Konversi kembali ke Eceran (Pcs) untuk database Firebase
+            stockPcs: stokSatuan * (isWholesale ? isiPerSatuan : 1),
+            image: row["Url Gambar"] || row.UrlGambar || '',
           };
 
           // CEK APAKAH BARANG SUDAH ADA DI DATABASE BERDASARKAN NAMA
@@ -517,7 +526,7 @@ const StockOpname = ({ onShowToast }) => {
                   productName: productData.name,
                   type: diff > 0 ? 'in' : 'out',
                   amount: Math.abs(diff),
-                  unitType: 'PCS',
+                  unitType: 'PCS', // Tetap catat Pcs agar grafik tidak kacau
                   totalPcs: Math.abs(diff),
                   note: 'Import Excel (Update Stok)',
                   createdAt: new Date()
@@ -547,10 +556,11 @@ const StockOpname = ({ onShowToast }) => {
       } catch (error) {
         onShowToast('Gagal memproses file Excel', 'error');
       }
-      e.target.value = null;
+      e.target.value = null; // Reset input file
     };
     reader.readAsArrayBuffer(file);
   };
+  // ============================================================================
 
   // --- EXPORT HISTORI ---
   const handleDownloadHistoryExcel = () => {
@@ -606,14 +616,12 @@ const StockOpname = ({ onShowToast }) => {
     doc.save(`Laporan_Stok_${Date.now()}.pdf`);
   };
 
-  // --- EXPORT KEUNTUNGAN (DENGAN HARGA JUAL SATUAN) ---
   // --- EXPORT KEUNTUNGAN EXCEL ---
   const handleDownloadProfitExcel = () => {
     const data = getProfitData();
     if (data.length === 0) return onShowToast('Tidak ada data penjualan kasir di periode ini', 'error');
 
     const reportData = data.map(item => {
-      // Hitung rata-rata harga jual sebelum dipotong retur
       const avgSellPrice = item.qtySold > 0 ? Math.round(item.totalSalesValue / item.qtySold) : 0;
       
       return {
@@ -628,7 +636,6 @@ const StockOpname = ({ onShowToast }) => {
       };
     });
 
-    // Menghitung total bawah
     const totalModal = data.reduce((sum, item) => sum + item.totalHpp, 0);
     const totalPendapatan = data.reduce((sum, item) => sum + item.netSales, 0);
     const totalUntungRugi = data.reduce((sum, item) => sum + item.profit, 0);
@@ -700,9 +707,8 @@ const StockOpname = ({ onShowToast }) => {
       head: [['Nama Barang', 'Keluar', 'Retur', 'Modal Sat', 'Jual Sat', 'Tot Modal', 'Pendapatan', 'Laba/(Rugi)']], 
       body, 
       startY: 30,
-      styles: { fontSize: 8 }, // Dikecilkan sedikit agar muat 8 kolom
+      styles: { fontSize: 8 }, 
       didParseCell: function(data) {
-        // Logika warna untuk kolom Laba/Rugi (Index 7)
         if (data.section === 'body' && data.column.index === 7 && data.row.index < body.length - 1) {
           const profitValue = parseInt(data.cell.raw.replace(/Rp |\./g, '').replace(/-/g, '-')); 
           if (profitValue < 0) {
@@ -716,6 +722,7 @@ const StockOpname = ({ onShowToast }) => {
     
     doc.save(`Laporan_Keuntungan_${Date.now()}.pdf`);
   };
+
   // --- PAGINATION COMPONENT ---
   const renderPagination = (listLength, currentPage, setPage, itemsPerPage, setItemsPerPage) => {
     const totalPages = Math.ceil(listLength / itemsPerPage);

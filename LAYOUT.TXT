@@ -1,0 +1,19 @@
+src/
+├── components/
+│   ├── modals/          (CustomerModal.jsx, PaymentModal.jsx)
+│   ├── common/          (Loading.jsx, EmptyState.jsx)
+│   └── Nota.jsx
+├── hooks/
+│   ├── useFirestore.js  (Sudah ada)
+│   ├── useCart.js       (Baru: Untuk logika kasir)
+│   └── usePricing.js    (Baru: Nanti untuk hitung harga per-toko)
+├── utils/
+│   ├── exportExcel.js   (Baru: Kumpulan fungsi cetak)
+│   └── exportPdf.js     (Baru: Kumpulan fungsi cetak)
+├── pages/
+│   ├── Dashboard/
+│   │   ├── Dashboard.jsx
+│   │   ├── TabSales.jsx
+│   │   └── TabDebt.jsx
+│   ├── Kasir.jsx
+│   └── StockOpname.jsx

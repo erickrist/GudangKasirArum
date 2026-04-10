@@ -4,7 +4,7 @@ import {
 } from 'recharts';
 import { 
   TrendingUp, Trash2, Eye, FileText, Table as TableIcon, Search, Calendar, Wallet, 
-  CreditCard, ArrowDownCircle, ArrowUpCircle, History, Clock, ListFilter, X, RotateCcw, PackagePlus, ChevronDown, ChevronLeft, ChevronRight, AlertTriangle, Edit3, Download, ShoppingCart
+  CreditCard, ArrowDownCircle, ArrowUpCircle, History, Clock, ListFilter, X, RotateCcw, PackagePlus, ChevronDown, ChevronLeft, ChevronRight, AlertTriangle, Edit3, Download, ShoppingCart, Landmark
 } from 'lucide-react';
 import { useCollection, deleteDocument, addDocument, updateDocument } from '../hooks/useFirestore';
 import Loading from '../components/common/Loading';
@@ -114,7 +114,7 @@ const Dashboard = ({ onShowToast }) => {
 
   // Edit Balance Modals
   const [showEditBalanceModal, setShowEditBalanceModal] = useState(false);
-  const [editBalanceType, setEditBalanceType] = useState('debt'); // 'debt' or 'deposit'
+  const [editBalanceType, setEditBalanceType] = useState('debt');
   const [editBalanceAmount, setEditBalanceAmount] = useState('');
 
   const [selectedItem, setSelectedItem] = useState(null);
@@ -131,7 +131,7 @@ const Dashboard = ({ onShowToast }) => {
   const [debtPaymentAmount, setDebtPaymentAmount] = useState('');
   const [isFullPayment, setIsFullPayment] = useState(true);
 
-  const [newManualIncome, setNewManualIncome] = useState({ note: '', amount: '' });
+  const [newManualIncome, setNewManualIncome] = useState({ note: '', amount: '', method: 'TUNAI' });
   const [newExpense, setNewExpense] = useState({ title: '', amount: '', category: 'Operasional' });
   const [newManualDebt, setNewManualDebt] = useState({ customerId: '', amount: '', note: '' });
 
@@ -151,12 +151,22 @@ const Dashboard = ({ onShowToast }) => {
     return date.toLocaleString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
   };
 
-  // --- FINANCIAL CALCULATIONS ---
+  // --- FINANCIAL CALCULATIONS (DIPERBAIKI DENGAN HPP, SALDO DISATUKAN KEMBALI) ---
   const totalIncome = useMemo(() => transactions.reduce((sum, t) => sum + (Number(t.total) || 0), 0), [transactions]);
   const totalExpenses = useMemo(() => expenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0), [expenses]);
   const totalUnpaidDebt = useMemo(() => customers.reduce((sum, c) => sum + (Number(c.remainingDebt) || 0), 0), [customers]);
   const totalDeposit = useMemo(() => customers.reduce((sum, c) => sum + (Number(c.returnAmount) || 0), 0), [customers]);
   const balance = totalIncome - totalExpenses;
+
+  // Penghitungan HPP (Harga Pokok Penjualan) untuk Laba Rugi
+  const totalHPP = useMemo(() => transactions.reduce((sum, t) => {
+    if (!t.items) return sum;
+    const itemHpp = t.items.reduce((iSum, i) => {
+      // Ambil capitalPrice jika ada, jika tidak ada fallback ke 0
+      return iSum + (Number(i.capitalPrice || 0) * Number(i.qty || 0)); 
+    }, 0);
+    return sum + itemHpp;
+  }, 0), [transactions]);
 
   // --- LOGIKA HISTORI SPESIFIK (+/-) ---
   const debtLogs = useMemo(() => {
@@ -200,7 +210,7 @@ const Dashboard = ({ onShowToast }) => {
     let logs = [];
     transactions.forEach(t => {
       if (Number(t.total) > 0) {
-        logs.push({ ...t, sourceCollection: 'transactions', netType: 'in', nominal: t.total, subjName: t.customerName || 'Pemasukan Kas', detailNote: t.note || (t.items ? t.items.map(i => i.name).join(', ') : 'Transaksi Lunas') });
+        logs.push({ ...t, sourceCollection: 'transactions', netType: 'in', nominal: t.total, subjName: t.customerName || 'Pemasukan Kas', detailNote: t.note || (t.items ? t.items.map(i => i.name).join(', ') : `Transaksi Lunas`), paymentMethod: t.paymentMethod || 'TUNAI' });
       }
     });
     expenses.forEach(e => {
@@ -212,7 +222,9 @@ const Dashboard = ({ onShowToast }) => {
   // --- LOG CEPAT KESELURUHAN (ALL ACTIVITIES) ---
   const allActivityLogs = useMemo(() => {
     let logs = [];
-    netLogs.forEach(l => logs.push({ ...l, logTime: getSafeDate(l.createdAt), logCategory: 'KAS', logType: l.netType, logLabel: l.netType === 'in' ? 'Kas Masuk' : 'Kas Keluar', logTitle: l.subjName, logDetail: l.detailNote }));
+    netLogs.forEach(l => {
+      logs.push({ ...l, logTime: getSafeDate(l.createdAt), logCategory: 'KAS', logType: l.netType, logLabel: l.netType === 'in' ? `Kas Masuk` : 'Kas Keluar', logTitle: l.subjName, logDetail: l.detailNote })
+    });
     debtLogs.forEach(l => logs.push({ ...l, logTime: getSafeDate(l.createdAt), logCategory: 'HUTANG', logType: l.debtType, logLabel: l.debtType === 'in' ? 'Hutang Bertambah' : 'Hutang Berkurang', logTitle: l.customerName || 'Tanpa Nama', logDetail: l.note }));
     depositLogs.forEach(l => logs.push({ ...l, logTime: getSafeDate(l.createdAt), logCategory: 'DEPOSIT', logType: l.depType, logLabel: l.depType === 'in' ? 'Deposit Masuk' : 'Deposit Terpakai', logTitle: l.customerName || 'Tanpa Nama', logDetail: l.note }));
     return logs.sort((a, b) => b.logTime - a.logTime);
@@ -243,8 +255,8 @@ const Dashboard = ({ onShowToast }) => {
   const handleAddManualIncome = async (e) => {
     e.preventDefault();
     if (!newManualIncome.note || !newManualIncome.amount) return onShowToast('Lengkapi data', 'error');
-    await addDocument('transactions', { note: newManualIncome.note, subtotal: Number(newManualIncome.amount), total: Number(newManualIncome.amount), customerName: 'Pemasukan Manual', paymentStatus: 'LUNAS', createdAt: new Date() });
-    setNewManualIncome({ note: '', amount: '' });
+    await addDocument('transactions', { note: newManualIncome.note, subtotal: Number(newManualIncome.amount), total: Number(newManualIncome.amount), customerName: 'Pemasukan Manual', paymentStatus: 'LUNAS', paymentMethod: newManualIncome.method, createdAt: new Date() });
+    setNewManualIncome({ note: '', amount: '', method: 'TUNAI' });
     onShowToast('Pemasukan dicatat', 'success');
   };
 
@@ -253,7 +265,8 @@ const Dashboard = ({ onShowToast }) => {
     if (amount <= 0 || amount > selectedCustomer.remainingDebt) return onShowToast('Nominal tidak valid', 'error');
     const updateRes = await updateDocument('customers', selectedCustomer.id, { remainingDebt: selectedCustomer.remainingDebt - amount });
     if (updateRes.success) {
-      await addDocument('transactions', { customerName: selectedCustomer.name, customerId: selectedCustomer.id, subtotal: amount, total: amount, note: 'Pelunasan Hutang Manual', paymentStatus: 'LUNAS', createdAt: new Date() });
+      // Pembayaran cicilan dicatat dengan method yang bisa disesuaikan, untuk simplicity di set TUNAI/dari Kasir
+      await addDocument('transactions', { customerName: selectedCustomer.name, customerId: selectedCustomer.id, subtotal: amount, total: amount, note: 'Pelunasan Hutang Manual', paymentStatus: 'LUNAS', paymentMethod: 'TUNAI', createdAt: new Date() });
       onShowToast('Hutang diperbarui', 'success');
       setShowPayDebtModal(false);
     }
@@ -334,7 +347,6 @@ const Dashboard = ({ onShowToast }) => {
     return matchesSearch && matchesDate;
   });
 
-  // PEMISAHAN DATA PENJUALAN VS PEMASUKAN MANUAL
   const salesData = transactions.filter(t => t.items && t.items.length > 0);
   const incomeData = transactions.filter(t => !t.items || t.items.length === 0);
 
@@ -380,10 +392,10 @@ const Dashboard = ({ onShowToast }) => {
     let totalIn = 0;
     const inData = transactions.filter(t => Number(t.total) > 0).map(t => {
       totalIn += Number(t.total);
-      return { 'Tanggal & Jam': formatDisplayDate(t.createdAt), 'Nama Pembeli': t.customerName || 'Tanpa Nama', 'Keterangan Rinci': t.note || (t.items ? t.items.map(i => i.name).join(', ') : 'Transaksi Pemasukan'), 'Nominal': `+ Rp ${Number(t.total).toLocaleString('id-ID')}` };
+      return { 'Tanggal & Jam': formatDisplayDate(t.createdAt), 'Metode': t.paymentMethod || 'TUNAI', 'Nama Pembeli': t.customerName || 'Tanpa Nama', 'Keterangan Rinci': t.note || (t.items ? t.items.map(i => i.name).join(', ') : 'Transaksi Pemasukan'), 'Nominal': `+ Rp ${Number(t.total).toLocaleString('id-ID')}` };
     });
     if (inData.length > 0) {
-      inData.push({ 'Tanggal & Jam': 'TOTAL PEMASUKAN', 'Nama Pembeli': '', 'Keterangan Rinci': '', 'Nominal': `Rp ${totalIn.toLocaleString('id-ID')}` });
+      inData.push({ 'Tanggal & Jam': 'TOTAL PEMASUKAN', 'Metode': '', 'Nama Pembeli': '', 'Keterangan Rinci': '', 'Nominal': `Rp ${totalIn.toLocaleString('id-ID')}` });
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(inData), "1. Pemasukan");
     }
 
@@ -449,10 +461,10 @@ const Dashboard = ({ onShowToast }) => {
     const netData = filteredNetBalance.map(item => {
       const nominal = Number(item.nominal) || 0;
       if (item.netType === 'in') netInEx += nominal; else netOutEx += nominal;
-      return { 'Tanggal & Jam': formatDisplayDate(item.createdAt), 'Kategori': item.netType === 'in' ? 'PEMASUKAN' : 'PENGELUARAN', 'Nama / Subjek': item.subjName, 'Keterangan Rinci': item.detailNote, 'Nominal Kas': (item.netType === 'in' ? '+' : '-') + ` Rp ${nominal.toLocaleString('id-ID')}` };
+      return { 'Tanggal & Jam': formatDisplayDate(item.createdAt), 'Kategori': item.netType === 'in' ? 'PEMASUKAN' : 'PENGELUARAN', 'Nama / Subjek': item.subjName, 'Keterangan Rinci': item.detailNote, 'Metode (Masuk)': item.paymentMethod || '-', 'Nominal Kas': (item.netType === 'in' ? '+' : '-') + ` Rp ${nominal.toLocaleString('id-ID')}` };
     });
     if (netData.length > 0) {
-      netData.push({ 'Tanggal & Jam': `TOTAL MASUK: Rp ${netInEx.toLocaleString('id-ID')} | KELUAR: Rp ${netOutEx.toLocaleString('id-ID')}`, 'Kategori': '', 'Nama / Subjek': '', 'Keterangan Rinci': 'SALDO AKHIR:', 'Nominal Kas': `Rp ${(netInEx - netOutEx).toLocaleString('id-ID')}` });
+      netData.push({ 'Tanggal & Jam': `TOTAL MASUK: Rp ${netInEx.toLocaleString('id-ID')} | KELUAR: Rp ${netOutEx.toLocaleString('id-ID')}`, 'Kategori': '', 'Nama / Subjek': '', 'Keterangan Rinci': '', 'Metode (Masuk)': 'SALDO AKHIR:', 'Nominal Kas': `Rp ${(netInEx - netOutEx).toLocaleString('id-ID')}` });
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(netData), "7. Saldo Bersih");
     }
 
@@ -461,7 +473,7 @@ const Dashboard = ({ onShowToast }) => {
   };
 
   // =====================================================================
-  // --- FUNGSI EXPORT EXCEL (NERACA SALDO) ---
+  // --- FUNGSI EXPORT EXCEL (NERACA SALDO DIPERBAIKI) ---
   // =====================================================================
   const handleDownloadNeracaExcel = () => {
     const totalDebit = balance + totalUnpaidDebt + totalExpenses;
@@ -473,7 +485,7 @@ const Dashboard = ({ onShowToast }) => {
       [`Periode: ${startDate || 'Awal'} s/d ${endDate || 'Sekarang'}`],
       [],
       ['No. Akun', 'Nama Akun / Uraian', 'Debit', 'Kredit'],
-      ['101', 'Kas & Bank (Saldo Uang Bersih Laci)', balance, 0],
+      ['101', 'Kas & Bank (Saldo Bersih Keseluruhan)', balance, 0],
       ['102', 'Piutang Usaha (Hutang Pelanggan)', totalUnpaidDebt, 0],
       ['201', 'Titipan / Deposit Pelanggan', 0, totalDeposit],
       ['401', 'Pendapatan Usaha (Total Penjualan)', 0, totalIncome],
@@ -481,7 +493,7 @@ const Dashboard = ({ onShowToast }) => {
       ['', 'TOTAL KESELURUHAN', totalDebit, totalKredit],
       [],
       ['*Catatan: Laporan ini disusun menggunakan metode Buku Kas Tunggal (Single Entry).'],
-      ['Total Debit dan Kredit dapat memiliki selisih wajar (tidak mutlak balance) apabila terdapat koreksi atau penambahan hutang/deposit manual yang tidak memengaruhi arus kas tunai.']
+      ['*Total Debit dan Kredit dapat memiliki selisih wajar apabila terdapat penambahan manual.']
     ];
 
     const ws = XLSX.utils.aoa_to_sheet(aoaData);
@@ -494,12 +506,11 @@ const Dashboard = ({ onShowToast }) => {
   };
 
   // =====================================================================
-  // --- FUNGSI EXPORT EXCEL (LABA RUGI) ---
+  // --- FUNGSI EXPORT EXCEL (LABA RUGI DIPERBAIKI DENGAN HPP) ---
   // =====================================================================
   const handleDownloadLabaRugiExcel = () => {
-    const income = transactions.reduce((sum, t) => sum + (Number(t.total) || 0), 0);
-    const expense = filteredExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
-    const laba = income - expense;
+    const labaKotor = totalIncome - totalHPP;
+    const labaBersih = labaKotor - totalExpenses;
 
     const aoaData = [
       ['LAPORAN LABA RUGI (CASH BASIS)'],
@@ -508,12 +519,14 @@ const Dashboard = ({ onShowToast }) => {
       [],
       ['Keterangan', 'Nominal (Rp)'],
       ['PENDAPATAN', ''],
-      ['Total Pemasukan Kas (Penjualan & DP)', income],
+      ['Total Pemasukan Penjualan', totalIncome],
+      ['Harga Pokok Penjualan (HPP)', `-${totalHPP}`],
+      ['LABA KOTOR', labaKotor],
       [],
       ['BEBAN / PENGELUARAN', ''],
-      ['Total Pengeluaran Kas Operasional', expense],
+      ['Total Pengeluaran Operasional', `-${totalExpenses}`],
       [],
-      ['LABA / (RUGI) BERSIH', laba]
+      ['LABA / (RUGI) BERSIH', labaBersih]
     ];
 
     const ws = XLSX.utils.aoa_to_sheet(aoaData);
@@ -563,13 +576,13 @@ const Dashboard = ({ onShowToast }) => {
       let totalIn = 0;
       const inBody = inList.map(t => {
         totalIn += Number(t.total);
-        return [formatDisplayDate(t.createdAt), t.customerName || 'Tanpa Nama', t.note || (t.items ? t.items.map(i => i.name).join(', ') : 'Transaksi Pemasukan'), `+ Rp ${Number(t.total).toLocaleString('id-ID')}`];
+        return [formatDisplayDate(t.createdAt), t.paymentMethod || 'TUNAI', t.customerName || 'Tanpa Nama', t.note || (t.items ? t.items.map(i => i.name).join(', ') : 'Transaksi Pemasukan'), `+ Rp ${Number(t.total).toLocaleString('id-ID')}`];
       });
       inBody.push([
-        { content: 'TOTAL PEMASUKAN KESELURUHAN:', colSpan: 3, styles: { halign: 'right', fontStyle: 'bold' } },
+        { content: 'TOTAL PEMASUKAN KESELURUHAN:', colSpan: 4, styles: { halign: 'right', fontStyle: 'bold' } },
         { content: `Rp ${totalIn.toLocaleString('id-ID')}`, styles: { fontStyle: 'bold', textColor: [0, 128, 0], fillColor: [230, 245, 230] } }
       ]);
-      autoTable(doc, { startY: currentY, head: [['Tanggal & Jam', 'Nama Pembeli', 'Keterangan Rinci', 'Nominal']], body: inBody, theme: 'grid', headStyles: { fillColor: [46, 204, 113] }, didParseCell: customDidParseCell, margin: { left: 14 } });
+      autoTable(doc, { startY: currentY, head: [['Tanggal & Jam', 'Metode', 'Nama Pembeli', 'Keterangan Rinci', 'Nominal']], body: inBody, theme: 'grid', headStyles: { fillColor: [46, 204, 113] }, didParseCell: customDidParseCell, margin: { left: 14 } });
       currentY = doc.lastAutoTable.finalY + 12;
     }
 
@@ -601,7 +614,7 @@ const Dashboard = ({ onShowToast }) => {
         return [formatDisplayDate(item.createdAt), item.debtType === 'in' ? 'BERTAMBAH' : 'BERKURANG', `${item.customerName || 'Tanpa Nama'} [${item.note || 'Belanja Hutang'}]`, (item.debtType === 'in' ? '+' : '-') + ` Rp ${nominal.toLocaleString('id-ID')}`];
       });
       debtHistBody.push([
-        { content: `TOTAL MASUK/TAMBAH: Rp ${inDebt.toLocaleString('id-ID')} | KELUAR/KURANG: Rp ${outDebt.toLocaleString('id-ID')}`, colSpan: 3, styles: { halign: 'right', fontStyle: 'bold' } },
+        { content: `TOTAL MASUK: Rp ${inDebt.toLocaleString('id-ID')} | KELUAR: Rp ${outDebt.toLocaleString('id-ID')}`, colSpan: 3, styles: { halign: 'right', fontStyle: 'bold' } },
         { content: `NET: Rp ${Math.abs(inDebt - outDebt).toLocaleString('id-ID')}`, styles: { fontStyle: 'bold', textColor: [0, 128, 0], fillColor: [230, 245, 230] } }
       ]);
       autoTable(doc, { startY: currentY, head: [['Tanggal & Jam', 'Status', 'Keterangan Detail', 'Nominal']], body: debtHistBody, theme: 'grid', headStyles: { fillColor: [230, 126, 34] }, didParseCell: customDidParseCell, margin: { left: 14 } });
@@ -637,7 +650,7 @@ const Dashboard = ({ onShowToast }) => {
         return [formatDisplayDate(item.createdAt), item.depType === 'in' ? 'BERTAMBAH' : 'BERKURANG', `${item.customerName || 'Tanpa Nama'} [${item.note || 'Retur'}]`, (item.depType === 'in' ? '+' : '-') + ` Rp ${nominal.toLocaleString('id-ID')}`];
       });
       depHistBody.push([
-        { content: `TOTAL MASUK/TAMBAH: Rp ${inDep.toLocaleString('id-ID')} | KELUAR/KURANG: Rp ${outDep.toLocaleString('id-ID')}`, colSpan: 3, styles: { halign: 'right', fontStyle: 'bold' } },
+        { content: `TOTAL MASUK: Rp ${inDep.toLocaleString('id-ID')} | KELUAR: Rp ${outDep.toLocaleString('id-ID')}`, colSpan: 3, styles: { halign: 'right', fontStyle: 'bold' } },
         { content: `NET: Rp ${Math.abs(inDep - outDep).toLocaleString('id-ID')}`, styles: { fontStyle: 'bold', textColor: [0, 128, 0], fillColor: [230, 245, 230] } }
       ]);
       autoTable(doc, { startY: currentY, head: [['Tanggal & Jam', 'Status', 'Keterangan Detail', 'Nominal']], body: depHistBody, theme: 'grid', headStyles: { fillColor: [155, 89, 182] }, didParseCell: customDidParseCell, margin: { left: 14 } });
@@ -684,7 +697,7 @@ const Dashboard = ({ onShowToast }) => {
   };
 
   // =====================================================================
-  // --- FUNGSI EXPORT PDF (NERACA SALDO / LAPORAN POSISI KEUANGAN) ---
+  // --- FUNGSI EXPORT PDF (NERACA SALDO DIPERBAIKI) ---
   // =====================================================================
   const handleDownloadNeracaPDF = () => {
     const doc = new jsPDF('p', 'mm', 'a4');
@@ -699,7 +712,7 @@ const Dashboard = ({ onShowToast }) => {
 
     // Menyusun data baris neraca
     const body = [
-      ['101', 'Kas & Bank (Saldo Uang Bersih Laci)', `Rp ${balance.toLocaleString('id-ID')}`, '-'],
+      ['101', 'Kas & Bank (Saldo Bersih Keseluruhan)', `Rp ${balance.toLocaleString('id-ID')}`, '-'],
       ['102', 'Piutang Usaha (Hutang Pelanggan)', `Rp ${totalUnpaidDebt.toLocaleString('id-ID')}`, '-'],
       ['201', 'Titipan / Deposit Pelanggan', '-', `Rp ${totalDeposit.toLocaleString('id-ID')}`],
       ['401', 'Pendapatan Usaha (Total Penjualan)', '-', `Rp ${totalIncome.toLocaleString('id-ID')}`],
@@ -730,12 +743,12 @@ const Dashboard = ({ onShowToast }) => {
       }
     });
 
-    // Catatan Kaki (Penting untuk Single Entry)
+    // Catatan Kaki
     doc.setFontSize(9);
     doc.setTextColor(100);
     doc.text("*Catatan: Laporan ini disusun menggunakan metode Buku Kas Tunggal (Single Entry).", 14, doc.lastAutoTable.finalY + 10);
-    doc.text("Total Debit dan Kredit dapat memiliki selisih wajar (tidak mutlak balance) apabila terdapat ", 14, doc.lastAutoTable.finalY + 15);
-    doc.text("koreksi atau penambahan hutang/deposit manual yang tidak memengaruhi arus kas tunai.", 14, doc.lastAutoTable.finalY + 20);
+    doc.text("Total Debit dan Kredit dapat memiliki selisih wajar apabila terdapat ", 14, doc.lastAutoTable.finalY + 15);
+    doc.text("koreksi hutang/deposit manual.", 14, doc.lastAutoTable.finalY + 20);
 
     // Save
     doc.save(`Neraca_Saldo_${Date.now()}.pdf`);
@@ -743,12 +756,11 @@ const Dashboard = ({ onShowToast }) => {
   };
 
   // =====================================================================
-  // --- FUNGSI EXPORT PDF (LABA RUGI) ---
+  // --- FUNGSI EXPORT PDF (LABA RUGI DIPERBAIKI DENGAN HPP) ---
   // =====================================================================
   const handleDownloadLabaRugiPDF = () => {
-    const income = transactions.reduce((sum, t) => sum + (Number(t.total) || 0), 0);
-    const expense = filteredExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
-    const laba = income - expense;
+    const labaKotor = totalIncome - totalHPP;
+    const labaBersih = labaKotor - totalExpenses;
 
     const doc = new jsPDF('p', 'mm', 'a4');
     doc.setFontSize(16); doc.setFont("helvetica", "bold");
@@ -760,10 +772,12 @@ const Dashboard = ({ onShowToast }) => {
 
     const body = [
       [{ content: 'PENDAPATAN', colSpan: 2, styles: { fontStyle: 'bold', fillColor: [240, 240, 240] } }],
-      ['Total Pemasukan Kas (Penjualan & DP)', `Rp ${income.toLocaleString('id-ID')}`],
+      ['Total Pemasukan Penjualan', `Rp ${totalIncome.toLocaleString('id-ID')}`],
+      ['Harga Pokok Penjualan (HPP)', `- Rp ${totalHPP.toLocaleString('id-ID')}`],
+      [{ content: 'LABA KOTOR', styles: { fontStyle: 'bold' } }, { content: `Rp ${labaKotor.toLocaleString('id-ID')}`, styles: { fontStyle: 'bold', textColor: labaKotor >= 0 ? [0, 128, 0] : [220, 38, 38] } }],
       [{ content: 'BEBAN / PENGELUARAN', colSpan: 2, styles: { fontStyle: 'bold', fillColor: [240, 240, 240] } }],
-      ['Total Pengeluaran Kas Operasional', `Rp ${expense.toLocaleString('id-ID')}`],
-      [{ content: 'LABA / (RUGI) BERSIH', styles: { fontStyle: 'bold' } }, { content: `Rp ${laba.toLocaleString('id-ID')}`, styles: { fontStyle: 'bold', textColor: laba >= 0 ? [0, 128, 0] : [220, 38, 38] } }]
+      ['Total Pengeluaran Kas Operasional', `- Rp ${totalExpenses.toLocaleString('id-ID')}`],
+      [{ content: 'LABA / (RUGI) BERSIH', styles: { fontStyle: 'bold' } }, { content: `Rp ${labaBersih.toLocaleString('id-ID')}`, styles: { fontStyle: 'bold', textColor: labaBersih >= 0 ? [0, 128, 0] : [220, 38, 38] } }]
     ];
 
     autoTable(doc, {
@@ -845,7 +859,7 @@ const Dashboard = ({ onShowToast }) => {
           { id: 'expenses', label: 'Pengeluaran', icon: ArrowDownCircle }, 
           { id: 'debts', label: 'Hutang', icon: CreditCard },
           { id: 'returns', label: 'Retur/Deposit', icon: RotateCcw },
-          { id: 'netbalance', label: 'Saldo Bersih', icon: Wallet }
+          { id: 'netbalance', label: 'Riwayat Uang Masuk & Keluar', icon: Wallet }
         ].map(tab => (
           <button key={tab.id} onClick={() => navigateToTab(tab.id)} className={`flex items-center gap-2 px-4 md:px-6 py-3 rounded-lg text-sm font-bold whitespace-nowrap ${activeTab === tab.id ? 'bg-teal-600 text-white shadow-lg' : 'text-gray-500 hover:bg-gray-100'}`}>
             <tab.icon className="w-4 h-4" /> {tab.label}
@@ -853,14 +867,14 @@ const Dashboard = ({ onShowToast }) => {
         ))}
       </div>
 
-      {/* STATS CARDS */}
+      {/* STATS CARDS DIPERBAIKI (Kembali ke 5 Card) */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 md:gap-4 mb-8">
         <div onClick={() => navigateToTab('transactions')} className="bg-white rounded-2xl shadow-sm p-4 md:p-6 border-b-4 border-teal-500 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all duration-300">
-          <p className="text-[9px] md:text-[10px] font-black text-gray-400 uppercase mb-1">Pemasukan Kas</p>
+          <p className="text-[9px] md:text-[10px] font-black text-gray-400 uppercase mb-1">Total Pemasukan</p>
           <h3 className="text-base md:text-xl font-black text-teal-700">Rp {(totalIncome || 0).toLocaleString()}</h3>
         </div>
         <div onClick={() => navigateToTab('expenses')} className="bg-white rounded-2xl shadow-sm p-4 md:p-6 border-b-4 border-red-500 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all duration-300">
-          <p className="text-[9px] md:text-[10px] font-black text-gray-400 uppercase mb-1">Pengeluaran Kas</p>
+          <p className="text-[9px] md:text-[10px] font-black text-gray-400 uppercase mb-1">Total Pengeluaran</p>
           <h3 className="text-base md:text-xl font-black text-red-600">Rp {(totalExpenses || 0).toLocaleString()}</h3>
         </div>
         <div onClick={() => navigateToTab('debts')} className="bg-white rounded-2xl shadow-sm p-4 md:p-6 border-b-4 border-orange-500 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all duration-300">
@@ -871,8 +885,8 @@ const Dashboard = ({ onShowToast }) => {
           <p className="text-[9px] md:text-[10px] font-black text-gray-400 uppercase mb-1">Deposit Aktif</p>
           <h3 className="text-base md:text-xl font-black text-purple-600">Rp {(totalDeposit || 0).toLocaleString()}</h3>
         </div>
-        <div onClick={() => navigateToTab('netbalance')} className="col-span-2 md:col-span-1 bg-white rounded-2xl shadow-sm p-4 md:p-6 border-b-4 border-blue-600 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all duration-300">
-          <p className="text-[9px] md:text-[10px] font-black text-gray-400 uppercase mb-1">Uang bersih (Net)</p>
+        <div onClick={() => navigateToTab('netbalance')} className="col-span-2 md:col-span-1 bg-white rounded-2xl shadow-sm p-4 md:p-6 border-b-4 border-blue-600 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all duration-300 bg-blue-50/30">
+          <p className="text-[9px] md:text-[10px] font-black text-gray-500 uppercase mb-1">Uang Bersih (Net)</p>
           <h3 className="text-lg md:text-xl font-black text-blue-700">Rp {(balance || 0).toLocaleString()}</h3>
         </div>
       </div>
@@ -1000,7 +1014,7 @@ const Dashboard = ({ onShowToast }) => {
                 <thead>
                   <tr className="bg-gray-50/50 border-b">
                     <th className="p-4 font-black text-gray-400 uppercase text-[10px]">Tgl & Jam</th>
-                    <th className="p-4 font-black text-gray-400 uppercase text-[10px]">Nota</th>
+                    <th className="p-4 font-black text-gray-400 uppercase text-[10px]">Nota / Metode</th>
                     <th className="p-4 font-black text-gray-400 uppercase text-[10px]">Nama Pembeli</th>
                     <th className="p-4 font-black text-gray-400 uppercase text-[10px]">Status</th>
                     <th className="p-4 font-black text-gray-400 uppercase text-[10px]">Item Dibeli</th>
@@ -1011,13 +1025,15 @@ const Dashboard = ({ onShowToast }) => {
                 <tbody className="divide-y">
                   {paginatedItems.map(item => {
                     const itemNameList = item.items ? item.items.map(i => `${i.qty}x ${i.name}`).join(', ') : '-';
-                    // Pakai subtotal agar nilainya tidak 0 meskipun ngutang
                     const nilaiBelanja = Number(item.subtotal) || Number(item.total) || 0; 
                     
                     return (
                       <tr key={item.id} className="hover:bg-gray-50 transition-colors text-xs md:text-sm">
                         <td className="p-4 font-bold text-gray-500 whitespace-nowrap">{formatDisplayDate(item.createdAt)}</td>
-                        <td className="p-4 font-black text-teal-600 uppercase">#{item.id?.substring(0,6)}</td>
+                        <td className="p-4">
+                          <p className="font-black text-teal-600 uppercase">#{item.id?.substring(0,6)}</p>
+                          <p className="text-[9px] text-gray-400 font-bold uppercase">{item.paymentMethod || 'TUNAI'}</p>
+                        </td>
                         <td className="p-4 font-black text-gray-800 uppercase max-w-[120px] truncate">{item.customerName || 'Umum'}</td>
                         <td className="p-4">
                           <span className={`px-2 py-1 text-[9px] font-black uppercase rounded-lg ${item.paymentStatus === 'HUTANG' ? 'bg-orange-100 text-orange-600' : 'bg-teal-100 text-teal-600'}`}>
@@ -1052,6 +1068,15 @@ const Dashboard = ({ onShowToast }) => {
             <form onSubmit={activeTab === 'transactions' ? handleAddManualIncome : (e) => { e.preventDefault(); addDocument('expenses', {...newExpense, amount: Number(newExpense.amount), createdAt: new Date()}); onShowToast('Disimpan', 'success'); setNewExpense({title: '', amount: '', category: 'Operasional'}); }} className="flex flex-col md:flex-row gap-3">
               <input type="text" placeholder="Deskripsi" className="w-full md:flex-1 bg-gray-50 rounded-xl px-4 py-3 text-sm font-bold border-none outline-none focus:ring-2 focus:ring-teal-500" value={activeTab === 'transactions' ? newManualIncome.note : newExpense.title} onChange={e => activeTab === 'transactions' ? setNewManualIncome({...newManualIncome, note: e.target.value}) : setNewExpense({...newExpense, title: e.target.value})} />
               <input type="number" placeholder="Nominal (Rp)" className="w-full md:w-44 bg-gray-50 rounded-xl px-4 py-3 text-sm font-black border-none outline-none focus:ring-2 focus:ring-teal-500" value={activeTab === 'transactions' ? newManualIncome.amount : newExpense.amount} onChange={e => activeTab === 'transactions' ? setNewManualIncome({...newManualIncome, amount: e.target.value}) : setNewExpense({...newExpense, amount: e.target.value})} />
+              
+              {activeTab === 'transactions' && (
+                <select value={newManualIncome.method} onChange={(e) => setNewManualIncome({...newManualIncome, method: e.target.value})} className="bg-gray-50 px-4 py-3 rounded-xl border-none text-sm font-bold outline-none focus:ring-2 focus:ring-teal-500">
+                  <option value="TUNAI">Keterangan: TUNAI</option>
+                  <option value="TRANSFER">Keterangan: TRANSFER</option>
+                  <option value="QRIS">Keterangan: QRIS</option>
+                </select>
+              )}
+
               <button className={`w-full md:w-auto px-8 py-3 rounded-xl font-black text-sm text-white ${activeTab === 'transactions' ? 'bg-teal-600 hover:bg-teal-700' : 'bg-red-600 hover:bg-red-700'} shadow-md transition-all`}>Simpan</button>
             </form>
           </div>
@@ -1061,7 +1086,7 @@ const Dashboard = ({ onShowToast }) => {
                 <thead>
                   <tr className="bg-gray-50/50 border-b">
                     <th className="p-4 font-black text-gray-400 uppercase text-[10px]">Tgl & Jam</th>
-                    {activeTab === 'transactions' && <th className="p-4 font-black text-gray-400 uppercase text-[10px]">Nama Pembeli</th>}
+                    {activeTab === 'transactions' && <th className="p-4 font-black text-gray-400 uppercase text-[10px]">Nama / Metode</th>}
                     <th className="p-4 font-black text-gray-400 uppercase text-[10px]">{activeTab === 'transactions' ? 'Keterangan Rinci' : 'Keterangan'}</th>
                     <th className="p-4 font-black text-gray-400 uppercase text-[10px] text-right">Nominal Kas</th>
                     <th className="p-4 font-black text-gray-400 uppercase text-[10px] text-right">Aksi</th>
@@ -1076,7 +1101,12 @@ const Dashboard = ({ onShowToast }) => {
                     return (
                       <tr key={item.id} className="hover:bg-gray-50 transition-colors text-xs md:text-sm">
                         <td className="p-4 font-bold text-gray-500 whitespace-nowrap">{formatDisplayDate(item.createdAt)}</td>
-                        {activeTab === 'transactions' && (<td className="p-4 font-black text-gray-800 uppercase max-w-[150px] truncate">{item.customerName || 'Pemasukan Manual'}</td>)}
+                        {activeTab === 'transactions' && (
+                          <td className="p-4">
+                            <p className="font-black text-gray-800 uppercase max-w-[150px] truncate">{item.customerName || 'Pemasukan Manual'}</p>
+                            <p className="text-[9px] text-gray-400 font-bold uppercase">{item.paymentMethod || 'TUNAI'}</p>
+                          </td>
+                        )}
                         <td className="p-4 font-bold text-gray-600 max-w-[250px] truncate" title={keteranganStr}>{keteranganStr}</td>
                         <td className="p-4 font-black text-right text-gray-700 whitespace-nowrap">Rp {tableNominal.toLocaleString()}</td>
                         <td className="p-4 text-right">
@@ -1279,10 +1309,10 @@ const Dashboard = ({ onShowToast }) => {
         </div>
       )}
 
-      {/* --- TAB SALDO BERSIH --- */}
+      {/* --- TAB SALDO BERSIH (UANG MASUK & KELUAR) --- */}
       {activeTab === 'netbalance' && (
         <div className="bg-white rounded-[32px] border shadow-sm flex flex-col">
-          <div className="p-4 md:p-6 bg-gray-50/50 border-b"><h3 className="text-base md:text-lg font-black text-gray-800 uppercase tracking-tighter flex items-center gap-2"><Wallet className="text-blue-500 w-4 h-4 md:w-5 md:h-5"/> Arus Kas Riil (Uang Laci)</h3></div>
+          <div className="p-4 md:p-6 bg-gray-50/50 border-b"><h3 className="text-base md:text-lg font-black text-gray-800 uppercase tracking-tighter flex items-center gap-2"><Landmark className="text-blue-500 w-4 h-4 md:w-5 md:h-5"/> Riwayat Uang Masuk & Keluar</h3></div>
           <div className="overflow-x-auto w-full custom-scrollbar">
              <table className="w-full min-w-[600px] text-left text-xs md:text-sm">
                 <thead>
@@ -1290,19 +1320,27 @@ const Dashboard = ({ onShowToast }) => {
                     <th className="p-4 font-black text-gray-400 uppercase text-[10px]">Tgl & Jam</th>
                     <th className="p-4 font-black text-gray-400 uppercase text-[10px]">Kategori</th>
                     <th className="p-4 font-black text-gray-400 uppercase text-[10px]">Nama / Subjek</th>
-                    <th className="p-4 font-black text-gray-400 uppercase text-[10px]">Keterangan Rinci</th>
+                    <th className="p-4 font-black text-gray-400 uppercase text-[10px]">Metode / Info</th>
                     <th className="p-4 font-black text-gray-400 uppercase text-[10px] text-right">Masuk/Keluar</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
                   {paginatedItems.map(item => {
                     const isMasuk = item.netType === 'in';
+                    const isBank = item.paymentMethod === 'TRANSFER' || item.paymentMethod === 'QRIS';
                     return (
                       <tr key={item.id} className="hover:bg-gray-50 transition-colors">
                         <td className="p-4 font-bold text-gray-500 whitespace-nowrap">{formatDisplayDate(item.createdAt)}</td>
-                        <td className="p-4"><span className={`px-2 py-1 rounded-full text-[8px] md:text-[9px] font-black uppercase ${isMasuk ? 'bg-teal-100 text-teal-700' : 'bg-red-100 text-red-700'}`}>{isMasuk ? 'PEMASUKAN' : 'PENGELUARAN'}</span></td>
+                        <td className="p-4">
+                          <span className={`px-2 py-1 rounded-full text-[8px] md:text-[9px] font-black uppercase ${isMasuk ? (isBank ? 'bg-indigo-100 text-indigo-700' : 'bg-teal-100 text-teal-700') : 'bg-red-100 text-red-700'}`}>
+                            {isMasuk ? 'PEMASUKAN' : 'PENGELUARAN'}
+                          </span>
+                        </td>
                         <td className="p-4 font-black text-gray-800 uppercase max-w-[150px] truncate">{item.subjName}</td>
-                        <td className="p-4 font-bold text-gray-600 max-w-[200px] truncate" title={item.detailNote}>{item.detailNote}</td>
+                        <td className="p-4 font-bold text-gray-600 max-w-[200px] truncate" title={item.detailNote}>
+                          <span className="bg-gray-100 px-2 py-0.5 rounded text-[10px] font-black mr-2 text-gray-500">{item.paymentMethod || 'TUNAI'}</span>
+                          {item.detailNote}
+                        </td>
                         <td className={`p-4 font-black text-right whitespace-nowrap ${isMasuk ? 'text-teal-600' : 'text-red-600'}`}>
                           {isMasuk ? '(+)' : '(-)'} Rp {(Number(item.nominal)||0).toLocaleString()}
                         </td>
@@ -1347,7 +1385,7 @@ const Dashboard = ({ onShowToast }) => {
                 <TableIcon className="w-5 h-5 flex-shrink-0" />
                 <div className="text-left">
                   <p className="font-black text-sm">Excel Laba Rugi</p>
-                  <p className="text-[10px] font-bold opacity-80 mt-0.5">Penjualan dikurangi Beban Operasional</p>
+                  <p className="text-[10px] font-bold opacity-80 mt-0.5">Omset kurangi HPP & Pengeluaran</p>
                 </div>
               </button>
               
@@ -1373,7 +1411,7 @@ const Dashboard = ({ onShowToast }) => {
                 <FileText className="w-5 h-5 flex-shrink-0" />
                 <div className="text-left">
                   <p className="font-black text-sm">PDF Laba Rugi</p>
-                  <p className="text-[10px] font-bold opacity-80 mt-0.5">Penjualan dikurangi Beban Operasional</p>
+                  <p className="text-[10px] font-bold opacity-80 mt-0.5">Omset kurangi HPP & Pengeluaran</p>
                 </div>
               </button>
             </div>
@@ -1503,9 +1541,7 @@ const Dashboard = ({ onShowToast }) => {
               <button onClick={() => setShowDeleteModal(false)} className="flex-1 py-3 md:py-4 font-black text-gray-400 text-xs md:text-sm hover:bg-gray-50 rounded-2xl transition-all">Batal</button>
               <button 
                 onClick={async () => { 
-                  // LOGIKA REVERT (BATALKAN TRANSAKSI PENJUALAN)
                   if (selectedItem.isSale) {
-                      // 1. Kembalikan Stok Barang
                       if (selectedItem.items && selectedItem.items.length > 0) {
                           for (const item of selectedItem.items) {
                               const product = products.find(p => p.id === item.productId);
@@ -1522,7 +1558,6 @@ const Dashboard = ({ onShowToast }) => {
                           }
                       }
 
-                      // 2. Kembalikan Hutang / Deposit
                       if (selectedItem.customerId) {
                           const customer = customers.find(c => c.id === selectedItem.customerId);
                           if (customer) {
