@@ -528,7 +528,7 @@ const StockOpname = ({ onShowToast }) => {
                 <div><label className="text-[10px] font-black uppercase text-gray-500 ml-1">Kategori</label><input type="text" required value={formData.category} onChange={(e) => setFormData({ ...formData, category: e.target.value })} className="w-full p-3 bg-gray-50 rounded-xl font-bold mt-1" /></div>
                 <div>
                   <label className="text-[10px] font-black uppercase text-gray-500 ml-1">Satuan</label>
-                  <select value={formData.unitType} onChange={(e) => setFormData({ ...formData, unitType: e.target.value })} className="w-full p-3 bg-gray-50 rounded-xl font-bold mt-1"><option value="PCS">PCS</option><option value="KARTON">KARTON</option><option value="BALL">BALL</option><option value="BOX">BOX</option></select>
+                  <select value={formData.unitType} onChange={(e) => setFormData({ ...formData, unitType: e.target.value })} className="w-full p-3 bg-gray-50 rounded-xl font-bold mt-1"><option value="PCS">PCS</option><option value="KARTON">KARTON</option><option value="BALL">BALL</option><option value="BOX">BOX</option><option value="IKAT">IKAT</option><option value="RENCENG">RENCENG</option></select>
                 </div>
               </div>
 
