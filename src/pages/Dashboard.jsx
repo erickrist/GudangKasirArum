@@ -10,7 +10,7 @@ import { useCollection, deleteDocument, addDocument, updateDocument } from '../h
 import Loading from '../components/common/Loading';
 import Nota from '../components/Nota';
 import FormRetur from '../components/FormRetur';
-import EditTransactionModal from '../components/EditTransactionModals';
+import EditTransactionModal from '../components/EditTransactionModal';
 
 import { exportMasterExcel, exportNeracaExcel, exportLabaRugiExcel } from '../utils/exportExcel';
 import { exportMasterPDF, exportNeracaPDF, exportLabaRugiPDF } from '../utils/exportPdf';
@@ -61,7 +61,6 @@ const Dashboard = ({ onShowToast }) => {
   const [newManualIncome, setNewManualIncome] = useState({ note: '', amount: '', method: 'TUNAI', storeId: '' });
   const [newExpense, setNewExpense] = useState({ title: '', amount: '', category: 'Operasional', storeId: '' });
   
-  // TAMBAHAN: newManualDebt sekarang menyimpan state storeId
   const [newManualDebt, setNewManualDebt] = useState({ customerId: '', amount: '', note: '', storeId: '' });
 
   const getSafeDate = (dateSource) => {
@@ -143,15 +142,11 @@ const Dashboard = ({ onShowToast }) => {
     return logs.sort((a, b) => getSafeDate(b.createdAt) - getSafeDate(a.createdAt));
   }, [activeStoreReturns, activeStoreTransactions]);
 
-  // === KALKULASI HUTANG & DEPOSIT BERDASARKAN CABANG ===
+  // === KALKULASI HUTANG & DEPOSIT BERDASARKAN CABANG (DIPERBAIKI) ===
   const { activeStoreCustomersDebt, activeStoreCustomersDeposit } = useMemo(() => {
-    if (selectedStoreFilter === 'ALL') {
-      return {
-        activeStoreCustomersDebt: customers.filter(c => c.remainingDebt > 0).map(c => ({...c, displayDebt: c.remainingDebt})),
-        activeStoreCustomersDeposit: customers.filter(c => c.returnAmount > 0).map(c => ({...c, displayDeposit: c.returnAmount}))
-      };
-    }
-
+    // KITA HAPUS LOGIKA PINTAS UNTUK 'ALL'.
+    // SEKARANG SEMUANYA DIHITUNG AKURAT DARI HISTORI TRANSAKSI!
+    
     const debtMap = {};
     debtLogs.forEach(log => {
       if (!log.customerId) return;
@@ -183,7 +178,7 @@ const Dashboard = ({ onShowToast }) => {
     });
 
     return { activeStoreCustomersDebt: debtArr, activeStoreCustomersDeposit: depArr };
-  }, [selectedStoreFilter, customers, debtLogs, depositLogs]);
+  }, [customers, debtLogs, depositLogs]); // Dependencies diperbarui
 
   const totalUnpaidDebtDisplay = activeStoreCustomersDebt.reduce((sum, c) => sum + c.displayDebt, 0);
   const totalDepositDisplay = activeStoreCustomersDeposit.reduce((sum, c) => sum + c.displayDeposit, 0);
@@ -248,7 +243,7 @@ const Dashboard = ({ onShowToast }) => {
     const amount = isFullPayment ? maxAmount : Number(debtPaymentAmount);
     if (amount <= 0 || amount > maxAmount) return onShowToast('Nominal tidak valid', 'error');
     
-    const updateRes = await updateDocument('customers', selectedCustomer.id, { remainingDebt: selectedCustomer.remainingDebt - amount });
+    const updateRes = await updateDocument('customers', selectedCustomer.id, { remainingDebt: (selectedCustomer.remainingDebt || 0) - amount });
     if (updateRes.success) {
       await addDocument('transactions', { customerName: selectedCustomer.name, customerId: selectedCustomer.id, subtotal: amount, total: amount, note: 'Pelunasan Hutang Manual', paymentStatus: 'LUNAS', paymentMethod: 'TUNAI', storeId: selectedStoreFilter !== 'ALL' ? selectedStoreFilter : 'pusat', storeName: selectedStoreName, createdAt: new Date() });
       onShowToast('Hutang diperbarui', 'success');
@@ -256,7 +251,6 @@ const Dashboard = ({ onShowToast }) => {
     }
   };
 
-  // TAMBAHAN: handleAddManualDebt agar membaca StoreId dengan tepat
   const handleAddManualDebt = async (e) => {
     e.preventDefault();
     if (!newManualDebt.customerId || !newManualDebt.amount || !newManualDebt.storeId) return onShowToast('Pilih pelanggan, cabang, dan isi nominal!', 'error');
