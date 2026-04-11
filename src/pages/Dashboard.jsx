@@ -36,6 +36,7 @@ const Dashboard = ({ onShowToast }) => {
   const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
   const [showReturnModal, setShowReturnModal] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false); 
+  const [showSyncModal, setShowSyncModal] = useState(false); // STATE UNTUK MODAL SINKRONISASI
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showDownloadModal, setShowDownloadModal] = useState(false);
   const [showEditTransModal, setShowEditTransModal] = useState(false);
@@ -142,11 +143,9 @@ const Dashboard = ({ onShowToast }) => {
     return logs.sort((a, b) => getSafeDate(b.createdAt) - getSafeDate(a.createdAt));
   }, [activeStoreReturns, activeStoreTransactions]);
 
-  // === KALKULASI HUTANG & DEPOSIT BERDASARKAN CABANG (DIPERBAIKI) ===
+  // === KALKULASI HUTANG & DEPOSIT BERDASARKAN CABANG (PERBAIKAN GLOBAL) ===
   const { activeStoreCustomersDebt, activeStoreCustomersDeposit } = useMemo(() => {
-    // KITA HAPUS LOGIKA PINTAS UNTUK 'ALL'.
-    // SEKARANG SEMUANYA DIHITUNG AKURAT DARI HISTORI TRANSAKSI!
-    
+    // KITA KEMBALIKAN LOGIKA AGAR 'GLOBAL' TETAP MENGHITUNG DINAMIS DARI LOGS
     const debtMap = {};
     debtLogs.forEach(log => {
       if (!log.customerId) return;
@@ -178,7 +177,7 @@ const Dashboard = ({ onShowToast }) => {
     });
 
     return { activeStoreCustomersDebt: debtArr, activeStoreCustomersDeposit: depArr };
-  }, [customers, debtLogs, depositLogs]); // Dependencies diperbarui
+  }, [customers, debtLogs, depositLogs]); 
 
   const totalUnpaidDebtDisplay = activeStoreCustomersDebt.reduce((sum, c) => sum + c.displayDebt, 0);
   const totalDepositDisplay = activeStoreCustomersDeposit.reduce((sum, c) => sum + c.displayDeposit, 0);
@@ -315,6 +314,73 @@ const Dashboard = ({ onShowToast }) => {
       setShowResetModal(false);
     } catch (error) {
       onShowToast('Gagal mereset sebagian data', 'error');
+    }
+  };
+
+  // FITUR BARU: SINKRONISASI ULANG PELANGGAN
+  const handleSyncCustomers = async () => {
+    try {
+      // 1. Ambil semua histori GLOBAL (semua cabang) untuk cari total hutang/deposit ASLI
+      const globalDebtLogs = [];
+      transactions.forEach(t => {
+        if (t.paymentStatus === 'HUTANG' || t.note === 'Penambahan Hutang Manual' || t.note === 'Koreksi Hutang (Bertambah)') {
+          let amount = t.subtotal || t.amount;
+          if (t.paymentStatus === 'HUTANG') {
+             amount = t.subtotal - (t.returnUsed || 0);
+             if (t.debtPaid > 0) amount += t.debtPaid; 
+          }
+          globalDebtLogs.push({ customerId: t.customerId, debtType: 'in', nominal: amount });
+        }
+        if (t.debtPaid > 0) {
+          globalDebtLogs.push({ customerId: t.customerId, debtType: 'out', nominal: t.debtPaid });
+        }
+        if (t.note === 'Cicilan/Pelunasan Hutang' || t.note === 'Pelunasan Hutang Manual' || t.note === 'Nol-kan Hutang Manual' || t.note === 'Koreksi Hutang (Berkurang)') {
+           globalDebtLogs.push({ customerId: t.customerId, debtType: 'out', nominal: t.subtotal });
+        }
+      });
+
+      const globalDepositLogs = [];
+      returnsData.forEach(r => {
+        if (r.refundType === 'deposit' || r.type === 'manual_deposit_in') {
+          globalDepositLogs.push({ customerId: r.customerId, depType: 'in', nominal: r.amount });
+        } else if (r.type === 'manual_deposit_out') {
+          globalDepositLogs.push({ customerId: r.customerId, depType: 'out', nominal: r.amount });
+        }
+      });
+      transactions.forEach(t => {
+        if (t.returnUsed > 0) globalDepositLogs.push({ customerId: t.customerId, depType: 'out', nominal: t.returnUsed });
+      });
+
+      const trueDebtMap = {};
+      globalDebtLogs.forEach(log => {
+        if (!log.customerId) return;
+        if (!trueDebtMap[log.customerId]) trueDebtMap[log.customerId] = 0;
+        trueDebtMap[log.customerId] += log.debtType === 'in' ? Number(log.nominal) : -Number(log.nominal);
+      });
+
+      const trueDepMap = {};
+      globalDepositLogs.forEach(log => {
+        if (!log.customerId) return;
+        if (!trueDepMap[log.customerId]) trueDepMap[log.customerId] = 0;
+        trueDepMap[log.customerId] += log.depType === 'in' ? Number(log.nominal) : -Number(log.nominal);
+      });
+
+      // 2. Timpa angka aslinya di profil database agar KASIR menampilkan angka yang sama dengan Dashboard
+      let syncCount = 0;
+      for (const c of customers) {
+        const correctDebt = trueDebtMap[c.id] && trueDebtMap[c.id] > 0 ? trueDebtMap[c.id] : 0;
+        const correctDep = trueDepMap[c.id] && trueDepMap[c.id] > 0 ? trueDepMap[c.id] : 0;
+        
+        if (Number(c.remainingDebt || 0) !== correctDebt || Number(c.returnAmount || 0) !== correctDep) {
+          await updateDocument('customers', c.id, { remainingDebt: correctDebt, returnAmount: correctDep });
+          syncCount++;
+        }
+      }
+      
+      onShowToast(`Berhasil! ${syncCount} data profil pelanggan disinkronkan ke nilai aslinya.`, 'success');
+      setShowSyncModal(false);
+    } catch (error) {
+      onShowToast('Gagal melakukan sinkronisasi data', 'error');
     }
   };
 
@@ -499,6 +565,7 @@ const Dashboard = ({ onShowToast }) => {
                 </div>
                 <div className="flex gap-2 w-full md:w-auto">
                     <button onClick={() => setShowDownloadModal(true)} className="flex-1 justify-center p-3 bg-blue-50 text-blue-700 rounded-xl border border-blue-200 hover:bg-blue-100 flex items-center gap-2 text-xs font-black shadow-sm"><Download className="w-4 h-4" /> Download</button>
+                    <button onClick={() => setShowSyncModal(true)} className="flex-1 justify-center p-3 bg-purple-50 text-purple-700 rounded-xl border border-purple-200 hover:bg-purple-100 flex items-center gap-2 text-xs font-black shadow-sm"><RotateCcw className="w-4 h-4" /> Sinkron Data</button>
                     <button onClick={() => setShowResetModal(true)} className="flex-1 justify-center p-3 bg-red-50 text-red-700 rounded-xl border border-red-200 hover:bg-red-100 flex items-center gap-2 text-xs font-black shadow-sm"><AlertTriangle className="w-4 h-4" /> Reset Data</button>
                 </div>
              </div>
@@ -567,7 +634,7 @@ const Dashboard = ({ onShowToast }) => {
         </>
       )}
 
-      {/* --- GLOBAL TOOLBAR (Hanya muncul jika bukan tab overview) --- */}
+      {/* --- GLOBAL TOOLBAR --- */}
       {activeTab !== 'overview' && (
         <div className="bg-white p-3 md:p-4 rounded-2xl border flex flex-col md:flex-row gap-3 items-center mb-6 shadow-sm">
           <div className="relative w-full md:flex-1"><Search className="absolute left-4 top-3 w-4 h-4 text-gray-300" /><input type="text" placeholder="Cari berdasarkan nama/keterangan..." className="w-full pl-11 pr-4 py-2 bg-gray-50 rounded-xl text-sm font-bold border-none outline-none focus:ring-2 focus:ring-teal-500" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} /></div>
@@ -579,7 +646,7 @@ const Dashboard = ({ onShowToast }) => {
         </div>
       )}
 
-      {/* TAB SALES - MENGGUNAKAN KOMPONEN BARU */}
+      {/* TAB SALES */}
       {activeTab === 'sales' && (
         <TabSales 
           paginatedItems={paginatedItems}
@@ -661,7 +728,7 @@ const Dashboard = ({ onShowToast }) => {
         </div>
       )}
 
-      {/* TAB DEBTS - MENGGUNAKAN KOMPONEN BARU */}
+      {/* TAB DEBTS */}
       {activeTab === 'debts' && (
         <TabDebt 
           stores={stores}
@@ -777,7 +844,7 @@ const Dashboard = ({ onShowToast }) => {
 
       {/* --- MODALS --- */}
 
-      {/* MODAL DOWNLOAD MEMANGGIL FUNGSI DARI UTILS */}
+      {/* MODAL DOWNLOAD */}
       {showDownloadModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
           <div className="bg-white rounded-[32px] p-6 md:p-8 max-w-sm w-full shadow-2xl relative border-t-8 border-blue-600">
@@ -797,12 +864,25 @@ const Dashboard = ({ onShowToast }) => {
         </div>
       )}
 
-      {/* MODAL EDIT BALANCE */}
+      {/* MODAL SINKRONISASI PELANGGAN (FITUR BARU) */}
+      {showSyncModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
+          <div className="bg-white rounded-[32px] p-6 max-w-sm w-full shadow-2xl text-center border-t-8 border-purple-600">
+            <h3 className="text-xl font-black text-gray-800 mb-2">Sinkronisasi Data?</h3>
+            <p className="text-xs text-gray-500 mb-6 font-bold">Fitur ini akan menyamakan ulang data hutang di Kasir dengan total histori dari seluruh cabang agar tidak ada selisih.</p>
+            <button onClick={handleSyncCustomers} className="w-full bg-purple-600 text-white py-3 rounded-2xl font-black shadow-md mb-2">Ya, Sinkronkan Sekarang</button>
+            <button onClick={() => setShowSyncModal(false)} className="w-full py-3 font-black text-gray-400 bg-gray-100 rounded-2xl">Batal</button>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL EDIT BALANCE (KOREKSI MANUAL) */}
       {showEditBalanceModal && selectedCustomer && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
           <div className="bg-white rounded-[32px] p-6 md:p-8 max-w-sm w-full shadow-2xl relative border-t-8 border-teal-600">
             <button onClick={() => setShowEditBalanceModal(false)} className="absolute right-6 top-6 text-gray-400"><X /></button>
             <h3 className="text-lg md:text-xl font-black text-gray-800 mb-2 uppercase">Koreksi Manual</h3>
+            <p className="text-[10px] text-red-500 mb-4">Gunakan fitur ini untuk mereset angka hutang agar sinkron kembali.</p>
             <div className="mb-6">
               <label className="text-[10px] font-black text-gray-400 uppercase mb-2 block">Total {editBalanceType === 'debt' ? 'Hutang' : 'Deposit'} Baru</label>
               <input type="number" className="w-full bg-gray-50 rounded-2xl px-4 py-4 text-xl font-black text-teal-600 outline-none" value={editBalanceAmount} onChange={e => setEditBalanceAmount(e.target.value)} />
@@ -815,68 +895,42 @@ const Dashboard = ({ onShowToast }) => {
         </div>
       )}
 
-      {/* MODAL TERIMA PEMBAYARAN HUTANG (DIPERBAIKI) */}
+      {/* MODAL TERIMA PEMBAYARAN HUTANG */}
       {showPayDebtModal && selectedCustomer && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
           <div className="bg-white rounded-[32px] p-6 md:p-8 w-full max-w-sm shadow-2xl relative border-t-8 border-teal-600 flex flex-col max-h-[90vh]">
-            
             <button onClick={() => setShowPayDebtModal(false)} className="absolute right-6 top-6 text-gray-400 hover:text-red-500 transition-colors">
                <X className="w-5 h-5" />
             </button>
-            
-            <h3 className="text-xl font-black text-gray-800 mb-2 uppercase flex items-center gap-2">
-               <CreditCard className="w-5 h-5 text-teal-600"/> Bayar Hutang
-            </h3>
-            
+            <h3 className="text-xl font-black text-gray-800 mb-2 uppercase flex items-center gap-2"><CreditCard className="w-5 h-5 text-teal-600"/> Bayar Hutang</h3>
             <div className="bg-gray-50 p-3 rounded-xl border border-gray-100 mb-4">
                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Pelanggan</p>
                <p className="font-black text-gray-800 text-sm">{selectedCustomer.name}</p>
                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-2 mb-1">Sisa Hutang</p>
                <p className="font-black text-red-600 text-lg">Rp {(selectedCustomer.displayDebt ?? selectedCustomer.remainingDebt).toLocaleString('id-ID')}</p>
             </div>
-
             <div className="space-y-4 overflow-y-auto custom-scrollbar flex-1 pr-1">
               <div>
                 <label className="text-[10px] font-black text-gray-400 uppercase mb-2 block">Jenis Pembayaran</label>
                 <div className="flex gap-2">
-                  <button 
-                    onClick={() => { setIsFullPayment(true); setDebtPaymentAmount(''); }} 
-                    className={`flex-1 py-2.5 rounded-xl text-xs font-black uppercase transition-all ${isFullPayment ? 'bg-teal-600 text-white shadow-md' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
-                  >
-                    Lunas
-                  </button>
-                  <button 
-                    onClick={() => setIsFullPayment(false)} 
-                    className={`flex-1 py-2.5 rounded-xl text-xs font-black uppercase transition-all ${!isFullPayment ? 'bg-teal-600 text-white shadow-md' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
-                  >
-                    Cicil
-                  </button>
+                  <button onClick={() => { setIsFullPayment(true); setDebtPaymentAmount(''); }} className={`flex-1 py-2.5 rounded-xl text-xs font-black uppercase transition-all ${isFullPayment ? 'bg-teal-600 text-white shadow-md' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>Lunas</button>
+                  <button onClick={() => setIsFullPayment(false)} className={`flex-1 py-2.5 rounded-xl text-xs font-black uppercase transition-all ${!isFullPayment ? 'bg-teal-600 text-white shadow-md' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>Cicil</button>
                 </div>
               </div>
-
               {!isFullPayment && (
                 <div className="animate-in fade-in slide-in-from-top-2 duration-200">
                   <label className="text-[10px] font-black text-gray-400 uppercase mb-2 block">Nominal Cicilan</label>
                   <div className="relative">
                     <span className="absolute left-4 top-3.5 font-black text-gray-400">Rp</span>
-                    <input 
-                      type="number" 
-                      className="w-full bg-white border-2 border-gray-200 rounded-xl pl-12 pr-4 py-3 text-lg font-black text-teal-700 outline-none focus:border-teal-500 transition-colors" 
-                      value={debtPaymentAmount} 
-                      onChange={e => setDebtPaymentAmount(e.target.value)} 
-                      placeholder="0"
-                      autoFocus
-                    />
+                    <input type="number" className="w-full bg-white border-2 border-gray-200 rounded-xl pl-12 pr-4 py-3 text-lg font-black text-teal-700 outline-none focus:border-teal-500 transition-colors" value={debtPaymentAmount} onChange={e => setDebtPaymentAmount(e.target.value)} placeholder="0" autoFocus />
                   </div>
                 </div>
               )}
             </div>
-
             <div className="flex gap-2 pt-4 mt-2 border-t border-gray-100 shrink-0">
               <button onClick={() => setShowPayDebtModal(false)} className="flex-1 py-3.5 font-black text-gray-500 bg-gray-100 rounded-xl text-sm uppercase hover:bg-gray-200 transition-colors">Batal</button>
               <button onClick={handlePayDebt} className="flex-1 bg-teal-600 text-white py-3.5 rounded-xl font-black text-sm uppercase shadow-md shadow-teal-200 hover:bg-teal-700 transition-colors active:scale-95">Proses</button>
             </div>
-
           </div>
         </div>
       )}
