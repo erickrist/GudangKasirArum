@@ -18,7 +18,11 @@ export const useCart = () => {
   }, [cart]);
 
   useEffect(() => {
-    localStorage.setItem('kasir_customer', JSON.stringify(selectedCustomer));
+    if (selectedCustomer) {
+      localStorage.setItem('kasir_customer', JSON.stringify(selectedCustomer));
+    } else {
+      localStorage.removeItem('kasir_customer');
+    }
   }, [selectedCustomer]);
 
   // 3. Logika Tambah Barang ke Keranjang
@@ -27,7 +31,8 @@ export const useCart = () => {
 
     if (existingItem) {
       setCart(cart.map(item =>
-        item.productId === product.id ? { ...item, qty: item.qty + 1 } : item
+        // Pastikan penjumlahan qty ditangani sebagai angka
+        item.productId === product.id ? { ...item, qty: Number(item.qty) + 1 } : item
       ));
     } else {
       setCart([...cart, {
@@ -36,7 +41,6 @@ export const useCart = () => {
         unitType: product.unitType,
         pcsPerCarton: product.pcsPerCarton || 1,
         price: product.price,
-        // INI BAGIAN PALING PENTING: Merekam HPP (Harga Modal) saat barang diklik
         capitalPrice: product.hpp || 0, 
         qty: 1,
         discount: 0,
@@ -54,19 +58,41 @@ export const useCart = () => {
   };
 
   const updateQty = (productId, newQty) => {
-    if (newQty < 1) {
-      removeFromCart(productId);
-      return;
+    // 1. Biarkan input kosong ('') agar pengguna bisa menghapus angka
+    if (newQty === '') {
+        setCart(cart.map(item =>
+          item.productId === productId ? { ...item, qty: '' } : item
+        ));
+        return;
     }
+
+    // 2. Ubah string menjadi Number agar mendukung desimal (0.5)
+    const parsedQty = Number(newQty);
+
+    // 3. Jika setelah diparse bukan angka yang valid (NaN) atau kurang dari 0, abaikan
+    if (isNaN(parsedQty) || parsedQty < 0) return;
+
+    // 4. Update keranjang
     setCart(cart.map(item =>
-      item.productId === productId ? { ...item, qty: newQty } : item
+      item.productId === productId ? { ...item, qty: parsedQty } : item
     ));
   };
 
   const updateDiscount = (productId, discount) => {
+    // Tangani input diskon kosong
+    if (discount === '') {
+        setCart(cart.map(item =>
+            item.productId === productId ? { ...item, discount: '' } : item
+        ));
+        return;
+    }
+
+    const parsedDiscount = Number(discount);
+    if (isNaN(parsedDiscount) || parsedDiscount < 0) return;
+
     setCart(cart.map(item =>
       item.productId === productId
-        ? { ...item, discount: Math.max(0, discount) }
+        ? { ...item, discount: parsedDiscount }
         : item
     ));
   };
@@ -77,7 +103,11 @@ export const useCart = () => {
 
   const calculateSubtotal = () => {
     return cart.reduce((sum, item) => {
-      const itemSubtotal = (item.price * item.qty) - (item.discount || 0);
+      // Pastikan qty dan discount dibaca sebagai angka (bisa jadi string '' jika sedang diketik)
+      const qty = Number(item.qty) || 0; 
+      const discount = Number(item.discount) || 0;
+      
+      const itemSubtotal = (item.price * qty) - discount;
       return sum + itemSubtotal;
     }, 0);
   };

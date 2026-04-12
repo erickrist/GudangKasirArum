@@ -1,9 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { X, Search, Plus, Minus, Trash2, Package, User, ChevronDown, Edit3, Database, Repeat2, Store } from 'lucide-react';
 import { useCollection, addDocument, updateDocument } from '../hooks/useFirestore';
-import { usePricing } from '../hooks/usePricing'; // <-- IMPORT HOOK KITA
+import { usePricing } from '../hooks/usePricing'; 
 
-// --- KOMPONEN SMART DROPDOWN PENCARIAN PEMBELI ---
 const CustomerSearchSelect = ({ customers, value, onChange, placeholder }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -78,7 +77,6 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
   const { data: products, loading: loadingProducts } = useCollection('products');
   const { data: customers, loading: loadingCust } = useCollection('customers');
   
-  // AMBIL DATA TOKO & FUNGSI HARGA
   const { data: stores, loading: loadingStores } = useCollection('stores');
   const { activeStoreId, handleStoreChange, getProductPrice } = usePricing(stores);
 
@@ -88,8 +86,7 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
   const [reason, setReason] = useState('');
   const [searchProduct, setSearchProduct] = useState('');
   
-  // State untuk penambahan Manual/Otomatis
-  const [inputMode, setInputMode] = useState('auto'); // 'auto' | 'manual'
+  const [inputMode, setInputMode] = useState('auto'); 
   const [manualItem, setManualItem] = useState({ name: '', price: '', qty: 1 });
 
   if (!isOpen) return null;
@@ -99,10 +96,7 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
     p.category.toLowerCase().includes(searchProduct.toLowerCase())
   );
 
-  // --- FUNGSI KERANJANG ---
-
   const addToCartAuto = (product) => {
-    // 1. Ambil harga khusus toko aktif
     const resolvedPrice = getProductPrice(product);
 
     const existing = cart.find(item => item.productId === product.id);
@@ -114,7 +108,7 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
         name: product.name,
         unitType: product.unitType,
         pcsPerCarton: product.pcsPerCarton || 1,
-        price: resolvedPrice, // Menggunakan harga cabang
+        price: resolvedPrice, 
         qty: 1,
         returnUnit: 'pack', 
         isManual: false
@@ -124,7 +118,7 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
 
   const addManualToCart = (e) => {
     e.preventDefault();
-    if (!manualItem.name || !manualItem.price || manualItem.qty < 1) return onShowToast('Isi data barang manual dengan benar', 'error');
+    if (!manualItem.name || !manualItem.price || manualItem.qty <= 0) return onShowToast('Isi data barang manual dengan benar', 'error');
     
     const newItemId = `manual-${Date.now()}`;
     setCart([...cart, {
@@ -149,7 +143,7 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
     }
 
     const qty = Number(newQty);
-    if (qty < 1) {
+    if (qty <= 0) {
       setCart(cart.filter(item => item.productId !== productId));
       return;
     }
@@ -174,15 +168,13 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
 
   const totalReturnAmount = cart.reduce((sum, item) => sum + (getItemPrice(item) * (Number(item.qty) || 0)), 0);
 
-  // --- FUNGSI SUBMIT ---
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!selectedCustomer) return onShowToast('Pilih pembeli terlebih dahulu!', 'error');
     if (cart.length === 0) return onShowToast('Keranjang retur masih kosong!', 'error');
     if (!reason) return onShowToast('Masukkan alasan retur!', 'error');
 
-    if (cart.some(i => !i.qty || Number(i.qty) < 1)) {
+    if (cart.some(i => !i.qty || Number(i.qty) <= 0)) {
         return onShowToast('Pastikan semua Qty barang diisi dengan angka valid!', 'error');
     }
 
@@ -196,7 +188,6 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
     
     const finalReason = `${reason} (${itemDetails})`;
     
-    // Siapkan data cabang untuk laporan
     const finalStoreId = activeStoreId || 'pusat';
     const activeStoreName = stores.find(s => s.id === finalStoreId)?.name || 'Cabang Pusat / Utama';
 
@@ -210,8 +201,8 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
         title: `Retur Dana (${cust.name}): ${reason}`,
         amount: totalReturnAmount,
         category: 'Retur',
-        storeId: finalStoreId,        // <-- Simpan ID Toko
-        storeName: activeStoreName,   // <-- Simpan Nama Toko
+        storeId: finalStoreId,        
+        storeName: activeStoreName,   
         createdAt: new Date()
       });
     }
@@ -224,8 +215,8 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
         reason: finalReason,
         refundType: refundType,
         items: cart.map(i => ({ ...i, finalPrice: getItemPrice(i) })), 
-        storeId: finalStoreId,        // <-- Simpan ID Toko
-        storeName: activeStoreName,   // <-- Simpan Nama Toko
+        storeId: finalStoreId,        
+        storeName: activeStoreName,   
         createdAt: new Date()
       });
       
@@ -243,7 +234,6 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[150] p-2 md:p-4">
       <div className="bg-white rounded-[24px] md:rounded-[32px] w-full max-w-5xl shadow-2xl overflow-hidden flex flex-col max-h-[95vh]">
         
-        {/* HEADER */}
         <div className="p-4 md:p-6 border-b flex justify-between items-center bg-purple-50">
           <h3 className="text-base md:text-xl font-black text-purple-800 flex items-center gap-2">
             <Package className="w-5 h-5 md:w-6 md:h-6" /> Proses Retur Barang
@@ -252,57 +242,31 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
         </div>
 
         <div className="flex flex-col lg:flex-row flex-1 overflow-hidden">
-          {/* KOLOM KIRI: PILIH PRODUK / MANUAL INPUT */}
           <div className="w-full lg:w-1/2 p-4 md:p-6 border-b lg:border-b-0 lg:border-r flex flex-col bg-gray-50/50 max-h-[45vh] lg:max-h-none">
             
-            {/* TABS Pilihan Mode */}
             <div className="flex bg-gray-200/50 p-1 rounded-xl mb-4 flex-shrink-0">
-              <button 
-                onClick={() => setInputMode('auto')} 
-                className={`flex-1 py-2 text-[10px] md:text-xs font-black rounded-lg transition-all flex justify-center items-center gap-1.5 ${inputMode === 'auto' ? 'bg-white text-purple-700 shadow-sm' : 'text-gray-500 hover:bg-gray-200/50'}`}
-              >
+              <button onClick={() => setInputMode('auto')} className={`flex-1 py-2 text-[10px] md:text-xs font-black rounded-lg transition-all flex justify-center items-center gap-1.5 ${inputMode === 'auto' ? 'bg-white text-purple-700 shadow-sm' : 'text-gray-500 hover:bg-gray-200/50'}`}>
                 <Database className="w-3.5 h-3.5" /> Data Barang
               </button>
-              <button 
-                onClick={() => setInputMode('manual')} 
-                className={`flex-1 py-2 text-[10px] md:text-xs font-black rounded-lg transition-all flex justify-center items-center gap-1.5 ${inputMode === 'manual' ? 'bg-white text-purple-700 shadow-sm' : 'text-gray-500 hover:bg-gray-200/50'}`}
-              >
+              <button onClick={() => setInputMode('manual')} className={`flex-1 py-2 text-[10px] md:text-xs font-black rounded-lg transition-all flex justify-center items-center gap-1.5 ${inputMode === 'manual' ? 'bg-white text-purple-700 shadow-sm' : 'text-gray-500 hover:bg-gray-200/50'}`}>
                 <Edit3 className="w-3.5 h-3.5" /> Ketik Manual
               </button>
             </div>
 
-            {/* KONTEN MODE AUTO (Database) */}
             {inputMode === 'auto' && (
               <>
                 <div className="relative mb-3 flex-shrink-0">
                   <Search className="absolute left-3.5 md:left-4 top-3 md:top-3.5 w-4 h-4 text-gray-400" />
-                  <input 
-                    type="text" 
-                    placeholder="Cari barang yang diretur..." 
-                    value={searchProduct}
-                    onChange={e => setSearchProduct(e.target.value)}
-                    className="w-full pl-10 md:pl-11 pr-4 py-2.5 md:py-3 bg-white border border-gray-200 rounded-xl text-xs md:text-sm font-bold focus:ring-2 focus:ring-purple-500 outline-none"
-                  />
+                  <input type="text" placeholder="Cari barang yang diretur..." value={searchProduct} onChange={e => setSearchProduct(e.target.value)} className="w-full pl-10 md:pl-11 pr-4 py-2.5 md:py-3 bg-white border border-gray-200 rounded-xl text-xs md:text-sm font-bold focus:ring-2 focus:ring-purple-500 outline-none" />
                 </div>
                 <div className="flex-1 overflow-y-auto space-y-2 md:space-y-3 custom-scrollbar pr-1 md:pr-2">
                   {loadingProducts ? <p className="text-center text-gray-400 font-bold text-xs py-10">Memuat produk...</p> : 
                     filteredProducts.length === 0 ? <p className="text-center text-gray-400 font-bold text-xs py-10">Barang tidak ditemukan</p> :
                     filteredProducts.map(p => {
                       const dynamicPrice = getProductPrice(p);
-                      
                       return (
-                        <button 
-                          key={p.id} 
-                          onClick={() => addToCartAuto(p)}
-                          className="w-full flex justify-between items-center p-3 md:p-4 bg-white border border-gray-200 rounded-xl hover:border-purple-500 hover:shadow-md transition-all text-left active:scale-95"
-                        >
-                          <div className="flex-1 pr-2">
-                            <p className="font-black text-gray-800 text-xs md:text-sm uppercase truncate">{p.name}</p>
-                            <p className="text-[10px] md:text-xs text-gray-500 font-bold">
-                              Rp {dynamicPrice.toLocaleString()} 
-                              {p.pcsPerCarton > 1 && <span className="text-purple-400"> (Isi {p.pcsPerCarton} Pcs / {p.unitType})</span>}
-                            </p>
-                          </div>
+                        <button key={p.id} onClick={() => addToCartAuto(p)} className="w-full flex justify-between items-center p-3 md:p-4 bg-white border border-gray-200 rounded-xl hover:border-purple-500 hover:shadow-md transition-all text-left active:scale-95">
+                          <div className="flex-1 pr-2"><p className="font-black text-gray-800 text-xs md:text-sm uppercase truncate">{p.name}</p><p className="text-[10px] md:text-xs text-gray-500 font-bold">Rp {dynamicPrice.toLocaleString()} {p.pcsPerCarton > 1 && <span className="text-purple-400"> (Isi {p.pcsPerCarton} Pcs / {p.unitType})</span>}</p></div>
                           <span className="bg-purple-100 text-purple-700 text-[9px] md:text-[10px] font-black px-2 py-1 rounded-lg">{p.unitType}</span>
                         </button>
                       );
@@ -311,76 +275,37 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
               </>
             )}
 
-            {/* KONTEN MODE MANUAL */}
             {inputMode === 'manual' && (
               <form onSubmit={addManualToCart} className="flex-1 bg-white p-4 rounded-xl border border-gray-200 flex flex-col space-y-4">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Nama Barang Manual</label>
-                  <input type="text" required placeholder="Contoh: Indomie Goreng Eceran" value={manualItem.name} onChange={e => setManualItem({...manualItem, name: e.target.value})} className="w-full px-3 py-2.5 bg-gray-50 rounded-xl text-xs font-bold border-none outline-none focus:ring-2 focus:ring-purple-500" />
-                </div>
+                <div className="space-y-1"><label className="text-[10px] font-black text-gray-400 uppercase ml-1">Nama Barang Manual</label><input type="text" required placeholder="Contoh: Indomie Goreng Eceran" value={manualItem.name} onChange={e => setManualItem({...manualItem, name: e.target.value})} className="w-full px-3 py-2.5 bg-gray-50 rounded-xl text-xs font-bold border-none outline-none focus:ring-2 focus:ring-purple-500" /></div>
                 <div className="flex gap-3">
-                  <div className="space-y-1 flex-1">
-                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Harga Satuan</label>
-                    <input type="number" required placeholder="0" value={manualItem.price} onChange={e => setManualItem({...manualItem, price: e.target.value})} className="w-full px-3 py-2.5 bg-gray-50 rounded-xl text-xs font-bold border-none outline-none focus:ring-2 focus:ring-purple-500" />
-                  </div>
+                  <div className="space-y-1 flex-1"><label className="text-[10px] font-black text-gray-400 uppercase ml-1">Harga Satuan</label><input type="number" required placeholder="0" value={manualItem.price} onChange={e => setManualItem({...manualItem, price: e.target.value})} className="w-full px-3 py-2.5 bg-gray-50 rounded-xl text-xs font-bold border-none outline-none focus:ring-2 focus:ring-purple-500" /></div>
                   <div className="space-y-1 w-24">
                     <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Qty</label>
-                    <input type="number" min="1" required value={manualItem.qty} onChange={e => setManualItem({...manualItem, qty: e.target.value})} className="w-full px-3 py-2.5 bg-gray-50 rounded-xl text-xs font-bold border-none outline-none focus:ring-2 focus:ring-purple-500" />
+                    <input type="number" min="0.01" step="any" required value={manualItem.qty} onChange={e => setManualItem({...manualItem, qty: e.target.value})} className="w-full px-3 py-2.5 bg-gray-50 rounded-xl text-xs font-bold border-none outline-none focus:ring-2 focus:ring-purple-500" />
                   </div>
                 </div>
-                <div className="pt-2 mt-auto">
-                   <button type="submit" className="w-full bg-purple-100 hover:bg-purple-200 text-purple-700 py-3 rounded-xl font-black text-xs uppercase transition-colors">
-                     + Tambah ke Keranjang Retur
-                   </button>
-                </div>
+                <div className="pt-2 mt-auto"><button type="submit" className="w-full bg-purple-100 hover:bg-purple-200 text-purple-700 py-3 rounded-xl font-black text-xs uppercase transition-colors">+ Tambah ke Keranjang Retur</button></div>
               </form>
             )}
-
           </div>
 
-          {/* KOLOM KANAN: FORM & KERANJANG RETUR */}
           <div className="w-full lg:w-1/2 p-4 md:p-6 flex flex-col bg-white overflow-y-auto custom-scrollbar">
             <form id="return-form" onSubmit={handleSubmit} className="space-y-4 md:space-y-5">
-              
-              {/* PILIHAN CABANG TOKO UNTUK RETUR */}
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-gray-400 uppercase ml-1 md:ml-2">Lokasi Cabang Retur</label>
                 <div className="relative">
                    <Store className="absolute left-3 md:left-4 top-3 md:top-3.5 w-4 h-4 text-teal-600 z-10 pointer-events-none" />
-                   <select 
-                     value={activeStoreId} 
-                     onChange={(e) => {
-                       handleStoreChange(e.target.value, () => {
-                         if (cart.length > 0) {
-                           setCart([]);
-                           onShowToast('Daftar retur dikosongkan karena ganti cabang', 'error');
-                         }
-                       });
-                     }}
-                     className="w-full pl-10 md:pl-11 pr-4 py-2.5 md:py-3 bg-teal-50 border border-teal-100 rounded-xl text-xs md:text-sm font-bold text-teal-800 outline-none focus:ring-2 focus:ring-teal-500 appearance-none cursor-pointer"
-                   >
-                     <option value="pusat">🏢 CABANG PUSAT / UTAMA</option>
-                     {stores && stores.map(s => <option key={s.id} value={s.id}>🏪 {s.name.toUpperCase()}</option>)}
-                   </select>
+                   <select value={activeStoreId} onChange={(e) => { handleStoreChange(e.target.value, () => { if (cart.length > 0) { setCart([]); onShowToast('Daftar retur dikosongkan karena ganti cabang', 'error'); } }); }} className="w-full pl-10 md:pl-11 pr-4 py-2.5 md:py-3 bg-teal-50 border border-teal-100 rounded-xl text-xs md:text-sm font-bold text-teal-800 outline-none focus:ring-2 focus:ring-teal-500 appearance-none cursor-pointer"><option value="pusat">🏢 CABANG PUSAT / UTAMA</option>{stores && stores.map(s => <option key={s.id} value={s.id}>🏪 {s.name.toUpperCase()}</option>)}</select>
                    <ChevronDown className="absolute right-4 top-3.5 w-4 h-4 text-teal-600 pointer-events-none" />
                 </div>
               </div>
 
-              {/* Pilihan Pelanggan Menggunakan Smart Dropdown */}
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-gray-400 uppercase ml-1 md:ml-2">Pembeli yang Meretur</label>
-                <div className="relative">
-                  <User className="absolute left-3 md:left-4 top-3 md:top-3.5 w-4 h-4 text-gray-400 z-10 pointer-events-none" />
-                  <CustomerSearchSelect 
-                    customers={customers}
-                    value={selectedCustomer}
-                    onChange={(id) => setSelectedCustomer(id)}
-                    placeholder="-- Ketik Cari Pembeli --"
-                  />
-                </div>
+                <div className="relative"><User className="absolute left-3 md:left-4 top-3 md:top-3.5 w-4 h-4 text-gray-400 z-10 pointer-events-none" /><CustomerSearchSelect customers={customers} value={selectedCustomer} onChange={(id) => setSelectedCustomer(id)} placeholder="-- Ketik Cari Pembeli --" /></div>
               </div>
 
-              {/* Keranjang Barang Retur */}
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-gray-400 uppercase ml-1 md:ml-2">Daftar Retur & Konversi Satuan</label>
                 <div className="bg-gray-50 p-2 md:p-4 rounded-xl md:rounded-2xl border border-gray-100 min-h-[150px] max-h-[250px] overflow-y-auto space-y-2 custom-scrollbar">
@@ -395,54 +320,26 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
                       return (
                         <div key={item.productId} className={`flex flex-col gap-2.5 p-3 md:p-4 bg-white border-2 rounded-xl transition-colors ${isPcsMode ? 'border-orange-200 bg-orange-50/50' : 'border-gray-100'}`}>
                           <div className="flex justify-between items-start">
-                            <div className="pr-2 flex-1">
-                              <p className="font-black text-xs md:text-sm text-gray-800 uppercase line-clamp-1">
-                                {item.name} {item.isManual && <span className="text-[8px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded ml-1">Manual</span>}
-                              </p>
-                              <p className="text-[9px] md:text-[10px] text-gray-500 font-bold mt-0.5 whitespace-nowrap">
-                                {isPcsMode ? 'Eceran (Pcs)' : `Utuh (${item.unitType})`}: Rp {finalPrice.toLocaleString()} / {isPcsMode ? 'Pcs' : item.unitType}
-                              </p>
-                            </div>
+                            <div className="pr-2 flex-1"><p className="font-black text-xs md:text-sm text-gray-800 uppercase line-clamp-1">{item.name} {item.isManual && <span className="text-[8px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded ml-1">Manual</span>}</p><p className="text-[9px] md:text-[10px] text-gray-500 font-bold mt-0.5 whitespace-nowrap">{isPcsMode ? 'Eceran (Pcs)' : `Utuh (${item.unitType})`}: Rp {finalPrice.toLocaleString()} / {isPcsMode ? 'Pcs' : item.unitType}</p></div>
                             <button type="button" onClick={() => updateQty(item.productId, 0)} className="text-gray-400 p-1 hover:bg-red-50 hover:text-red-500 rounded-lg"><Trash2 className="w-4 h-4"/></button>
                           </div>
                           
                           <div className="flex flex-wrap items-center gap-3">
-                            
                             <div className="flex items-center gap-1.5 bg-gray-100/70 p-1 rounded-lg border border-gray-200/50">
                                 <button type="button" onClick={() => updateQty(item.productId, (Number(item.qty) || 1) - 1)} className="w-6 h-6 bg-white border border-gray-300 rounded flex items-center justify-center hover:bg-gray-100 text-gray-600 shadow-sm"><Minus className="w-3.5 h-3.5" /></button>
-                                
-                                <input 
-                                    type="number"
-                                    min="1"
-                                    value={item.qty}
-                                    onChange={(e) => updateQty(item.productId, e.target.value)}
-                                    className="w-12 h-7 text-center font-black text-sm text-purple-700 bg-white border-2 border-purple-200 rounded-lg focus:ring-2 focus:ring-purple-400 focus:border-purple-500 outline-none p-0"
-                                />
-
+                                <input type="number" min="0.01" step="any" value={item.qty} onChange={(e) => updateQty(item.productId, e.target.value)} className="w-12 h-7 text-center font-black text-sm text-purple-700 bg-white border-2 border-purple-200 rounded-lg focus:ring-2 focus:ring-purple-400 focus:border-purple-500 outline-none p-0" />
                                 <button type="button" onClick={() => updateQty(item.productId, (Number(item.qty) || 0) + 1)} className="w-6 h-6 bg-purple-600 text-white rounded flex items-center justify-center hover:bg-purple-700 shadow-md shadow-purple-100"><Plus className="w-3.5 h-3.5" /></button>
                             </div>
-
-                            <div className="flex items-center gap-1.5">
-                                <span className="font-bold text-gray-400 text-xs">x</span>
-                                <span className="font-black text-sm text-gray-800">Rp {finalPrice.toLocaleString()}</span>
-                            </div>
-
+                            <div className="flex items-center gap-1.5"><span className="font-bold text-gray-400 text-xs">x</span><span className="font-black text-sm text-gray-800">Rp {finalPrice.toLocaleString()}</span></div>
                             <span className="font-black text-sm text-purple-700 ml-auto text-right">Rp {(finalPrice * (Number(item.qty) || 0)).toLocaleString()}</span>
                           </div>
 
                           {canToggle && (
                             <div className="pt-2 border-t border-gray-100 mt-1">
-                                <button 
-                                type="button" 
-                                onClick={() => toggleReturnUnit(item.productId)}
-                                className={`w-full text-center flex items-center justify-center gap-1.5 text-[10px] md:text-xs font-extrabold px-3 py-2 rounded-xl border-2 transition-all shadow-sm ${isPcsMode ? 'bg-orange-100 text-orange-800 border-orange-300 hover:bg-orange-200' : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400'}`}
-                                >
-                                <Repeat2 className={`w-4 h-4 ${isPcsMode ? 'text-orange-600' : 'text-gray-400'}`} />
-                                {isPcsMode ? ` Ganti Satuan Retur ke ${item.unitType} (Utuh)` : ` Ganti Satuan Retur ke Pcs (Eceran)`}
-                                </button>
+                                <button type="button" onClick={() => toggleReturnUnit(item.productId)} className={`w-full text-center flex items-center justify-center gap-1.5 text-[10px] md:text-xs font-extrabold px-3 py-2 rounded-xl border-2 transition-all shadow-sm ${isPcsMode ? 'bg-orange-100 text-orange-800 border-orange-300 hover:bg-orange-200' : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400'}`}>
+                                <Repeat2 className={`w-4 h-4 ${isPcsMode ? 'text-orange-600' : 'text-gray-400'}`} />{isPcsMode ? ` Ganti Satuan Retur ke ${item.unitType} (Utuh)` : ` Ganti Satuan Retur ke Pcs (Eceran)`}</button>
                             </div>
                           )}
-
                         </div>
                       )
                     })
@@ -450,33 +347,15 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
                 </div>
               </div>
 
-              {/* Alasan & Dana */}
-              <div className="space-y-1">
-                <label className="text-[10px] font-black text-gray-400 uppercase ml-1 md:ml-2">Alasan Retur</label>
-                <input type="text" required placeholder="Contoh: Kemasan Rusak, Barang Basi, dll" value={reason} onChange={e => setReason(e.target.value)} className="w-full px-3 md:px-4 py-2.5 md:py-3 bg-gray-50 rounded-xl text-xs md:text-sm font-bold border-none outline-none focus:ring-2 focus:ring-purple-500" />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[10px] font-black text-gray-400 uppercase ml-1 md:ml-2">Tujuan Pengembalian Dana</label>
-                <select value={refundType} onChange={e => setRefundType(e.target.value)} className="w-full bg-purple-50 text-purple-800 rounded-xl px-3 md:px-4 py-2.5 md:py-3 text-[10px] md:text-sm font-black border border-purple-100 outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer appearance-none">
-                  <option value="deposit">Simpan sebagai SALDO DEPOSIT</option>
-                  <option value="cash">Masuk pengeluaran (Potong Uang Toko)</option>
-                </select>
-              </div>
-
+              <div className="space-y-1"><label className="text-[10px] font-black text-gray-400 uppercase ml-1 md:ml-2">Alasan Retur</label><input type="text" required placeholder="Contoh: Kemasan Rusak, Barang Basi, dll" value={reason} onChange={e => setReason(e.target.value)} className="w-full px-3 md:px-4 py-2.5 md:py-3 bg-gray-50 rounded-xl text-xs md:text-sm font-bold border-none outline-none focus:ring-2 focus:ring-purple-500" /></div>
+              <div className="space-y-1"><label className="text-[10px] font-black text-gray-400 uppercase ml-1 md:ml-2">Tujuan Pengembalian Dana</label><select value={refundType} onChange={e => setRefundType(e.target.value)} className="w-full bg-purple-50 text-purple-800 rounded-xl px-3 md:px-4 py-2.5 md:py-3 text-[10px] md:text-sm font-black border border-purple-100 outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer appearance-none"><option value="deposit">Simpan sebagai SALDO DEPOSIT</option><option value="cash">Masuk pengeluaran (Potong Uang Toko)</option></select></div>
             </form>
           </div>
         </div>
 
-        {/* FOOTER TOTAL */}
         <div className="p-4 md:p-6 border-t bg-gray-50 flex flex-col sm:flex-row items-center justify-between gap-3 md:gap-0">
-          <div className="w-full sm:w-auto text-left">
-            <p className="text-[9px] md:text-[10px] font-black text-gray-400 uppercase tracking-widest">Total Pengembalian</p>
-            <p className="text-xl md:text-2xl font-black text-purple-700">Rp {totalReturnAmount.toLocaleString()}</p>
-          </div>
-          <button form="return-form" type="submit" className="w-full sm:w-auto bg-purple-600 hover:bg-purple-700 text-white px-6 md:px-8 py-3 md:py-4 rounded-xl md:rounded-2xl font-black text-xs md:text-sm shadow-xl shadow-purple-200 transition-all uppercase tracking-widest active:scale-95 text-center">
-            Konfirmasi Retur
-          </button>
+          <div className="w-full sm:w-auto text-left"><p className="text-[9px] md:text-[10px] font-black text-gray-400 uppercase tracking-widest">Total Pengembalian</p><p className="text-xl md:text-2xl font-black text-purple-700">Rp {totalReturnAmount.toLocaleString()}</p></div>
+          <button form="return-form" type="submit" className="w-full sm:w-auto bg-purple-600 hover:bg-purple-700 text-white px-6 md:px-8 py-3 md:py-4 rounded-xl md:rounded-2xl font-black text-xs md:text-sm shadow-xl shadow-purple-200 transition-all uppercase tracking-widest active:scale-95 text-center">Konfirmasi Retur</button>
         </div>
 
       </div>

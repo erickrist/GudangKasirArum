@@ -130,6 +130,7 @@ const CartItem = ({ item, onUpdateQty, onRemove, onUpdateDiscount }) => {
           <div className="border-t border-gray-200 pt-2 mt-2 space-y-2">
             <input
               type="number"
+              step="any"
               min="0"
               value={discountValue}
               onChange={(e) => setDiscountValue(parseFloat(e.target.value) || 0)}

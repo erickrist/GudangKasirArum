@@ -36,7 +36,7 @@ const Dashboard = ({ onShowToast }) => {
   const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
   const [showReturnModal, setShowReturnModal] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false); 
-  const [showSyncModal, setShowSyncModal] = useState(false); // STATE UNTUK MODAL SINKRONISASI
+  const [showSyncModal, setShowSyncModal] = useState(false); 
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showDownloadModal, setShowDownloadModal] = useState(false);
   const [showEditTransModal, setShowEditTransModal] = useState(false);
@@ -60,6 +60,9 @@ const Dashboard = ({ onShowToast }) => {
   const [debtPaymentAmount, setDebtPaymentAmount] = useState('');
   const [isFullPayment, setIsFullPayment] = useState(true);
   const [newManualIncome, setNewManualIncome] = useState({ note: '', amount: '', method: 'TUNAI', storeId: '' });
+  
+  
+  // PENAMBAHAN KATEGORI PENGELUARAN DEFAULT
   const [newExpense, setNewExpense] = useState({ title: '', amount: '', category: 'Operasional', storeId: '' });
   
   const [newManualDebt, setNewManualDebt] = useState({ customerId: '', amount: '', note: '', storeId: '' });
@@ -97,8 +100,12 @@ const Dashboard = ({ onShowToast }) => {
   }, [returnsData, selectedStoreFilter]);
 
   const totalIncome = useMemo(() => activeStoreTransactions.reduce((sum, t) => sum + (Number(t.total) || 0), 0), [activeStoreTransactions]);
-  const totalExpenses = useMemo(() => activeStoreExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0), [activeStoreExpenses]);
-  const balance = totalIncome - totalExpenses;
+  
+  // PEMISAHAN PENGELUARAN: TOTAL SEMUA vs TOTAL OPERASIONAL (KHUSUS LABA RUGI)
+  const totalAllExpenses = useMemo(() => activeStoreExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0), [activeStoreExpenses]);
+  const totalOperationalExpenses = useMemo(() => activeStoreExpenses.filter(e => e.category !== 'Kulakan').reduce((sum, e) => sum + (Number(e.amount) || 0), 0), [activeStoreExpenses]);
+  
+  const balance = totalIncome - totalAllExpenses; // Saldo kas tetap dipotong total uang keluar (termasuk kulakan)
 
   const totalHPP = useMemo(() => activeStoreTransactions.reduce((sum, t) => {
     if (!t.items) return sum;
@@ -143,9 +150,14 @@ const Dashboard = ({ onShowToast }) => {
     return logs.sort((a, b) => getSafeDate(b.createdAt) - getSafeDate(a.createdAt));
   }, [activeStoreReturns, activeStoreTransactions]);
 
-  // === KALKULASI HUTANG & DEPOSIT BERDASARKAN CABANG (PERBAIKAN GLOBAL) ===
   const { activeStoreCustomersDebt, activeStoreCustomersDeposit } = useMemo(() => {
-    // KITA KEMBALIKAN LOGIKA AGAR 'GLOBAL' TETAP MENGHITUNG DINAMIS DARI LOGS
+    if (selectedStoreFilter === 'ALL') {
+      return {
+        activeStoreCustomersDebt: customers.filter(c => (Number(c.remainingDebt) || 0) > 0).map(c => ({...c, displayDebt: Number(c.remainingDebt) || 0})),
+        activeStoreCustomersDeposit: customers.filter(c => (Number(c.returnAmount) || 0) > 0).map(c => ({...c, displayDeposit: Number(c.returnAmount) || 0}))
+      };
+    }
+
     const debtMap = {};
     debtLogs.forEach(log => {
       if (!log.customerId) return;
@@ -177,7 +189,7 @@ const Dashboard = ({ onShowToast }) => {
     });
 
     return { activeStoreCustomersDebt: debtArr, activeStoreCustomersDeposit: depArr };
-  }, [customers, debtLogs, depositLogs]); 
+  }, [selectedStoreFilter, customers, debtLogs, depositLogs]);
 
   const totalUnpaidDebtDisplay = activeStoreCustomersDebt.reduce((sum, c) => sum + c.displayDebt, 0);
   const totalDepositDisplay = activeStoreCustomersDeposit.reduce((sum, c) => sum + c.displayDeposit, 0);
@@ -190,7 +202,7 @@ const Dashboard = ({ onShowToast }) => {
       }
     });
     activeStoreExpenses.forEach(e => {
-      logs.push({ ...e, sourceCollection: 'expenses', netType: 'out', nominal: e.amount, subjName: 'Beban/Pengeluaran', detailNote: e.title });
+      logs.push({ ...e, sourceCollection: 'expenses', netType: 'out', nominal: e.amount, subjName: e.category === 'Kulakan' ? 'Kulakan / Restock Stok' : 'Beban Operasional', detailNote: e.title });
     });
     return logs.sort((a, b) => getSafeDate(b.createdAt) - getSafeDate(a.createdAt));
   }, [activeStoreTransactions, activeStoreExpenses]);
@@ -317,10 +329,8 @@ const Dashboard = ({ onShowToast }) => {
     }
   };
 
-  // FITUR BARU: SINKRONISASI ULANG PELANGGAN
   const handleSyncCustomers = async () => {
     try {
-      // 1. Ambil semua histori GLOBAL (semua cabang) untuk cari total hutang/deposit ASLI
       const globalDebtLogs = [];
       transactions.forEach(t => {
         if (t.paymentStatus === 'HUTANG' || t.note === 'Penambahan Hutang Manual' || t.note === 'Koreksi Hutang (Bertambah)') {
@@ -365,7 +375,6 @@ const Dashboard = ({ onShowToast }) => {
         trueDepMap[log.customerId] += log.depType === 'in' ? Number(log.nominal) : -Number(log.nominal);
       });
 
-      // 2. Timpa angka aslinya di profil database agar KASIR menampilkan angka yang sama dengan Dashboard
       let syncCount = 0;
       for (const c of customers) {
         const correctDebt = trueDebtMap[c.id] && trueDebtMap[c.id] > 0 ? trueDebtMap[c.id] : 0;
@@ -531,8 +540,9 @@ const Dashboard = ({ onShowToast }) => {
           <h3 className="text-base md:text-xl font-black text-teal-700">Rp {(totalIncome || 0).toLocaleString()}</h3>
         </div>
         <div onClick={() => navigateToTab('expenses')} className="bg-white rounded-2xl shadow-sm p-4 md:p-6 border-b-4 border-red-500 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all">
-          <p className="text-[9px] md:text-[10px] font-black text-gray-400 uppercase mb-1">Total Pengeluaran</p>
-          <h3 className="text-base md:text-xl font-black text-red-600">Rp {(totalExpenses || 0).toLocaleString()}</h3>
+          <p className="text-[9px] md:text-[10px] font-black text-gray-400 uppercase mb-1">Total Uang Keluar</p>
+          {/* MENGGUNAKAN TOTAL SEMUA PENGELUARAN (TERMASUK KULAKAN) UNTUK DASHBOARD KAS */}
+          <h3 className="text-base md:text-xl font-black text-red-600">Rp {(totalAllExpenses || 0).toLocaleString()}</h3>
         </div>
         <div onClick={() => navigateToTab('debts')} className="bg-white rounded-2xl shadow-sm p-4 md:p-6 border-b-4 border-orange-500 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all">
           <p className="text-[9px] md:text-[10px] font-black text-gray-400 uppercase mb-1">Piutang {selectedStoreFilter === 'ALL' ? 'Global' : 'Cabang'}</p>
@@ -662,23 +672,50 @@ const Dashboard = ({ onShowToast }) => {
       {(activeTab === 'transactions' || activeTab === 'expenses') && (
         <div className="space-y-6">
           <div className="bg-white p-4 md:p-6 rounded-3xl border shadow-sm">
-            <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3 md:mb-4">{activeTab === 'transactions' ? 'Pemasukan Manual' : 'Catat Pengeluaran'}</h4>
+            <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3 md:mb-4">{activeTab === 'transactions' ? 'Pemasukan Manual' : 'Catat Pengeluaran (Uang Keluar)'}</h4>
             <form onSubmit={activeTab === 'transactions' ? handleAddManualIncome : async (e) => { 
                 e.preventDefault(); 
                 if (!newExpense.storeId) return onShowToast('Pilih cabang toko terlebih dahulu', 'error');
                 const storeObj = stores.find(s => s.id === newExpense.storeId);
+                // SIMPAN KATEGORI JUGA KE DATABASE
                 await addDocument('expenses', {...newExpense, amount: Number(newExpense.amount), storeId: newExpense.storeId, storeName: storeObj ? storeObj.name : 'Pusat', createdAt: new Date()}); 
                 onShowToast('Disimpan', 'success'); 
                 setNewExpense({title: '', amount: '', category: 'Operasional', storeId: ''}); 
               }} 
               className="flex flex-col md:flex-row gap-3"
             >
-              <select required value={activeTab === 'transactions' ? newManualIncome.storeId : newExpense.storeId} onChange={(e) => activeTab === 'transactions' ? setNewManualIncome({...newManualIncome, storeId: e.target.value}) : setNewExpense({...newExpense, storeId: e.target.value})} className="w-full md:w-48 bg-gray-50 px-4 py-3 rounded-xl border border-gray-200 text-sm font-bold outline-none focus:ring-2 focus:ring-teal-500">
-                <option value="" disabled>-- Pilih Cabang --</option><option value="pusat">Cabang Pusat</option>
+              <select 
+                required 
+                value={activeTab === 'transactions' ? newManualIncome.storeId : newExpense.storeId} 
+                onChange={(e) => activeTab === 'transactions' ? setNewManualIncome({...newManualIncome, storeId: e.target.value}) : setNewExpense({...newExpense, storeId: e.target.value})} 
+                disabled={activeTab === 'expenses' && newExpense.category === 'Kulakan'}
+                className="w-full md:w-48 bg-gray-50 px-4 py-3 rounded-xl border border-gray-200 text-sm font-bold outline-none focus:ring-2 focus:ring-teal-500 disabled:bg-gray-200 disabled:cursor-not-allowed"
+              >
+                <option value="" disabled>-- Pilih Cabang --</option>
+                <option value="pusat">Cabang Pusat</option>
                 {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
               
-              <input type="text" placeholder="Deskripsi" required className="w-full md:flex-1 bg-gray-50 rounded-xl px-4 py-3 text-sm font-bold border border-gray-200 outline-none focus:ring-2 focus:ring-teal-500" value={activeTab === 'transactions' ? newManualIncome.note : newExpense.title} onChange={e => activeTab === 'transactions' ? setNewManualIncome({...newManualIncome, note: e.target.value}) : setNewExpense({...newExpense, title: e.target.value})} />
+              {/* DROPDOWN KATEGORI KHUSUS PENGELUARAN */}
+              {activeTab === 'expenses' && (
+                <select 
+                  value={newExpense.category} 
+                  onChange={(e) => {
+                    const selectedCat = e.target.value;
+                    setNewExpense({
+                      ...newExpense, 
+                      category: selectedCat,
+                      storeId: selectedCat === 'Kulakan' ? 'pusat' : newExpense.storeId // Otomatis ke pusat jika kulakan
+                    });
+                  }} 
+                  className="w-full md:w-48 bg-gray-50 px-4 py-3 rounded-xl border border-gray-200 text-sm font-bold outline-none focus:ring-2 focus:ring-red-500"
+                >
+                  <option value="Operasional">Beban Operasional</option>
+                  <option value="Kulakan">Kulakan / Restock</option>
+                </select>
+              )}
+
+              <input type="text" placeholder="Keterangan / Tujuan" required className="w-full md:flex-1 bg-gray-50 rounded-xl px-4 py-3 text-sm font-bold border border-gray-200 outline-none focus:ring-2 focus:ring-teal-500" value={activeTab === 'transactions' ? newManualIncome.note : newExpense.title} onChange={e => activeTab === 'transactions' ? setNewManualIncome({...newManualIncome, note: e.target.value}) : setNewExpense({...newExpense, title: e.target.value})} />
               <input type="number" placeholder="Nominal (Rp)" required className="w-full md:w-44 bg-gray-50 rounded-xl px-4 py-3 text-sm font-black border border-gray-200 outline-none focus:ring-2 focus:ring-teal-500" value={activeTab === 'transactions' ? newManualIncome.amount : newExpense.amount} onChange={e => activeTab === 'transactions' ? setNewManualIncome({...newManualIncome, amount: e.target.value}) : setNewExpense({...newExpense, amount: e.target.value})} />
               
               {activeTab === 'transactions' && (
@@ -692,11 +729,13 @@ const Dashboard = ({ onShowToast }) => {
           <div className="bg-white rounded-[32px] border shadow-sm overflow-hidden">
             <div className="overflow-x-auto w-full custom-scrollbar">
               <table className="w-full min-w-[700px] text-left">
-                <thead>
-                  <tr className="bg-gray-50/50 border-b">
+                <thead className="bg-gray-50/50 border-b">
+                  <tr>
                     <th className="p-4 font-black text-gray-400 uppercase text-[10px]">Tgl & Jam</th>
                     <th className="p-4 font-black text-gray-400 uppercase text-[10px]">Cabang</th>
                     {activeTab === 'transactions' && <th className="p-4 font-black text-gray-400 uppercase text-[10px]">Nama / Metode</th>}
+                    {/* KOLOM KATEGORI KHUSUS PENGELUARAN */}
+                    {activeTab === 'expenses' && <th className="p-4 font-black text-gray-400 uppercase text-[10px]">Jenis Pengeluaran</th>}
                     <th className="p-4 font-black text-gray-400 uppercase text-[10px]">{activeTab === 'transactions' ? 'Keterangan' : 'Keterangan'}</th>
                     <th className="p-4 font-black text-gray-400 uppercase text-[10px] text-right">Nominal</th>
                     <th className="p-4 font-black text-gray-400 uppercase text-[10px] text-right">Aksi</th>
@@ -709,6 +748,14 @@ const Dashboard = ({ onShowToast }) => {
                       <td className="p-4 font-black text-gray-500 uppercase text-[10px]">{item.storeName || 'Pusat'}</td>
                       {activeTab === 'transactions' && (
                         <td className="p-4"><p className="font-black text-gray-800 uppercase">{item.customerName || 'Pemasukan Manual'}</p><p className="text-[9px] text-gray-400 font-bold uppercase">{item.paymentMethod || 'TUNAI'}</p></td>
+                      )}
+                      {/* TAMPILKAN BADGE KATEGORI */}
+                      {activeTab === 'expenses' && (
+                        <td className="p-4">
+                          <span className={`px-2 py-1 rounded text-[9px] font-black uppercase ${item.category === 'Kulakan' ? 'bg-orange-100 text-orange-700' : 'bg-red-100 text-red-700'}`}>
+                            {item.category === 'Kulakan' ? 'Kulakan / Restock' : 'Operasional'}
+                          </span>
+                        </td>
                       )}
                       <td className="p-4 font-bold text-gray-600">{activeTab === 'transactions' ? (item.note || (item.items ? item.items.map(i => i.name).join(', ') : 'Pemasukan')) : item.title}</td>
                       <td className="p-4 font-black text-right text-gray-700 whitespace-nowrap">Rp {(Number(item.total || item.amount || item.subtotal || 0)).toLocaleString()}</td>
@@ -844,7 +891,7 @@ const Dashboard = ({ onShowToast }) => {
 
       {/* --- MODALS --- */}
 
-      {/* MODAL DOWNLOAD */}
+      {/* MODAL DOWNLOAD MEMANGGIL FUNGSI DARI UTILS */}
       {showDownloadModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
           <div className="bg-white rounded-[32px] p-6 md:p-8 max-w-sm w-full shadow-2xl relative border-t-8 border-blue-600">
@@ -852,19 +899,21 @@ const Dashboard = ({ onShowToast }) => {
             <h3 className="text-lg md:text-xl font-black text-gray-800 mb-2 uppercase">Pilih Jenis Laporan</h3>
             <p className="text-xs text-gray-500 mb-6 font-bold">Laporan dicetak sesuai filter tanggal dan cabang saat ini.</p>
             <div className="flex flex-col gap-2 max-h-[60vh] overflow-y-auto">
-              <button onClick={() => { exportMasterExcel({transactions: activeStoreTransactions, filteredExpenses, filteredDebtHistory, activeStoreCustomersDebt, activeStoreCustomersDeposit, filteredDepositHistory, filteredNetBalance, startDate, endDate, storeName: selectedStoreName, formatDisplayDate, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 border border-green-200"><TableIcon className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">Excel Master Lengkap</p></div></button>
-              <button onClick={() => { exportNeracaExcel({balance, totalUnpaidDebt: totalUnpaidDebtDisplay, totalExpenses, totalDeposit: totalDepositDisplay, totalIncome, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 border border-green-200"><TableIcon className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">Excel Neraca Saldo</p></div></button>
-              <button onClick={() => { exportLabaRugiExcel({totalIncome, totalHPP, totalExpenses, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 border border-green-200"><TableIcon className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">Excel Laba Rugi</p></div></button>
+              <button onClick={() => { exportMasterExcel({transactions: activeStoreTransactions, filteredExpenses: activeStoreExpenses, filteredDebtHistory, activeStoreCustomersDebt, activeStoreCustomersDeposit, filteredDepositHistory, filteredNetBalance, startDate, endDate, storeName: selectedStoreName, formatDisplayDate, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 border border-green-200"><TableIcon className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">Excel Master Lengkap</p></div></button>
+              {/* NERACA: Menggunakan totalAllExpenses agar saldo kas balance di laporan neraca seimbang */}
+              <button onClick={() => { exportNeracaExcel({balance, totalUnpaidDebt: totalUnpaidDebtDisplay, totalExpenses: totalAllExpenses, totalDeposit: totalDepositDisplay, totalIncome, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 border border-green-200"><TableIcon className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">Excel Neraca Saldo</p></div></button>
+              {/* LABA RUGI: Menggunakan totalOperationalExpenses agar kulakan tidak membuat rugi */}
+              <button onClick={() => { exportLabaRugiExcel({totalIncome, totalHPP, totalExpenses: totalOperationalExpenses, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 border border-green-200"><TableIcon className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">Excel Laba Rugi</p></div></button>
               <div className="h-px w-full bg-gray-200 my-2"></div>
-              <button onClick={() => { exportMasterPDF({transactions: activeStoreTransactions, filteredExpenses, filteredDebtHistory, activeStoreCustomersDebt, activeStoreCustomersDeposit, filteredDepositHistory, filteredNetBalance, startDate, endDate, storeName: selectedStoreName, formatDisplayDate, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-blue-50 text-blue-700 rounded-2xl hover:bg-blue-100 border border-blue-200"><FileText className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">PDF Master Lengkap</p></div></button>
-              <button onClick={() => { exportNeracaPDF({balance, totalUnpaidDebt: totalUnpaidDebtDisplay, totalExpenses, totalDeposit: totalDepositDisplay, totalIncome, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-purple-50 text-purple-700 rounded-2xl hover:bg-purple-100 border border-purple-200"><FileText className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">PDF Neraca Saldo</p></div></button>
-              <button onClick={() => { exportLabaRugiPDF({totalIncome, totalHPP, totalExpenses, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-purple-50 text-purple-700 rounded-2xl hover:bg-purple-100 border border-purple-200"><FileText className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">PDF Laba Rugi</p></div></button>
+              <button onClick={() => { exportMasterPDF({transactions: activeStoreTransactions, filteredExpenses: activeStoreExpenses, filteredDebtHistory, activeStoreCustomersDebt, activeStoreCustomersDeposit, filteredDepositHistory, filteredNetBalance, startDate, endDate, storeName: selectedStoreName, formatDisplayDate, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-blue-50 text-blue-700 rounded-2xl hover:bg-blue-100 border border-blue-200"><FileText className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">PDF Master Lengkap</p></div></button>
+              <button onClick={() => { exportNeracaPDF({balance, totalUnpaidDebt: totalUnpaidDebtDisplay, totalExpenses: totalAllExpenses, totalDeposit: totalDepositDisplay, totalIncome, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-purple-50 text-purple-700 rounded-2xl hover:bg-purple-100 border border-purple-200"><FileText className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">PDF Neraca Saldo</p></div></button>
+              <button onClick={() => { exportLabaRugiPDF({totalIncome, totalHPP, totalExpenses: totalOperationalExpenses, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-purple-50 text-purple-700 rounded-2xl hover:bg-purple-100 border border-purple-200"><FileText className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">PDF Laba Rugi</p></div></button>
             </div>
           </div>
         </div>
       )}
 
-      {/* MODAL SINKRONISASI PELANGGAN (FITUR BARU) */}
+      {/* MODAL SINKRONISASI PELANGGAN */}
       {showSyncModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
           <div className="bg-white rounded-[32px] p-6 max-w-sm w-full shadow-2xl text-center border-t-8 border-purple-600">

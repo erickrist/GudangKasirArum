@@ -24,10 +24,8 @@ const StockOpname = ({ onShowToast }) => {
   const [activeTab, setActiveTab] = useState('products'); 
   const [chartPeriod, setChartPeriod] = useState('daily');
   
-  // FILTER TOKO UNTUK LAPORAN STOK
   const [selectedStoreFilter, setSelectedStoreFilter] = useState('ALL');
   
-  // Modals
   const [showModal, setShowModal] = useState(false);
   const [showStockModal, setShowStockModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -77,7 +75,6 @@ const StockOpname = ({ onShowToast }) => {
     return date.toLocaleString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
   };
 
-  // MENGAMBIL DATA YANG SUDAH DI FILTER BERDASARKAN CABANG
   const activeTransactions = useMemo(() => {
     if (selectedStoreFilter === 'ALL') return transactions;
     return transactions.filter(t => t.storeId === selectedStoreFilter || (!t.storeId && selectedStoreFilter === 'pusat'));
@@ -85,7 +82,7 @@ const StockOpname = ({ onShowToast }) => {
 
   const activeStockLogs = useMemo(() => {
     if (selectedStoreFilter === 'ALL' || selectedStoreFilter === 'pusat') return stockLogs;
-    return []; // Barang masuk/keluar murni terjadi di gudang pusat. Hide jika filter melihat cabang lain.
+    return []; 
   }, [stockLogs, selectedStoreFilter]);
 
   const activeReturns = useMemo(() => {
@@ -93,7 +90,6 @@ const StockOpname = ({ onShowToast }) => {
     return returnsData.filter(r => r.storeId === selectedStoreFilter || (!r.storeId && selectedStoreFilter === 'pusat'));
   }, [returnsData, selectedStoreFilter]);
 
-  // PENGGABUNGAN HISTORI STOK
   const allStockHistory = useMemo(() => {
     let combinedLogs = [];
     activeStockLogs.forEach(log => {
@@ -101,7 +97,7 @@ const StockOpname = ({ onShowToast }) => {
         id: log.id, uniqueKey: log.id, sourceCollection: 'stock_logs', createdAt: log.createdAt,
         productId: log.productId, productName: log.productName, type: log.type === 'in' ? 'MASUK' : 'KELUAR',
         amount: log.amount, unitType: log.unitType, totalPcs: log.totalPcs, note: log.note || `Update Manual`,
-        storeName: 'Pusat (Gudang)' // Menambahkan nama toko
+        storeName: 'Pusat (Gudang)' 
       });
     });
     activeTransactions.forEach(t => {
@@ -111,7 +107,7 @@ const StockOpname = ({ onShowToast }) => {
           productId: item.productId, productName: item.name, type: 'TERJUAL', amount: item.qty,
           unitType: item.unitType, totalPcs: item.qty * (item.pcsPerCarton || 1), 
           note: `Nota: #${t.id?.substring(0,6)} - Pembeli: ${t.customerName}`,
-          storeName: t.storeName || 'Pusat' // Menambahkan nama toko
+          storeName: t.storeName || 'Pusat' 
         });
       });
     });
@@ -214,7 +210,6 @@ const StockOpname = ({ onShowToast }) => {
     }).sort((a, b) => b.qtySold - a.qtySold); 
   };
 
-  // ACTIONS
   const resetForm = () => {
     const initialStorePrices = {};
     stores.forEach(store => { initialStorePrices[store.id] = ''; });
@@ -257,7 +252,7 @@ const StockOpname = ({ onShowToast }) => {
       name: formData.name, category: formData.category, unitType: formData.unitType,
       hpp: parseFloat(formData.hpp) || 0, price: parseFloat(formData.defaultPrice) || 0, 
       defaultPrice: parseFloat(formData.defaultPrice) || 0, storePrices: cleanedStorePrices,
-      stockPcs: parseInt(formData.stockPcs) || 0, pcsPerCarton: isWholesale ? parseInt(formData.pcsPerCarton) || 1 : 1,
+      stockPcs: Number(formData.stockPcs) || 0, pcsPerCarton: isWholesale ? parseInt(formData.pcsPerCarton) || 1 : 1,
       image: formData.image || ''
     };
 
@@ -286,7 +281,7 @@ const StockOpname = ({ onShowToast }) => {
     e.preventDefault();
     if (!selectedProduct || !stockAmount) return;
 
-    const amount = parseInt(stockAmount);
+    const amount = Number(stockAmount);
     let newStockPcs = selectedProduct.stockPcs;
     const totalPcs = amount * (WHOLESALE_TYPES.includes(selectedProduct.unitType) ? (selectedProduct.pcsPerCarton || 1) : 1);
 
@@ -324,7 +319,6 @@ const StockOpname = ({ onShowToast }) => {
           
           const defaultPrice = parseFloat(row["Harga Jual Default (Satuan)"] || row["Harga Jual (Satuan)"] || row.HargaJual || row.Harga) || 0;
 
-          // BACA HARGA DINAMIS TIAP TOKO
           const dynamicStorePrices = {};
           stores.forEach(store => {
             const colName = `Harga Jual (${store.name})`;
@@ -385,7 +379,6 @@ const StockOpname = ({ onShowToast }) => {
   return (
     <div className="pb-10 min-h-screen">
       
-      {/* TABS NAVIGATION */}
       <div className="flex gap-2 mb-4 md:mb-6 bg-white p-2 rounded-xl shadow-sm border overflow-x-auto custom-scrollbar whitespace-nowrap">
         {[ { id: 'products', label: 'Daftar Produk & Stok', icon: Package }, { id: 'history', label: 'Laporan & Histori', icon: History } ].map(tab => (
           <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex items-center gap-2 px-4 md:px-6 py-2.5 md:py-3 rounded-lg text-xs md:text-sm font-bold whitespace-nowrap ${activeTab === tab.id ? 'bg-teal-600 text-white shadow-md' : 'text-gray-500 hover:bg-gray-100'}`}><tab.icon className="w-4 h-4" /> {tab.label}</button>
@@ -424,7 +417,7 @@ const StockOpname = ({ onShowToast }) => {
                         <div className="flex justify-between items-center"><span className="text-[10px] font-black text-gray-400 uppercase">Satuan</span><span className="text-xs font-black text-gray-800 bg-gray-100 px-2 rounded">{product.unitType}</span></div>
                         <div className="flex justify-between items-center"><span className="text-[10px] font-black text-gray-400 uppercase">Modal</span><span className="text-sm font-black text-orange-600">Rp {(product.hpp||0).toLocaleString()}</span></div>
                         <div className="flex justify-between items-center"><span className="text-[10px] font-black text-gray-400 uppercase">Jual Default</span><span className="text-sm font-black text-blue-600">Rp {(product.defaultPrice||product.price||0).toLocaleString()}</span></div>
-                        <div className="flex justify-between items-center pt-2 border-t border-dashed"><span className="text-[10px] font-black text-gray-400 uppercase">Stok Pusat</span><span className={`text-lg font-black ${product.stockPcs < 10 ? 'text-red-600' : 'text-green-700'}`}>{product.stockPcs} Pcs</span></div>
+                        <div className="flex justify-between items-center pt-2 border-t border-dashed"><span className="text-[10px] font-black text-gray-400 uppercase">Stok Pusat</span><span className={`text-lg font-black ${product.stockPcs < 10 ? 'text-red-600' : 'text-green-700'}`}>{product.stockPcs} {product.unitType}</span></div>
                       </div>
                       <div className="grid grid-cols-4 gap-2 mt-auto">
                         <button onClick={() => { setSelectedProduct(product); setStockMode('in'); setShowStockModal(true); }} className="col-span-2 bg-green-50 text-green-700 py-2 rounded-xl text-[10px] font-black uppercase shadow-sm">Masuk</button>
@@ -528,7 +521,15 @@ const StockOpname = ({ onShowToast }) => {
                 <div><label className="text-[10px] font-black uppercase text-gray-500 ml-1">Kategori</label><input type="text" required value={formData.category} onChange={(e) => setFormData({ ...formData, category: e.target.value })} className="w-full p-3 bg-gray-50 rounded-xl font-bold mt-1" /></div>
                 <div>
                   <label className="text-[10px] font-black uppercase text-gray-500 ml-1">Satuan</label>
-                  <select value={formData.unitType} onChange={(e) => setFormData({ ...formData, unitType: e.target.value })} className="w-full p-3 bg-gray-50 rounded-xl font-bold mt-1"><option value="PCS">PCS</option><option value="KARTON">KARTON</option><option value="BALL">BALL</option><option value="BOX">BOX</option><option value="IKAT">IKAT</option><option value="RENCENG">RENCENG</option></select>
+                  <select value={formData.unitType} onChange={(e) => setFormData({ ...formData, unitType: e.target.value })} className="w-full p-3 bg-gray-50 rounded-xl font-bold mt-1">
+                    <option value="PCS">PCS</option>
+                    <option value="KG">KG</option>
+                    <option value="KARTON">KARTON</option>
+                    <option value="BALL">BALL</option>
+                    <option value="BOX">BOX</option>
+                    <option value="IKAT">IKAT</option>
+                    <option value="RENCENG">RENCENG</option>
+                  </select>
                 </div>
               </div>
 
@@ -554,12 +555,15 @@ const StockOpname = ({ onShowToast }) => {
               )}
 
               {!WHOLESALE_TYPES.includes(formData.unitType) && (
-                 <div className="pt-2"><label className="text-[10px] font-black uppercase text-green-600 ml-1">Stok Gudang Pusat (Pcs)</label><input type="number" required min="0" value={formData.stockPcs} onChange={(e) => setFormData({ ...formData, stockPcs: e.target.value === '' ? '' : parseInt(e.target.value) || 0 })} className="w-full p-3 bg-green-50 border border-green-200 text-green-800 rounded-xl font-black mt-1" /></div>
+                 <div className="pt-2">
+                   <label className="text-[10px] font-black uppercase text-green-600 ml-1">Stok Gudang Pusat ({formData.unitType})</label>
+                   <input type="number" step="any" required min="0" value={formData.stockPcs} onChange={(e) => setFormData({ ...formData, stockPcs: e.target.value === '' ? '' : Number(e.target.value) || 0 })} className="w-full p-3 bg-green-50 border border-green-200 text-green-800 rounded-xl font-black mt-1" />
+                 </div>
               )}
               {WHOLESALE_TYPES.includes(formData.unitType) && (
                  <div className="grid grid-cols-2 gap-3 pt-2">
-                   <div><label className="text-[10px] font-black uppercase text-purple-600 ml-1">Stok Pusat ({formData.unitType})</label><input type="number" min="0" step="any" value={formData.stockPcs === '' ? '' : (formData.stockPcs / (formData.pcsPerCarton || 1))} onChange={(e) => { if (e.target.value === '') setFormData({ ...formData, stockPcs: '' }); else setFormData({ ...formData, stockPcs: Math.round((parseFloat(e.target.value) || 0) * (formData.pcsPerCarton || 1)) }); }} className="w-full p-3 bg-purple-50 border border-purple-200 text-purple-800 rounded-xl font-black mt-1" /></div>
-                   <div><label className="text-[10px] font-black uppercase text-green-600 ml-1">Total Pcs</label><input type="number" required min="0" value={formData.stockPcs} onChange={(e) => setFormData({ ...formData, stockPcs: e.target.value === '' ? '' : parseInt(e.target.value) || 0 })} className="w-full p-3 bg-green-50 border border-green-200 text-green-800 rounded-xl font-black mt-1" /></div>
+                   <div><label className="text-[10px] font-black uppercase text-purple-600 ml-1">Stok Pusat ({formData.unitType})</label><input type="number" min="0" step="any" value={formData.stockPcs === '' ? '' : (formData.stockPcs / (formData.pcsPerCarton || 1))} onChange={(e) => { if (e.target.value === '') setFormData({ ...formData, stockPcs: '' }); else setFormData({ ...formData, stockPcs: Number(parseFloat(e.target.value) * (formData.pcsPerCarton || 1)) || 0 }); }} className="w-full p-3 bg-purple-50 border border-purple-200 text-purple-800 rounded-xl font-black mt-1" /></div>
+                   <div><label className="text-[10px] font-black uppercase text-green-600 ml-1">Total Pcs</label><input type="number" step="any" required min="0" value={formData.stockPcs} onChange={(e) => setFormData({ ...formData, stockPcs: e.target.value === '' ? '' : Number(e.target.value) || 0 })} className="w-full p-3 bg-green-50 border border-green-200 text-green-800 rounded-xl font-black mt-1" /></div>
                  </div>
               )}
 
@@ -573,7 +577,19 @@ const StockOpname = ({ onShowToast }) => {
       )}
       
       {showStockModal && selectedProduct && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4"><div className="bg-white rounded-[32px] w-full max-w-sm p-6 md:p-8"><h3 className="text-xl font-black mb-6 text-center text-gray-800">{stockMode === 'in' ? 'Barang Masuk Pusat' : 'Barang Keluar Pusat'}</h3><form onSubmit={handleStockUpdate}><p className="text-xs text-center font-bold text-gray-500 mb-4">{selectedProduct.name} - Sisa: {selectedProduct.stockPcs} Pcs</p><input type="number" required min="1" value={stockAmount} onChange={e => setStockAmount(e.target.value)} className="w-full p-4 bg-gray-50 rounded-xl font-black text-center text-xl mb-6 focus:ring-2 focus:ring-teal-500 outline-none" placeholder={`Jumlah ${selectedProduct.unitType}`}/><div className="flex gap-2"><button type="button" onClick={() => setShowStockModal(false)} className="flex-1 py-3 bg-gray-100 rounded-xl font-black text-gray-500">Batal</button><button type="submit" className={`flex-1 py-3 text-white rounded-xl font-black shadow-md ${stockMode === 'in' ? 'bg-green-600' : 'bg-orange-600'}`}>Simpan</button></div></form></div></div>
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4">
+          <div className="bg-white rounded-[32px] w-full max-w-sm p-6 md:p-8">
+            <h3 className="text-xl font-black mb-6 text-center text-gray-800">{stockMode === 'in' ? 'Barang Masuk Pusat' : 'Barang Keluar Pusat'}</h3>
+            <form onSubmit={handleStockUpdate}>
+              <p className="text-xs text-center font-bold text-gray-500 mb-4">{selectedProduct.name} - Sisa: {selectedProduct.stockPcs} {selectedProduct.unitType}</p>
+              <input type="number" step="any" required min="0.01" value={stockAmount} onChange={e => setStockAmount(e.target.value)} className="w-full p-4 bg-gray-50 rounded-xl font-black text-center text-xl mb-6 focus:ring-2 focus:ring-teal-500 outline-none" placeholder={`Jumlah ${selectedProduct.unitType}`}/>
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setShowStockModal(false)} className="flex-1 py-3 bg-gray-100 rounded-xl font-black text-gray-500">Batal</button>
+                <button type="submit" className={`flex-1 py-3 text-white rounded-xl font-black shadow-md ${stockMode === 'in' ? 'bg-green-600' : 'bg-orange-600'}`}>Simpan</button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
 
       {showDeleteHistoryModal && selectedHistoryItem && (
