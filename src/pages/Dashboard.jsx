@@ -101,8 +101,10 @@ const Dashboard = ({ onShowToast }) => {
 
   // === PERHITUNGAN UTAMA ===
   const totalIncome = useMemo(() => activeStoreTransactions.reduce((sum, t) => sum + (Number(t.total) || 0), 0), [activeStoreTransactions]);
-  const totalAllExpenses = useMemo(() => activeStoreExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0), [activeStoreExpenses]);
-  const balance = totalIncome - totalAllExpenses;
+  const totalCashExpenses = useMemo(() => activeStoreExpenses
+  .filter(e => e.category !== 'Barang Rusak') // KUNCI UTAMANYA DI SINI
+  .reduce((sum, e) => sum + (Number(e.amount) || 0), 0), [activeStoreExpenses]);
+  const balance = totalIncome - totalCashExpenses;
 
   const totalHPP = useMemo(() => activeStoreTransactions.reduce((sum, t) => {
     if (!t.items) return sum;
