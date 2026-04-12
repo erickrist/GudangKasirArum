@@ -101,9 +101,13 @@ const Dashboard = ({ onShowToast }) => {
 
   // === PERHITUNGAN UTAMA ===
   const totalIncome = useMemo(() => activeStoreTransactions.reduce((sum, t) => sum + (Number(t.total) || 0), 0), [activeStoreTransactions]);
+  
+  // PERBAIKAN: Hitung pengeluaran KAS FISIK (Abaikan Barang Rusak)
   const totalCashExpenses = useMemo(() => activeStoreExpenses
-  .filter(e => e.category !== 'Barang Rusak') // KUNCI UTAMANYA DI SINI
-  .reduce((sum, e) => sum + (Number(e.amount) || 0), 0), [activeStoreExpenses]);
+    .filter(e => e.category !== 'Barang Rusak') 
+    .reduce((sum, e) => sum + (Number(e.amount) || 0), 0), [activeStoreExpenses]);
+
+  // BALANCE NET HANYA DIKURANGI PENGELUARAN FISIK
   const balance = totalIncome - totalCashExpenses;
 
   const totalHPP = useMemo(() => activeStoreTransactions.reduce((sum, t) => {
@@ -578,7 +582,7 @@ const Dashboard = ({ onShowToast }) => {
         </div>
         <div onClick={() => navigateToTab('expenses')} className="bg-white rounded-2xl shadow-sm p-4 md:p-6 border-b-4 border-red-500 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all">
           <p className="text-[9px] md:text-[10px] font-black text-gray-400 uppercase mb-1">Total Uang Keluar</p>
-          <h3 className="text-base md:text-xl font-black text-red-600">Rp {(totalAllExpenses || 0).toLocaleString('id-ID')}</h3>
+          <h3 className="text-base md:text-xl font-black text-red-600">Rp {(totalCashExpenses || 0).toLocaleString('id-ID')}</h3>
         </div>
         <div onClick={() => navigateToTab('debts')} className="bg-white rounded-2xl shadow-sm p-4 md:p-6 border-b-4 border-orange-500 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all">
           <p className="text-[9px] md:text-[10px] font-black text-gray-400 uppercase mb-1">Piutang {selectedStoreFilter === 'ALL' ? 'Global' : 'Cabang'}</p>
@@ -971,11 +975,11 @@ const Dashboard = ({ onShowToast }) => {
             <p className="text-xs text-gray-500 mb-6 font-bold">Pilih format laporan yang ingin diunduh.</p>
             <div className="flex flex-col gap-2 max-h-[60vh] overflow-y-auto">
               <button onClick={() => { exportMasterExcel({transactions: activeStoreTransactions, filteredExpenses: activeStoreExpenses, filteredDebtHistory, activeStoreCustomersDebt, activeStoreCustomersDeposit, filteredDepositHistory, filteredNetBalance, startDate, endDate, storeName: selectedStoreName, formatDisplayDate, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 border border-green-200"><TableIcon className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">Excel Lengkap</p></div></button>
-              <button onClick={() => { exportNeracaExcel({balance, totalUnpaidDebt: totalUnpaidDebtDisplay, totalExpenses: totalAllExpenses, totalDeposit: totalDepositDisplay, totalIncome, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 border border-green-200"><TableIcon className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">Excel Neraca</p></div></button>
+              <button onClick={() => { exportNeracaExcel({balance, totalUnpaidDebt: totalUnpaidDebtDisplay, totalExpenses: totalCashExpenses, totalDeposit: totalDepositDisplay, totalIncome, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 border border-green-200"><TableIcon className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">Excel Neraca</p></div></button>
               <button onClick={() => { exportLabaRugiExcel({totalIncome, totalHPP, totalExpenses: totalOperationalExpenses, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 border border-green-200"><TableIcon className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">Excel Laba Rugi</p></div></button>
               <div className="h-px w-full bg-gray-200 my-2"></div>
               <button onClick={() => { exportMasterPDF({transactions: activeStoreTransactions, filteredExpenses: activeStoreExpenses, filteredDebtHistory, activeStoreCustomersDebt, activeStoreCustomersDeposit, filteredDepositHistory, filteredNetBalance, startDate, endDate, storeName: selectedStoreName, formatDisplayDate, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-blue-50 text-blue-700 rounded-2xl hover:bg-blue-100 border border-blue-200"><FileText className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">PDF Lengkap</p></div></button>
-              <button onClick={() => { exportNeracaPDF({balance, totalUnpaidDebt: totalUnpaidDebtDisplay, totalExpenses: totalAllExpenses, totalDeposit: totalDepositDisplay, totalIncome, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-purple-50 text-purple-700 rounded-2xl hover:bg-purple-100 border border-purple-200"><FileText className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">PDF Neraca</p></div></button>
+              <button onClick={() => { exportNeracaPDF({balance, totalUnpaidDebt: totalUnpaidDebtDisplay, totalExpenses: totalCashExpenses, totalDeposit: totalDepositDisplay, totalIncome, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-purple-50 text-purple-700 rounded-2xl hover:bg-purple-100 border border-purple-200"><FileText className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">PDF Neraca</p></div></button>
               <button onClick={() => { exportLabaRugiPDF({totalIncome, totalHPP, totalExpenses: totalOperationalExpenses, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-purple-50 text-purple-700 rounded-2xl hover:bg-purple-100 border border-purple-200"><FileText className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">PDF Laba Rugi</p></div></button>
             </div>
           </div>
