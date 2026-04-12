@@ -29,14 +29,12 @@ const StockOpname = ({ onShowToast }) => {
   const [showModal, setShowModal] = useState(false);
   const [showStockModal, setShowStockModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [showClearHistoryModal, setShowClearHistoryModal] = useState(false);
-  const [showClearProductsModal, setShowClearProductsModal] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false); 
   const [showDeleteHistoryModal, setShowDeleteHistoryModal] = useState(false);
   
   const [selectedHistoryItem, setSelectedHistoryItem] = useState(null);
   const [modalMode, setModalMode] = useState('add');
-  const [stockMode, setStockMode] = useState('in');
+  const [stockMode, setStockMode] = useState('in'); // Bisa 'in', 'out', atau 'rusak'
   const [selectedProduct, setSelectedProduct] = useState(null);
   
   const [searchProduct, setSearchProduct] = useState('');
@@ -57,6 +55,7 @@ const StockOpname = ({ onShowToast }) => {
   });
   
   const [stockAmount, setStockAmount] = useState('');
+  const [damageStoreId, setDamageStoreId] = useState('pusat'); // State baru khusus untuk barang rusak
 
   const WHOLESALE_TYPES = ['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'];
 
@@ -277,6 +276,7 @@ const StockOpname = ({ onShowToast }) => {
     if (result.success) { onShowToast('Produk dihapus', 'success'); setShowDeleteModal(false); }
   };
 
+  // --- LOGIKA UPDATE STOK (MASUK, KELUAR, DAN RUSAK) ---
   const handleStockUpdate = async (e) => {
     e.preventDefault();
     if (!selectedProduct || !stockAmount) return;
@@ -285,6 +285,37 @@ const StockOpname = ({ onShowToast }) => {
     let newStockPcs = selectedProduct.stockPcs;
     const totalPcs = amount * (WHOLESALE_TYPES.includes(selectedProduct.unitType) ? (selectedProduct.pcsPerCarton || 1) : 1);
 
+    // LOGIKA KHUSUS BARANG RUSAK/BASI
+    if (stockMode === 'rusak') {
+      const storeObj = stores.find(s => s.id === damageStoreId);
+      const storeName = storeObj ? storeObj.name : 'Pusat (Gudang)';
+      const lossAmount = totalPcs * (selectedProduct.hpp || 0);
+
+      newStockPcs -= totalPcs;
+      if (newStockPcs < 0) return onShowToast('Stok tidak mencukupi untuk dikurangi', 'error');
+
+      const result = await updateDocument('products', selectedProduct.id, { stockPcs: newStockPcs });
+      if (result.success) {
+        // 1. Catat Log Stok
+        await addDocument('stock_logs', { productId: selectedProduct.id, productName: selectedProduct.name, type: 'out', amount, unitType: selectedProduct.unitType, totalPcs, note: `Barang Basi/Rusak di ${storeName}`, createdAt: new Date() });
+        
+        // 2. OTOMATIS CATAT PENGELUARAN KERUGIAN!
+        await addDocument('expenses', {
+          title: `Rugi Barang Basi/Rusak: ${amount} ${selectedProduct.unitType} ${selectedProduct.name}`,
+          amount: lossAmount,
+          category: 'Barang Rusak', // Kategori khusus kerugian
+          storeId: damageStoreId,
+          storeName: storeName,
+          createdAt: new Date()
+        });
+
+        onShowToast(`Dicatat! Kerugian Rp ${lossAmount.toLocaleString('id-ID')} dibebankan ke ${storeName}`, 'success');
+        setShowStockModal(false); setStockAmount(''); setDamageStoreId('pusat');
+      }
+      return; 
+    }
+
+    // LOGIKA MASUK / KELUAR NORMAL
     if (stockMode === 'in') newStockPcs += totalPcs; else newStockPcs -= totalPcs;
     if (newStockPcs < 0) return onShowToast('Stok tidak mencukupi', 'error');
 
@@ -415,16 +446,19 @@ const StockOpname = ({ onShowToast }) => {
                       <p className="text-[10px] font-bold text-teal-600 uppercase mb-3 bg-teal-50 inline-block px-2 py-0.5 rounded-md self-start">{product.category}</p>
                       <div className="space-y-2 mb-4 mt-auto">
                         <div className="flex justify-between items-center"><span className="text-[10px] font-black text-gray-400 uppercase">Satuan</span><span className="text-xs font-black text-gray-800 bg-gray-100 px-2 rounded">{product.unitType}</span></div>
-                        <div className="flex justify-between items-center"><span className="text-[10px] font-black text-gray-400 uppercase">Modal</span><span className="text-sm font-black text-orange-600">Rp {(product.hpp||0).toLocaleString()}</span></div>
-                        <div className="flex justify-between items-center"><span className="text-[10px] font-black text-gray-400 uppercase">Jual Default</span><span className="text-sm font-black text-blue-600">Rp {(product.defaultPrice||product.price||0).toLocaleString()}</span></div>
-                        <div className="flex justify-between items-center pt-2 border-t border-dashed"><span className="text-[10px] font-black text-gray-400 uppercase">Stok Pusat</span><span className={`text-lg font-black ${product.stockPcs < 10 ? 'text-red-600' : 'text-green-700'}`}>{product.stockPcs} {product.unitType}</span></div>
+                        <div className="flex justify-between items-center"><span className="text-[10px] font-black text-gray-400 uppercase">Modal</span><span className="text-sm font-black text-orange-600">Rp {(product.hpp||0).toLocaleString('id-ID')}</span></div>
+                        <div className="flex justify-between items-center"><span className="text-[10px] font-black text-gray-400 uppercase">Jual Default</span><span className="text-sm font-black text-blue-600">Rp {(product.defaultPrice||product.price||0).toLocaleString('id-ID')}</span></div>
+                        <div className="flex justify-between items-center pt-2 border-t border-dashed"><span className="text-[10px] font-black text-gray-400 uppercase">Stok Pusat</span><span className={`text-lg font-black ${product.stockPcs < 10 ? 'text-red-600' : 'text-green-700'}`}>{product.stockPcs} {product.unitType !== 'PCS' && product.unitType !== 'KG' ? 'Pcs' : product.unitType}</span></div>
                       </div>
+                      
                       <div className="grid grid-cols-4 gap-2 mt-auto">
                         <button onClick={() => { setSelectedProduct(product); setStockMode('in'); setShowStockModal(true); }} className="col-span-2 bg-green-50 text-green-700 py-2 rounded-xl text-[10px] font-black uppercase shadow-sm">Masuk</button>
                         <button onClick={() => { setSelectedProduct(product); setStockMode('out'); setShowStockModal(true); }} className="col-span-2 bg-orange-50 text-orange-700 py-2 rounded-xl text-[10px] font-black uppercase shadow-sm">Keluar</button>
                         <button onClick={() => handleOpenModal('edit', product)} className="col-span-2 border text-gray-600 py-2 rounded-xl text-[10px] font-black uppercase shadow-sm flex items-center justify-center gap-1"><Edit2 className="w-3 h-3"/> Edit</button>
                         <button onClick={() => { setSelectedProduct(product); setShowDeleteModal(true); }} className="col-span-2 border text-gray-600 hover:text-red-600 py-2 rounded-xl text-[10px] font-black uppercase shadow-sm">Hapus</button>
                       </div>
+                      {/* TOMBOL BARU UNTUK BARANG RUSAK */}
+                      <button onClick={() => { setSelectedProduct(product); setStockMode('rusak'); setShowStockModal(true); }} className="mt-2 w-full bg-red-50 text-red-700 py-2 rounded-xl text-[10px] font-black uppercase shadow-sm border border-red-100 hover:bg-red-100 flex justify-center items-center gap-1.5"><AlertTriangle className="w-3 h-3" /> Lapor Rusak / Basi</button>
                     </div>
                   </div>
                 ))}
@@ -555,10 +589,7 @@ const StockOpname = ({ onShowToast }) => {
               )}
 
               {!WHOLESALE_TYPES.includes(formData.unitType) && (
-                 <div className="pt-2">
-                   <label className="text-[10px] font-black uppercase text-green-600 ml-1">Stok Gudang Pusat ({formData.unitType})</label>
-                   <input type="number" step="any" required min="0" value={formData.stockPcs} onChange={(e) => setFormData({ ...formData, stockPcs: e.target.value === '' ? '' : Number(e.target.value) || 0 })} className="w-full p-3 bg-green-50 border border-green-200 text-green-800 rounded-xl font-black mt-1" />
-                 </div>
+                 <div className="pt-2"><label className="text-[10px] font-black uppercase text-green-600 ml-1">Stok Gudang Pusat ({formData.unitType})</label><input type="number" step="any" required min="0" value={formData.stockPcs} onChange={(e) => setFormData({ ...formData, stockPcs: e.target.value === '' ? '' : Number(e.target.value) || 0 })} className="w-full p-3 bg-green-50 border border-green-200 text-green-800 rounded-xl font-black mt-1" /></div>
               )}
               {WHOLESALE_TYPES.includes(formData.unitType) && (
                  <div className="grid grid-cols-2 gap-3 pt-2">
@@ -578,14 +609,29 @@ const StockOpname = ({ onShowToast }) => {
       
       {showStockModal && selectedProduct && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4">
-          <div className="bg-white rounded-[32px] w-full max-w-sm p-6 md:p-8">
-            <h3 className="text-xl font-black mb-6 text-center text-gray-800">{stockMode === 'in' ? 'Barang Masuk Pusat' : 'Barang Keluar Pusat'}</h3>
+          <div className={`bg-white rounded-[32px] w-full max-w-sm p-6 md:p-8 border-t-8 ${stockMode === 'rusak' ? 'border-red-600' : 'border-teal-500'}`}>
+            <h3 className="text-xl font-black mb-6 text-center text-gray-800">
+              {stockMode === 'in' ? 'Barang Masuk Pusat' : stockMode === 'out' ? 'Barang Keluar Pusat' : 'Lapor Barang Basi / Rusak'}
+            </h3>
             <form onSubmit={handleStockUpdate}>
               <p className="text-xs text-center font-bold text-gray-500 mb-4">{selectedProduct.name} - Sisa: {selectedProduct.stockPcs} {selectedProduct.unitType}</p>
-              <input type="number" step="any" required min="0.01" value={stockAmount} onChange={e => setStockAmount(e.target.value)} className="w-full p-4 bg-gray-50 rounded-xl font-black text-center text-xl mb-6 focus:ring-2 focus:ring-teal-500 outline-none" placeholder={`Jumlah ${selectedProduct.unitType}`}/>
+              
+              {/* DROPDOWN CABANG KHUSUS JIKA BARANG RUSAK */}
+              {stockMode === 'rusak' && (
+                <div className="mb-4">
+                  <label className="text-[10px] font-black text-gray-400 uppercase ml-1 block mb-1">Lokasi Barang Rusak</label>
+                  <select value={damageStoreId} onChange={e => setDamageStoreId(e.target.value)} required className="w-full p-3 bg-gray-50 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-red-500">
+                    <option value="pusat">🏢 Pusat (Gudang Utama)</option>
+                    {stores.map(s => <option key={s.id} value={s.id}>🏪 {s.name}</option>)}
+                  </select>
+                </div>
+              )}
+
+              <input type="number" step="any" required min="0.01" value={stockAmount} onChange={e => setStockAmount(e.target.value)} className={`w-full p-4 bg-gray-50 rounded-xl font-black text-center text-xl mb-6 focus:ring-2 outline-none ${stockMode === 'rusak' ? 'focus:ring-red-500' : 'focus:ring-teal-500'}`} placeholder={`Jumlah ${selectedProduct.unitType}`}/>
+              
               <div className="flex gap-2">
-                <button type="button" onClick={() => setShowStockModal(false)} className="flex-1 py-3 bg-gray-100 rounded-xl font-black text-gray-500">Batal</button>
-                <button type="submit" className={`flex-1 py-3 text-white rounded-xl font-black shadow-md ${stockMode === 'in' ? 'bg-green-600' : 'bg-orange-600'}`}>Simpan</button>
+                <button type="button" onClick={() => setShowStockModal(false)} className="flex-1 py-3 bg-gray-100 rounded-xl font-black text-gray-500 hover:bg-gray-200">Batal</button>
+                <button type="submit" className={`flex-1 py-3 text-white rounded-xl font-black shadow-md ${stockMode === 'in' ? 'bg-green-600' : stockMode === 'rusak' ? 'bg-red-600' : 'bg-orange-600'}`}>Simpan</button>
               </div>
             </form>
           </div>
