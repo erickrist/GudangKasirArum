@@ -10,7 +10,6 @@ export const exportMasterPDF = ({
   activeStoreCustomersDeposit, filteredDepositHistory, filteredNetBalance, startDate, endDate, 
   storeName, formatDisplayDate, onShowToast
 }) => {
-  // Perbaikan: Cek jika semua data benar-benar kosong
   if (transactions.length === 0 && filteredExpenses.length === 0 && filteredNetBalance.length === 0) {
     return onShowToast('Tidak ada data untuk dicetak pada periode ini', 'error');
   }
@@ -165,7 +164,7 @@ export const exportNeracaPDF = ({ balance, totalUnpaidDebt, totalExpenses, total
     ['102', 'Piutang Usaha (Hutang Pelanggan)', `Rp ${totalUnpaidDebt.toLocaleString('id-ID')}`, '-'],
     ['201', 'Titipan / Deposit Pelanggan', '-', `Rp ${totalDeposit.toLocaleString('id-ID')}`],
     ['401', 'Pendapatan Usaha (Total Penjualan)', '-', `Rp ${totalIncome.toLocaleString('id-ID')}`],
-    ['501', 'Beban Operasional (Total Pengeluaran)', `Rp ${totalExpenses.toLocaleString('id-ID')}`, '-'],
+    ['501', 'Beban Operasional (Total Pengeluaran Kas)', `Rp ${totalExpenses.toLocaleString('id-ID')}`, '-'],
   ];
 
   const totalDebit = balance + totalUnpaidDebt + totalExpenses;
@@ -192,8 +191,9 @@ export const exportNeracaPDF = ({ balance, totalUnpaidDebt, totalExpenses, total
   onShowToast('File PDF Neraca Saldo berhasil diunduh', 'success');
 };
 
-export const exportLabaRugiPDF = ({ totalIncome, totalHPP, totalExpenses, startDate, endDate, storeName, onShowToast }) => {
+export const exportLabaRugiPDF = ({ totalIncome, totalHPP, totalPureOperational, totalDamagedGoods, startDate, endDate, storeName, onShowToast }) => {
   const labaKotor = totalIncome - totalHPP;
+  const totalExpenses = totalPureOperational + totalDamagedGoods;
   const labaBersih = labaKotor - totalExpenses;
 
   const doc = new jsPDF('p', 'mm', 'a4');
@@ -213,7 +213,8 @@ export const exportLabaRugiPDF = ({ totalIncome, totalHPP, totalExpenses, startD
     ['Harga Pokok Penjualan (HPP)', `- Rp ${totalHPP.toLocaleString('id-ID')}`],
     [{ content: 'LABA KOTOR', styles: { fontStyle: 'bold' } }, { content: `Rp ${labaKotor.toLocaleString('id-ID')}`, styles: { fontStyle: 'bold', textColor: labaKotor >= 0 ? [0, 128, 0] : [220, 38, 38] } }],
     [{ content: 'BEBAN / PENGELUARAN', colSpan: 2, styles: { fontStyle: 'bold', fillColor: [240, 240, 240] } }],
-    ['Total Pengeluaran Kas Operasional', `- Rp ${totalExpenses.toLocaleString('id-ID')}`],
+    ['Total Pengeluaran Kas Operasional', `- Rp ${totalPureOperational.toLocaleString('id-ID')}`],
+    ['Kerugian Barang Basi / Rusak', `- Rp ${totalDamagedGoods.toLocaleString('id-ID')}`],
     [{ content: 'LABA / (RUGI) BERSIH', styles: { fontStyle: 'bold' } }, { content: `Rp ${labaBersih.toLocaleString('id-ID')}`, styles: { fontStyle: 'bold', textColor: labaBersih >= 0 ? [0, 128, 0] : [220, 38, 38] } }]
   ];
 

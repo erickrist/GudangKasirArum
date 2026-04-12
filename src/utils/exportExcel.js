@@ -9,7 +9,6 @@ export const exportMasterExcel = ({
   activeStoreCustomersDeposit, filteredDepositHistory, filteredNetBalance, startDate, endDate, 
   storeName, formatDisplayDate, onShowToast
 }) => {
-  // Perbaikan: Cek jika semua data benar-benar kosong
   if (transactions.length === 0 && filteredExpenses.length === 0 && filteredNetBalance.length === 0) {
     return onShowToast('Tidak ada data untuk dicetak pada periode ini', 'error');
   }
@@ -49,7 +48,7 @@ export const exportMasterExcel = ({
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(debtHistData), "3. Histori Hutang");
   }
 
-  // 4. DAFTAR HUTANG (DIFILTER PER CABANG)
+  // 4. DAFTAR HUTANG
   let totalDebtAct = 0;
   const activeDebts = (activeStoreCustomersDebt || []).map(c => {
     totalDebtAct += Number(c.displayDebt);
@@ -72,7 +71,7 @@ export const exportMasterExcel = ({
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(depHistData), "5. Histori Deposit");
   }
 
-  // 6. DAFTAR DEPOSIT (DIFILTER PER CABANG)
+  // 6. DAFTAR DEPOSIT
   let totalDepAct = 0;
   const activeDeposits = (activeStoreCustomersDeposit || []).map(c => {
     totalDepAct += Number(c.displayDeposit);
@@ -113,7 +112,7 @@ export const exportNeracaExcel = ({ balance, totalUnpaidDebt, totalExpenses, tot
     ['102', 'Piutang Usaha (Hutang Pelanggan)', totalUnpaidDebt, 0],
     ['201', 'Titipan / Deposit Pelanggan', 0, totalDeposit],
     ['401', 'Pendapatan Usaha (Total Penjualan)', 0, totalIncome],
-    ['501', 'Beban Operasional (Total Pengeluaran)', totalExpenses, 0],
+    ['501', 'Beban Operasional (Total Pengeluaran Kas)', totalExpenses, 0],
     ['', 'TOTAL KESELURUHAN', totalDebit, totalKredit], [],
     ['*Catatan: Laporan ini disusun menggunakan metode Buku Kas Tunggal (Single Entry).'],
     ['*Total Debit dan Kredit dapat memiliki selisih wajar apabila terdapat penambahan manual.']
@@ -129,8 +128,9 @@ export const exportNeracaExcel = ({ balance, totalUnpaidDebt, totalExpenses, tot
   onShowToast('File Excel Neraca Saldo berhasil diunduh', 'success');
 };
 
-export const exportLabaRugiExcel = ({ totalIncome, totalHPP, totalExpenses, startDate, endDate, storeName, onShowToast }) => {
+export const exportLabaRugiExcel = ({ totalIncome, totalHPP, totalPureOperational, totalDamagedGoods, startDate, endDate, storeName, onShowToast }) => {
   const labaKotor = totalIncome - totalHPP;
+  const totalExpenses = totalPureOperational + totalDamagedGoods;
   const labaBersih = labaKotor - totalExpenses;
 
   const aoaData = [
@@ -143,7 +143,8 @@ export const exportLabaRugiExcel = ({ totalIncome, totalHPP, totalExpenses, star
     ['Harga Pokok Penjualan (HPP)', `-${totalHPP}`],
     ['LABA KOTOR', labaKotor], [],
     ['BEBAN / PENGELUARAN', ''],
-    ['Total Pengeluaran Operasional', `-${totalExpenses}`], [],
+    ['Total Pengeluaran Operasional', `-${totalPureOperational}`],
+    ['Kerugian Barang Basi / Rusak', `-${totalDamagedGoods}`], [],
     ['LABA / (RUGI) BERSIH', labaBersih]
   ];
 
@@ -223,7 +224,7 @@ export const exportHistoriStokExcel = (filteredHistory, startDate, endDate, stor
   
   const reportData = filteredHistory.map(log => ({
     'Tanggal & Jam': formatDisplayDate(log.createdAt),
-    'Cabang / Lokasi': log.storeName || 'Pusat', // Kolom Cabang Baru
+    'Cabang / Lokasi': log.storeName || 'Pusat',
     'Nama Barang': log.productName,
     'Status': log.type,
     'Jumlah': `${log.amount} ${log.unitType}`,
