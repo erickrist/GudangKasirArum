@@ -10,7 +10,7 @@ import { useCollection, deleteDocument, addDocument, updateDocument } from '../h
 import Loading from '../components/common/Loading';
 import Nota from '../components/Nota';
 import FormRetur from '../components/FormRetur';
-import EditTransactionModal from '../components/EditTransactionModal'; // FIX: Path Import yang bikin Blank!
+import EditTransactionModal from '../components/EditTransactionModal';
 
 import { exportMasterExcel, exportNeracaExcel, exportLabaRugiExcel } from '../utils/exportExcel';
 import { exportMasterPDF, exportNeracaPDF, exportLabaRugiPDF } from '../utils/exportPdf';
@@ -62,7 +62,6 @@ const Dashboard = ({ onShowToast }) => {
   const [isFullPayment, setIsFullPayment] = useState(true);
   const [newManualIncome, setNewManualIncome] = useState({ note: '', amount: '', method: 'TUNAI', storeId: '' });
   const [newExpense, setNewExpense] = useState({ title: '', amount: '', category: 'Operasional', storeId: '' });
-  
   const [newManualDebt, setNewManualDebt] = useState({ customerId: '', amount: '', note: '', storeId: '' });
 
   const getSafeDate = (dateSource) => {
@@ -476,6 +475,7 @@ const Dashboard = ({ onShowToast }) => {
     } catch (error) { onShowToast('Gagal sinkronisasi data', 'error'); }
   };
 
+  // --- PENAMBALAN BUG PENGHAPUSAN MASAL ---
   const handleBulkDelete = async () => {
     let target = []; 
     if (activeTab === 'sales') target = filteredSales; 
@@ -489,9 +489,30 @@ const Dashboard = ({ onShowToast }) => {
     let count = 0;
     for (const item of target) { 
       const colName = item.sourceCollection || (activeTab === 'expenses' ? 'expenses' : 'transactions');
-      if (colName) { await deleteDocument(colName, item.id); count++; }
+      if (colName) { 
+        if (colName === 'returns') {
+             // Tarik kembali Deposit jika retur dihapus
+             if (item.customerId) {
+                const customer = customers.find(c => c.id === item.customerId);
+                if (customer) {
+                  let newDeposit = Number(customer.returnAmount) || 0;
+                  if (item.depType === 'in') newDeposit = Math.max(0, newDeposit - Number(item.nominal));
+                  else if (item.depType === 'out') newDeposit += Number(item.nominal);
+                  await updateDocument('customers', customer.id, { returnAmount: newDeposit });
+                }
+             }
+             // Hapus expense bayangannya agar Laba kembali normal
+             const relatedExpense = expenses.find(e =>
+                e.amount === item.nominal &&
+                Math.abs(getSafeDate(e.createdAt).getTime() - getSafeDate(item.createdAt).getTime()) < 5000
+             );
+             if (relatedExpense) { await deleteDocument('expenses', relatedExpense.id); }
+        }
+        await deleteDocument(colName, item.id); 
+        count++; 
+      }
     }
-    onShowToast(`${count} data dihapus`, 'success');
+    onShowToast(`${count} data dihapus secara permanen`, 'success');
     setShowBulkDeleteModal(false);
   };
 
@@ -540,10 +561,9 @@ const Dashboard = ({ onShowToast }) => {
         ))}
       </div>
 
-      {/* --- KARTU STATISTIK (DIPERBARUI JADI SCROLL HORIZONTAL) --- */}
+      {/* --- KARTU STATISTIK (SCROLL HORIZONTAL) --- */}
       <div className="flex overflow-x-auto gap-3 md:gap-4 mb-8 pb-4 custom-scrollbar snap-x -mx-2 px-2 md:-mx-0 md:px-0">
         
-        {/* Kartu 1: Laba Bersih */}
         <div 
           onClick={() => setShowProfitDetailModal(true)}
           className={`min-w-[180px] md:min-w-[240px] flex-shrink-0 snap-start rounded-2xl shadow-sm p-4 md:p-6 border-b-4 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all relative flex flex-col justify-between ${
@@ -565,7 +585,6 @@ const Dashboard = ({ onShowToast }) => {
           </div>
         </div>
 
-        {/* Kartu 2: Total Kerugian */}
         <div onClick={() => navigateToTab('expenses')} className="min-w-[180px] md:min-w-[240px] flex-shrink-0 snap-start bg-white rounded-2xl shadow-sm p-4 md:p-6 border-b-4 border-red-600 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all bg-red-50/20 flex flex-col justify-between">
           <div className="absolute top-4 right-4"><ShieldAlert className="w-4 h-4 text-red-300" /></div>
           <p className="text-[10px] md:text-[11px] font-black text-gray-400 uppercase mb-2">Total Rugi (Retur/Rusak)</p>
@@ -573,35 +592,30 @@ const Dashboard = ({ onShowToast }) => {
           <p className="text-[9px] font-bold text-red-400 mt-auto pt-2 border-t border-dashed border-red-100 uppercase">Otomatis Potong Laba</p>
         </div>
 
-        {/* Kartu 3: Total Pemasukan */}
         <div onClick={() => navigateToTab('transactions')} className="min-w-[180px] md:min-w-[240px] flex-shrink-0 snap-start bg-white rounded-2xl shadow-sm p-4 md:p-6 border-b-4 border-teal-500 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all flex flex-col justify-between">
           <p className="text-[10px] md:text-[11px] font-black text-gray-400 uppercase mb-2">Total Pemasukan Jual</p>
           <h3 className="text-lg md:text-2xl font-black text-teal-700 mb-1">Rp {(totalIncome || 0).toLocaleString('id-ID')}</h3>
           <p className="text-[9px] font-bold text-gray-300 mt-auto pt-2 border-t border-dashed border-gray-100 uppercase">Gross Income</p>
         </div>
 
-        {/* Kartu 4: Total Uang Keluar */}
         <div onClick={() => navigateToTab('expenses')} className="min-w-[180px] md:min-w-[240px] flex-shrink-0 snap-start bg-white rounded-2xl shadow-sm p-4 md:p-6 border-b-4 border-rose-400 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all flex flex-col justify-between">
           <p className="text-[10px] md:text-[11px] font-black text-gray-400 uppercase mb-2">Total Kas Keluar</p>
           <h3 className="text-lg md:text-2xl font-black text-rose-600 mb-1">Rp {(totalCashExpenses || 0).toLocaleString('id-ID')}</h3>
           <p className="text-[9px] font-bold text-gray-300 mt-auto pt-2 border-t border-dashed border-gray-100 uppercase">Operasional & Belanja</p>
         </div>
 
-        {/* Kartu 5: Total Piutang */}
         <div onClick={() => navigateToTab('debts')} className="min-w-[180px] md:min-w-[240px] flex-shrink-0 snap-start bg-white rounded-2xl shadow-sm p-4 md:p-6 border-b-4 border-orange-500 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all flex flex-col justify-between">
           <p className="text-[10px] md:text-[11px] font-black text-gray-400 uppercase mb-2">Piutang {selectedStoreFilter === 'ALL' ? 'Global' : 'Cabang'}</p>
           <h3 className="text-lg md:text-2xl font-black text-orange-600 mb-1">Rp {(totalUnpaidDebtDisplay || 0).toLocaleString('id-ID')}</h3>
           <p className="text-[9px] font-bold text-gray-300 mt-auto pt-2 border-t border-dashed border-gray-100 uppercase">Hutang Belum Dibayar</p>
         </div>
 
-        {/* Kartu 6: Total Deposit */}
         <div onClick={() => navigateToTab('returns')} className="min-w-[180px] md:min-w-[240px] flex-shrink-0 snap-start bg-white rounded-2xl shadow-sm p-4 md:p-6 border-b-4 border-purple-500 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all flex flex-col justify-between">
           <p className="text-[10px] md:text-[11px] font-black text-gray-400 uppercase mb-2">Deposit {selectedStoreFilter === 'ALL' ? 'Global' : 'Cabang'}</p>
           <h3 className="text-lg md:text-2xl font-black text-purple-600 mb-1">Rp {(totalDepositDisplay || 0).toLocaleString('id-ID')}</h3>
           <p className="text-[9px] font-bold text-gray-300 mt-auto pt-2 border-t border-dashed border-gray-100 uppercase">Saldo Pelanggan</p>
         </div>
 
-        {/* Kartu 7: Saldo Bersih */}
         <div onClick={() => navigateToTab('netbalance')} className="min-w-[180px] md:min-w-[240px] flex-shrink-0 snap-start bg-blue-50/30 rounded-2xl shadow-sm p-4 md:p-6 border-b-4 border-blue-600 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all flex flex-col justify-between">
           <p className="text-[10px] md:text-[11px] font-black text-blue-500 uppercase mb-2">Uang Bersih Laci (Net)</p>
           <h3 className="text-lg md:text-2xl font-black text-blue-700 mb-1">Rp {(balance || 0).toLocaleString('id-ID')}</h3>
@@ -1070,40 +1084,73 @@ const Dashboard = ({ onShowToast }) => {
         </div>
       )}
 
-      {/* MODAL HAPUS */}
+      {/* --- PENAMBALAN BUG: LOGIKA HAPUS DIPERBAIKI --- */}
       {showDeleteModal && selectedItem && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
           <div className="bg-white rounded-[32px] p-6 md:p-8 max-w-sm w-full shadow-2xl text-center">
-            <h3 className="text-lg md:text-xl font-black text-gray-800 mb-6">{selectedItem.isSale ? 'Hapus Transaksi?' : 'Hapus Data?'}</h3>
+            <h3 className="text-lg md:text-xl font-black text-gray-800 mb-6">Hapus Data Ini?</h3>
             <div className="flex gap-3">
               <button onClick={() => setShowDeleteModal(false)} className="flex-1 py-3 font-black text-gray-400 bg-gray-100 rounded-2xl">Batal</button>
               <button onClick={async () => { 
-                if (selectedItem.isSale) {
-                  if (selectedItem.items) {
-                    for (const item of selectedItem.items) {
-                      const product = products.find(p => p.id === item.productId);
-                      if (product) {
-                        const pcsToRestore = item.qty * (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType) ? (item.pcsPerCarton || 1) : 1);
-                        await updateDocument('products', product.id, { stockPcs: product.stockPcs + pcsToRestore });
+                try {
+                  if (selectedItem.isSale) {
+                    if (selectedItem.items) {
+                      for (const item of selectedItem.items) {
+                        const product = products.find(p => p.id === item.productId);
+                        if (product) {
+                          const pcsToRestore = item.qty * (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType) ? (item.pcsPerCarton || 1) : 1);
+                          await updateDocument('products', product.id, { stockPcs: product.stockPcs + pcsToRestore });
+                        }
                       }
                     }
-                  }
-                  if (selectedItem.customerId) {
-                    const customer = customers.find(c => c.id === selectedItem.customerId);
-                    if (customer) {
-                      let newDebt = Number(customer.remainingDebt) || 0;
-                      let newDeposit = Number(customer.returnAmount) || 0;
-                      if (selectedItem.paymentStatus === 'HUTANG') newDebt = Math.max(0, newDebt - (Number(selectedItem.subtotal) - Number(selectedItem.returnUsed || 0)));
-                      if (Number(selectedItem.returnUsed) > 0) newDeposit += Number(selectedItem.returnUsed);
-                      await updateDocument('customers', customer.id, { remainingDebt: newDebt, returnAmount: newDeposit });
+                    if (selectedItem.customerId) {
+                      const customer = customers.find(c => c.id === selectedItem.customerId);
+                      if (customer) {
+                        let newDebt = Number(customer.remainingDebt) || 0;
+                        let newDeposit = Number(customer.returnAmount) || 0;
+                        if (selectedItem.paymentStatus === 'HUTANG') newDebt = Math.max(0, newDebt - (Number(selectedItem.subtotal) - Number(selectedItem.returnUsed || 0)));
+                        if (Number(selectedItem.returnUsed) > 0) newDeposit += Number(selectedItem.returnUsed);
+                        await updateDocument('customers', customer.id, { remainingDebt: newDebt, returnAmount: newDeposit });
+                      }
                     }
+                    await deleteDocument('transactions', selectedItem.id); 
+                    onShowToast('Transaksi dibatalkan', 'success');
+
+                  } else if (selectedItem.isCustomerDebt) {
+                    await updateDocument('customers', selectedItem.id, { remainingDebt: 0 });
+                    onShowToast('Hutang pelanggan di-nol-kan', 'success');
+
+                  } else if (selectedItem.isCustomerDeposit) {
+                    await updateDocument('customers', selectedItem.id, { returnAmount: 0 });
+                    onShowToast('Deposit pelanggan di-nol-kan', 'success');
+
+                  } else {
+                    const colName = selectedItem.sourceCollection || (activeTab === 'expenses' ? 'expenses' : activeTab === 'returns' ? 'returns' : 'transactions');
+                    
+                    if (colName === 'returns') {
+                       if (selectedItem.customerId) {
+                          const customer = customers.find(c => c.id === selectedItem.customerId);
+                          if (customer) {
+                            let newDeposit = Number(customer.returnAmount) || 0;
+                            if (selectedItem.depType === 'in') newDeposit = Math.max(0, newDeposit - Number(selectedItem.nominal));
+                            else if (selectedItem.depType === 'out') newDeposit += Number(selectedItem.nominal);
+                            await updateDocument('customers', customer.id, { returnAmount: newDeposit });
+                          }
+                       }
+                       const relatedExpense = expenses.find(e =>
+                          e.amount === Number(selectedItem.nominal) &&
+                          Math.abs(getSafeDate(e.createdAt).getTime() - getSafeDate(selectedItem.createdAt).getTime()) < 5000
+                       );
+                       if (relatedExpense) {
+                          await deleteDocument('expenses', relatedExpense.id);
+                       }
+                    }
+
+                    await deleteDocument(colName, selectedItem.id); 
+                    onShowToast('Data dihapus dan dikembalikan', 'success');
                   }
-                  await deleteDocument('transactions', selectedItem.id); 
-                  onShowToast('Transaksi dibatalkan', 'success');
-                } else {
-                  const colName = selectedItem.sourceCollection || (activeTab === 'expenses' ? 'expenses' : activeTab === 'returns' ? 'returns' : 'transactions');
-                  await deleteDocument(colName, selectedItem.id); 
-                  onShowToast('Data dihapus', 'success');
+                } catch (err) {
+                  onShowToast('Gagal menghapus data', 'error');
                 }
                 setShowDeleteModal(false); 
               }} className="flex-1 bg-red-600 text-white py-3 rounded-2xl font-black shadow-md">Hapus</button>
