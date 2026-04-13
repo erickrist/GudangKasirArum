@@ -4,13 +4,13 @@ import {
 } from 'recharts';
 import { 
   TrendingUp, Trash2, Eye, FileText, Table as TableIcon, Search, Calendar, Wallet, 
-  CreditCard, ArrowDownCircle, ArrowUpCircle, History, Clock, ListFilter, X, RotateCcw, PackagePlus, ChevronDown, ChevronLeft, ChevronRight, AlertTriangle, Edit3, Download, ShoppingCart, Landmark, Store, Info
+  CreditCard, ArrowDownCircle, ArrowUpCircle, History, Clock, ListFilter, X, RotateCcw, PackagePlus, ChevronDown, ChevronLeft, ChevronRight, AlertTriangle, Edit3, Download, ShoppingCart, Landmark, Store, Info, ShieldAlert
 } from 'lucide-react';
 import { useCollection, deleteDocument, addDocument, updateDocument } from '../hooks/useFirestore';
 import Loading from '../components/common/Loading';
 import Nota from '../components/Nota';
 import FormRetur from '../components/FormRetur';
-import EditTransactionModal from '../components/EditTransactionModal';
+import EditTransactionModal from '../components/EditTransactionModal'; // FIX: Path Import yang bikin Blank!
 
 import { exportMasterExcel, exportNeracaExcel, exportLabaRugiExcel } from '../utils/exportExcel';
 import { exportMasterPDF, exportNeracaPDF, exportLabaRugiPDF } from '../utils/exportPdf';
@@ -41,8 +41,6 @@ const Dashboard = ({ onShowToast }) => {
   const [showDownloadModal, setShowDownloadModal] = useState(false);
   const [showEditTransModal, setShowEditTransModal] = useState(false);
   const [showEditBalanceModal, setShowEditBalanceModal] = useState(false);
-  
-  // STATE BARU: Untuk pop-up rincian Laba/Rugi
   const [showProfitDetailModal, setShowProfitDetailModal] = useState(false);
 
   const [selectedEditTransaction, setSelectedEditTransaction] = useState(null);
@@ -102,12 +100,10 @@ const Dashboard = ({ onShowToast }) => {
   // === PERHITUNGAN UTAMA ===
   const totalIncome = useMemo(() => activeStoreTransactions.reduce((sum, t) => sum + (Number(t.total) || 0), 0), [activeStoreTransactions]);
   
-  // PERBAIKAN: Hitung pengeluaran KAS FISIK (Abaikan Barang Rusak)
   const totalCashExpenses = useMemo(() => activeStoreExpenses
     .filter(e => e.category !== 'Barang Rusak') 
     .reduce((sum, e) => sum + (Number(e.amount) || 0), 0), [activeStoreExpenses]);
 
-  // BALANCE NET HANYA DIKURANGI PENGELUARAN FISIK
   const balance = totalIncome - totalCashExpenses;
 
   const totalHPP = useMemo(() => activeStoreTransactions.reduce((sum, t) => {
@@ -116,7 +112,7 @@ const Dashboard = ({ onShowToast }) => {
     return sum + itemHpp;
   }, 0), [activeStoreTransactions]);
 
-  // --- LOGIKA LABA RUGI BERSIH & RINCIAN ---
+  // --- LOGIKA LABA RUGI & KERUGIAN ---
   const totalOperationalExpenses = useMemo(() => 
     activeStoreExpenses
       .filter(e => e.category !== 'Kulakan') 
@@ -131,8 +127,15 @@ const Dashboard = ({ onShowToast }) => {
     [activeStoreExpenses]
   );
 
-  const totalPureOperational = totalOperationalExpenses - totalDamagedGoods;
+  const totalReturnExpenses = useMemo(() => 
+    activeStoreExpenses
+      .filter(e => e.category === 'Retur') 
+      .reduce((sum, e) => sum + (Number(e.amount) || 0), 0), 
+    [activeStoreExpenses]
+  );
 
+  const totalLossValue = totalDamagedGoods + totalReturnExpenses;
+  const totalPureOperational = totalOperationalExpenses - totalDamagedGoods - totalReturnExpenses;
   const netProfit = totalIncome - totalHPP - totalOperationalExpenses;
   const isProfit = netProfit >= 0;
   // ----------------------------------------------------
@@ -219,7 +222,7 @@ const Dashboard = ({ onShowToast }) => {
       }
     });
     activeStoreExpenses.forEach(e => {
-      logs.push({ ...e, sourceCollection: 'expenses', netType: 'out', nominal: e.amount, subjName: e.category === 'Kulakan' ? 'Kulakan / Restock' : e.category === 'Barang Rusak' ? 'Barang Rusak/Basi' : 'Beban/Pengeluaran', detailNote: e.title });
+      logs.push({ ...e, sourceCollection: 'expenses', netType: 'out', nominal: e.amount, subjName: e.category === 'Kulakan' ? 'Kulakan / Restock' : e.category === 'Barang Rusak' ? 'Barang Rusak/Basi' : e.category === 'Retur' ? 'Refund Retur' : 'Beban/Pengeluaran', detailNote: e.title });
     });
     return logs.sort((a, b) => getSafeDate(b.createdAt) - getSafeDate(a.createdAt));
   }, [activeStoreTransactions, activeStoreExpenses]);
@@ -231,6 +234,27 @@ const Dashboard = ({ onShowToast }) => {
     depositLogs.forEach(l => logs.push({ ...l, logTime: getSafeDate(l.createdAt), logCategory: 'DEPOSIT', logType: l.depType, logLabel: l.depType === 'in' ? 'Deposit Masuk' : 'Deposit Terpakai', logTitle: l.customerName || 'Tanpa Nama', logDetail: l.note }));
     return logs.sort((a, b) => b.logTime - a.logTime);
   }, [netLogs, debtLogs, depositLogs]);
+
+  const applyFilters = (list, searchFields) => list.filter(item => {
+    const date = getSafeDate(item.createdAt);
+    const matchesSearch = searchFields.some(field => (item[field] || '').toLowerCase().includes(searchTerm.toLowerCase()));
+    let matchesDate = true;
+    if (startDate && endDate) {
+      const start = new Date(startDate); const end = new Date(endDate); end.setHours(23, 59, 59);
+      matchesDate = date >= start && date <= end;
+    }
+    return matchesSearch && matchesDate;
+  });
+
+  const salesData = useMemo(() => activeStoreTransactions.filter(t => t.items && t.items.length > 0), [activeStoreTransactions]);
+  const incomeData = useMemo(() => activeStoreTransactions.filter(t => !t.items || t.items.length === 0), [activeStoreTransactions]);
+
+  const filteredSales = useMemo(() => applyFilters(salesData, ['customerName', 'note']), [salesData, searchTerm, startDate, endDate]);
+  const filteredTransactions = useMemo(() => applyFilters(incomeData, ['customerName', 'note']), [incomeData, searchTerm, startDate, endDate]);
+  const filteredExpenses = useMemo(() => applyFilters(activeStoreExpenses, ['title', 'category']), [activeStoreExpenses, searchTerm, startDate, endDate]);
+  const filteredDebtHistory = useMemo(() => applyFilters(debtLogs, ['customerName', 'note']), [debtLogs, searchTerm, startDate, endDate]);
+  const filteredDepositHistory = useMemo(() => applyFilters(depositLogs, ['customerName', 'note', 'reason']), [depositLogs, searchTerm, startDate, endDate]);
+  const filteredNetBalance = useMemo(() => applyFilters(netLogs, ['customerName', 'note', 'title', 'subjName', 'detailNote']), [netLogs, searchTerm, startDate, endDate]);
 
   const dynamicChartData = useMemo(() => {
     const dataMap = {};
@@ -251,207 +275,6 @@ const Dashboard = ({ onShowToast }) => {
     processData(activeStoreExpenses, true);
     return Object.values(dataMap).slice(-12);
   }, [activeStoreTransactions, activeStoreExpenses, chartPeriod]);
-
-  // === ACTIONS ===
-  const handleAddManualIncome = async (e) => {
-    e.preventDefault();
-    if (!newManualIncome.note || !newManualIncome.amount || !newManualIncome.storeId) return onShowToast('Lengkapi data dan pilih cabang', 'error');
-    const storeObj = stores.find(s => s.id === newManualIncome.storeId);
-    await addDocument('transactions', { 
-      note: newManualIncome.note, subtotal: Number(newManualIncome.amount), total: Number(newManualIncome.amount), 
-      customerName: 'Pemasukan Manual', paymentStatus: 'LUNAS', paymentMethod: newManualIncome.method, 
-      storeId: newManualIncome.storeId, storeName: storeObj ? storeObj.name : 'Pusat', createdAt: new Date() 
-    });
-    setNewManualIncome({ note: '', amount: '', method: 'TUNAI', storeId: '' });
-    onShowToast('Pemasukan dicatat', 'success');
-  };
-
-  const handlePayDebt = async () => {
-    const maxAmount = selectedCustomer.displayDebt ?? selectedCustomer.remainingDebt;
-    const amount = isFullPayment ? maxAmount : Number(debtPaymentAmount);
-    if (amount <= 0 || amount > maxAmount) return onShowToast('Nominal tidak valid', 'error');
-    
-    const updateRes = await updateDocument('customers', selectedCustomer.id, { remainingDebt: (selectedCustomer.remainingDebt || 0) - amount });
-    if (updateRes.success) {
-      await addDocument('transactions', { customerName: selectedCustomer.name, customerId: selectedCustomer.id, subtotal: amount, total: amount, note: 'Pelunasan Hutang Manual', paymentStatus: 'LUNAS', paymentMethod: 'TUNAI', storeId: selectedStoreFilter !== 'ALL' ? selectedStoreFilter : 'pusat', storeName: selectedStoreName, createdAt: new Date() });
-      onShowToast('Hutang diperbarui', 'success');
-      setShowPayDebtModal(false);
-    }
-  };
-
-  const handleAddManualDebt = async (e) => {
-    e.preventDefault();
-    if (!newManualDebt.customerId || !newManualDebt.amount || !newManualDebt.storeId) return onShowToast('Pilih pelanggan, cabang, dan isi nominal!', 'error');
-    const cust = customers.find(c => c.id === newManualDebt.customerId);
-    if (!cust) return;
-    const amount = Number(newManualDebt.amount);
-    
-    const storeObj = stores.find(s => s.id === newManualDebt.storeId);
-    const storeName = storeObj ? storeObj.name : 'Pusat';
-
-    const updateRes = await updateDocument('customers', cust.id, { remainingDebt: (Number(cust.remainingDebt) || 0) + amount });
-    if (updateRes.success) {
-      await addDocument('transactions', { customerName: cust.name, customerId: cust.id, subtotal: amount, total: 0, note: newManualDebt.note || 'Penambahan Hutang Manual', paymentStatus: 'HUTANG', storeId: newManualDebt.storeId, storeName: storeName, createdAt: new Date() });
-      onShowToast('Hutang manual berhasil ditambahkan', 'success');
-      setNewManualDebt({ customerId: '', amount: '', note: '', storeId: '' });
-    }
-  };
-
-  const handleSaveEditBalance = async () => {
-    const newAmount = Number(editBalanceAmount);
-    if (isNaN(newAmount) || newAmount < 0) return onShowToast('Nominal tidak valid', 'error');
-    
-    if (editBalanceType === 'debt') {
-      const oldStoreAmount = selectedCustomer.displayDebt ?? selectedCustomer.remainingDebt;
-      const diff = newAmount - oldStoreAmount;
-      if (diff === 0) { setShowEditBalanceModal(false); return; }
-      
-      await updateDocument('customers', selectedCustomer.id, { remainingDebt: (selectedCustomer.remainingDebt || 0) + diff });
-      if (diff > 0) {
-        await addDocument('transactions', { customerName: selectedCustomer.name, customerId: selectedCustomer.id, subtotal: diff, total: 0, note: 'Koreksi Hutang (Bertambah)', paymentStatus: 'HUTANG', storeId: selectedStoreFilter !== 'ALL' ? selectedStoreFilter : 'pusat', storeName: selectedStoreName, createdAt: new Date() });
-      } else {
-        await addDocument('transactions', { customerName: selectedCustomer.name, customerId: selectedCustomer.id, subtotal: Math.abs(diff), total: 0, note: 'Koreksi Hutang (Berkurang)', paymentStatus: 'LUNAS', storeId: selectedStoreFilter !== 'ALL' ? selectedStoreFilter : 'pusat', storeName: selectedStoreName, createdAt: new Date() });
-      }
-      onShowToast('Hutang berhasil diubah', 'success');
-    } else {
-      const oldStoreAmount = selectedCustomer.displayDeposit ?? selectedCustomer.returnAmount;
-      const diff = newAmount - oldStoreAmount;
-      if (diff === 0) { setShowEditBalanceModal(false); return; }
-
-      await updateDocument('customers', selectedCustomer.id, { returnAmount: (selectedCustomer.returnAmount || 0) + diff });
-      if (diff > 0) {
-        await addDocument('returns', { customerName: selectedCustomer.name, customerId: selectedCustomer.id, amount: diff, type: 'manual_deposit_in', note: 'Koreksi Deposit (Bertambah)', storeId: selectedStoreFilter !== 'ALL' ? selectedStoreFilter : 'pusat', storeName: selectedStoreName, createdAt: new Date() });
-      } else {
-        await addDocument('returns', { customerName: selectedCustomer.name, customerId: selectedCustomer.id, amount: Math.abs(diff), type: 'manual_deposit_out', note: 'Koreksi Deposit (Berkurang)', storeId: selectedStoreFilter !== 'ALL' ? selectedStoreFilter : 'pusat', storeName: selectedStoreName, createdAt: new Date() });
-      }
-      onShowToast('Deposit berhasil diubah', 'success');
-    }
-    setShowEditBalanceModal(false);
-  };
-
-  const handleResetAllData = async () => {
-    try {
-      for (const t of transactions) { await deleteDocument('transactions', t.id); }
-      for (const e of expenses) { await deleteDocument('expenses', e.id); }
-      for (const r of returnsData) { await deleteDocument('returns', r.id); }
-      for (const c of customers) {
-        if ((Number(c.remainingDebt) || 0) > 0 || (Number(c.returnAmount) || 0) > 0) {
-          await updateDocument('customers', c.id, { remainingDebt: 0, returnAmount: 0 });
-        }
-      }
-      onShowToast('Seluruh data berhasil dihapus bersih', 'success');
-      setShowResetModal(false);
-    } catch (error) {
-      onShowToast('Gagal mereset sebagian data', 'error');
-    }
-  };
-
-  const handleSyncCustomers = async () => {
-    try {
-      const globalDebtLogs = [];
-      transactions.forEach(t => {
-        if (t.paymentStatus === 'HUTANG' || t.note === 'Penambahan Hutang Manual' || t.note === 'Koreksi Hutang (Bertambah)') {
-          let amount = t.subtotal || t.amount;
-          if (t.paymentStatus === 'HUTANG') {
-             amount = t.subtotal - (t.returnUsed || 0);
-             if (t.debtPaid > 0) amount += t.debtPaid; 
-          }
-          globalDebtLogs.push({ customerId: t.customerId, debtType: 'in', nominal: amount });
-        }
-        if (t.debtPaid > 0) {
-          globalDebtLogs.push({ customerId: t.customerId, debtType: 'out', nominal: t.debtPaid });
-        }
-        if (t.note === 'Cicilan/Pelunasan Hutang' || t.note === 'Pelunasan Hutang Manual' || t.note === 'Nol-kan Hutang Manual' || t.note === 'Koreksi Hutang (Berkurang)') {
-           globalDebtLogs.push({ customerId: t.customerId, debtType: 'out', nominal: t.subtotal });
-        }
-      });
-
-      const globalDepositLogs = [];
-      returnsData.forEach(r => {
-        if (r.refundType === 'deposit' || r.type === 'manual_deposit_in') {
-          globalDepositLogs.push({ customerId: r.customerId, depType: 'in', nominal: r.amount });
-        } else if (r.type === 'manual_deposit_out') {
-          globalDepositLogs.push({ customerId: r.customerId, depType: 'out', nominal: r.amount });
-        }
-      });
-      transactions.forEach(t => {
-        if (t.returnUsed > 0) globalDepositLogs.push({ customerId: t.customerId, depType: 'out', nominal: t.returnUsed });
-      });
-
-      const trueDebtMap = {};
-      globalDebtLogs.forEach(log => {
-        if (!log.customerId) return;
-        if (!trueDebtMap[log.customerId]) trueDebtMap[log.customerId] = 0;
-        trueDebtMap[log.customerId] += log.debtType === 'in' ? Number(log.nominal) : -Number(log.nominal);
-      });
-
-      const trueDepMap = {};
-      globalDepositLogs.forEach(log => {
-        if (!log.customerId) return;
-        if (!trueDepMap[log.customerId]) trueDepMap[log.customerId] = 0;
-        trueDepMap[log.customerId] += log.depType === 'in' ? Number(log.nominal) : -Number(log.nominal);
-      });
-
-      let syncCount = 0;
-      for (const c of customers) {
-        const correctDebt = trueDebtMap[c.id] && trueDebtMap[c.id] > 0 ? trueDebtMap[c.id] : 0;
-        const correctDep = trueDepMap[c.id] && trueDepMap[c.id] > 0 ? trueDepMap[c.id] : 0;
-        
-        if (Number(c.remainingDebt || 0) !== correctDebt || Number(c.returnAmount || 0) !== correctDep) {
-          await updateDocument('customers', c.id, { remainingDebt: correctDebt, returnAmount: correctDep });
-          syncCount++;
-        }
-      }
-      
-      onShowToast(`Berhasil! ${syncCount} data profil pelanggan disinkronkan.`, 'success');
-      setShowSyncModal(false);
-    } catch (error) {
-      onShowToast('Gagal sinkronisasi data', 'error');
-    }
-  };
-
-  const handleBulkDelete = async () => {
-    let target = []; 
-    if (activeTab === 'sales') target = filteredSales; 
-    else if (activeTab === 'transactions') target = filteredTransactions; 
-    else if (activeTab === 'expenses') target = filteredExpenses; 
-    else if (activeTab === 'debts') target = filteredDebtHistory;
-    else if (activeTab === 'returns') target = filteredDepositHistory;
-
-    if (target.length === 0) return onShowToast('Tidak ada data untuk dihapus', 'error');
-    
-    let count = 0;
-    for (const item of target) { 
-      const colName = item.sourceCollection || (activeTab === 'expenses' ? 'expenses' : 'transactions');
-      if (colName) {
-        await deleteDocument(colName, item.id);
-        count++;
-      }
-    }
-    onShowToast(`${count} data dihapus`, 'success');
-    setShowBulkDeleteModal(false);
-  };
-
-  const applyFilters = (list, searchFields) => list.filter(item => {
-    const date = getSafeDate(item.createdAt);
-    const matchesSearch = searchFields.some(field => (item[field] || '').toLowerCase().includes(searchTerm.toLowerCase()));
-    let matchesDate = true;
-    if (startDate && endDate) {
-      const start = new Date(startDate); const end = new Date(endDate); end.setHours(23, 59, 59);
-      matchesDate = date >= start && date <= end;
-    }
-    return matchesSearch && matchesDate;
-  });
-
-  const salesData = activeStoreTransactions.filter(t => t.items && t.items.length > 0);
-  const incomeData = activeStoreTransactions.filter(t => !t.items || t.items.length === 0);
-
-  const filteredSales = useMemo(() => applyFilters(salesData, ['customerName', 'note']), [salesData, searchTerm, startDate, endDate]);
-  const filteredTransactions = useMemo(() => applyFilters(incomeData, ['customerName', 'note']), [incomeData, searchTerm, startDate, endDate]);
-  const filteredExpenses = useMemo(() => applyFilters(activeStoreExpenses, ['title']), [activeStoreExpenses, searchTerm, startDate, endDate]);
-  const filteredDebtHistory = useMemo(() => applyFilters(debtLogs, ['customerName', 'note']), [debtLogs, searchTerm, startDate, endDate]);
-  const filteredDepositHistory = useMemo(() => applyFilters(depositLogs, ['customerName', 'note', 'reason']), [depositLogs, searchTerm, startDate, endDate]);
-  const filteredNetBalance = useMemo(() => applyFilters(netLogs, ['customerName', 'note', 'title', 'subjName', 'detailNote']), [netLogs, searchTerm, startDate, endDate]);
 
   const navigateToTab = (tabId) => {
     setActiveTab(tabId);
@@ -505,6 +328,173 @@ const Dashboard = ({ onShowToast }) => {
 
   const displayedLogs = showAllLogs ? allActivityLogs : allActivityLogs.slice(0, 10);
 
+  // ACTIONS (TRANSAKSI MANUAL)
+  const handleAddManualIncome = async (e) => {
+    e.preventDefault();
+    if (!newManualIncome.note || !newManualIncome.amount || !newManualIncome.storeId) return onShowToast('Lengkapi data dan pilih cabang', 'error');
+    const storeObj = stores.find(s => s.id === newManualIncome.storeId);
+    await addDocument('transactions', { 
+      note: newManualIncome.note, subtotal: Number(newManualIncome.amount), total: Number(newManualIncome.amount), 
+      customerName: 'Pemasukan Manual', paymentStatus: 'LUNAS', paymentMethod: newManualIncome.method, 
+      storeId: newManualIncome.storeId, storeName: storeObj ? storeObj.name : 'Pusat', createdAt: new Date() 
+    });
+    setNewManualIncome({ note: '', amount: '', method: 'TUNAI', storeId: '' });
+    onShowToast('Pemasukan dicatat', 'success');
+  };
+
+  const handlePayDebt = async () => {
+    const maxAmount = selectedCustomer.displayDebt ?? selectedCustomer.remainingDebt;
+    const amount = isFullPayment ? maxAmount : Number(debtPaymentAmount);
+    if (amount <= 0 || amount > maxAmount) return onShowToast('Nominal tidak valid', 'error');
+    
+    const updateRes = await updateDocument('customers', selectedCustomer.id, { remainingDebt: (selectedCustomer.remainingDebt || 0) - amount });
+    if (updateRes.success) {
+      await addDocument('transactions', { customerName: selectedCustomer.name, customerId: selectedCustomer.id, subtotal: amount, total: amount, note: 'Pelunasan Hutang Manual', paymentStatus: 'LUNAS', paymentMethod: 'TUNAI', storeId: selectedStoreFilter !== 'ALL' ? selectedStoreFilter : 'pusat', storeName: selectedStoreName, createdAt: new Date() });
+      onShowToast('Hutang diperbarui', 'success');
+      setShowPayDebtModal(false);
+    }
+  };
+
+  const handleAddManualDebt = async (e) => {
+    e.preventDefault();
+    if (!newManualDebt.customerId || !newManualDebt.amount || !newManualDebt.storeId) return onShowToast('Pilih pelanggan, cabang, dan isi nominal!', 'error');
+    const cust = customers.find(c => c.id === newManualDebt.customerId);
+    if (!cust) return;
+    const amount = Number(newManualDebt.amount);
+    const storeObj = stores.find(s => s.id === newManualDebt.storeId);
+    
+    const updateRes = await updateDocument('customers', cust.id, { remainingDebt: (Number(cust.remainingDebt) || 0) + amount });
+    if (updateRes.success) {
+      await addDocument('transactions', { customerName: cust.name, customerId: cust.id, subtotal: amount, total: 0, note: newManualDebt.note || 'Penambahan Hutang Manual', paymentStatus: 'HUTANG', storeId: newManualDebt.storeId, storeName: storeObj ? storeObj.name : 'Pusat', createdAt: new Date() });
+      onShowToast('Hutang manual berhasil ditambahkan', 'success');
+      setNewManualDebt({ customerId: '', amount: '', note: '', storeId: '' });
+    }
+  };
+
+  const handleSaveEditBalance = async () => {
+    const newAmount = Number(editBalanceAmount);
+    if (isNaN(newAmount) || newAmount < 0) return onShowToast('Nominal tidak valid', 'error');
+    
+    if (editBalanceType === 'debt') {
+      const oldStoreAmount = selectedCustomer.displayDebt ?? selectedCustomer.remainingDebt;
+      const diff = newAmount - oldStoreAmount;
+      if (diff === 0) { setShowEditBalanceModal(false); return; }
+      
+      await updateDocument('customers', selectedCustomer.id, { remainingDebt: (selectedCustomer.remainingDebt || 0) + diff });
+      if (diff > 0) {
+        await addDocument('transactions', { customerName: selectedCustomer.name, customerId: selectedCustomer.id, subtotal: diff, total: 0, note: 'Koreksi Hutang (Bertambah)', paymentStatus: 'HUTANG', storeId: selectedStoreFilter !== 'ALL' ? selectedStoreFilter : 'pusat', storeName: selectedStoreName, createdAt: new Date() });
+      } else {
+        await addDocument('transactions', { customerName: selectedCustomer.name, customerId: selectedCustomer.id, subtotal: Math.abs(diff), total: 0, note: 'Koreksi Hutang (Berkurang)', paymentStatus: 'LUNAS', storeId: selectedStoreFilter !== 'ALL' ? selectedStoreFilter : 'pusat', storeName: selectedStoreName, createdAt: new Date() });
+      }
+      onShowToast('Hutang berhasil diubah', 'success');
+    } else {
+      const oldStoreAmount = selectedCustomer.displayDeposit ?? selectedCustomer.returnAmount;
+      const diff = newAmount - oldStoreAmount;
+      if (diff === 0) { setShowEditBalanceModal(false); return; }
+
+      await updateDocument('customers', selectedCustomer.id, { returnAmount: (selectedCustomer.returnAmount || 0) + diff });
+      if (diff > 0) {
+        await addDocument('returns', { customerName: selectedCustomer.name, customerId: selectedCustomer.id, amount: diff, type: 'manual_deposit_in', note: 'Koreksi Deposit (Bertambah)', storeId: selectedStoreFilter !== 'ALL' ? selectedStoreFilter : 'pusat', storeName: selectedStoreName, createdAt: new Date() });
+      } else {
+        await addDocument('returns', { customerName: selectedCustomer.name, customerId: selectedCustomer.id, amount: Math.abs(diff), type: 'manual_deposit_out', note: 'Koreksi Deposit (Berkurang)', storeId: selectedStoreFilter !== 'ALL' ? selectedStoreFilter : 'pusat', storeName: selectedStoreName, createdAt: new Date() });
+      }
+      onShowToast('Deposit berhasil diubah', 'success');
+    }
+    setShowEditBalanceModal(false);
+  };
+
+  const handleResetAllData = async () => {
+    try {
+      for (const t of transactions) { await deleteDocument('transactions', t.id); }
+      for (const e of expenses) { await deleteDocument('expenses', e.id); }
+      for (const r of returnsData) { await deleteDocument('returns', r.id); }
+      for (const c of customers) {
+        if ((Number(c.remainingDebt) || 0) > 0 || (Number(c.returnAmount) || 0) > 0) {
+          await updateDocument('customers', c.id, { remainingDebt: 0, returnAmount: 0 });
+        }
+      }
+      onShowToast('Seluruh data berhasil dihapus bersih', 'success');
+      setShowResetModal(false);
+    } catch (error) { onShowToast('Gagal mereset sebagian data', 'error'); }
+  };
+
+  const handleSyncCustomers = async () => {
+    try {
+      const globalDebtLogs = [];
+      transactions.forEach(t => {
+        if (t.paymentStatus === 'HUTANG' || t.note === 'Penambahan Hutang Manual' || t.note === 'Koreksi Hutang (Bertambah)') {
+          let amount = t.subtotal || t.amount;
+          if (t.paymentStatus === 'HUTANG') {
+             amount = t.subtotal - (t.returnUsed || 0);
+             if (t.debtPaid > 0) amount += t.debtPaid; 
+          }
+          globalDebtLogs.push({ customerId: t.customerId, debtType: 'in', nominal: amount });
+        }
+        if (t.debtPaid > 0) { globalDebtLogs.push({ customerId: t.customerId, debtType: 'out', nominal: t.debtPaid }); }
+        if (t.note === 'Cicilan/Pelunasan Hutang' || t.note === 'Pelunasan Hutang Manual' || t.note === 'Nol-kan Hutang Manual' || t.note === 'Koreksi Hutang (Berkurang)') {
+           globalDebtLogs.push({ customerId: t.customerId, debtType: 'out', nominal: t.subtotal });
+        }
+      });
+
+      const globalDepositLogs = [];
+      returnsData.forEach(r => {
+        if (r.refundType === 'deposit' || r.type === 'manual_deposit_in') {
+          globalDepositLogs.push({ customerId: r.customerId, depType: 'in', nominal: r.amount });
+        } else if (r.type === 'manual_deposit_out') {
+          globalDepositLogs.push({ customerId: r.customerId, depType: 'out', nominal: r.amount });
+        }
+      });
+      transactions.forEach(t => {
+        if (t.returnUsed > 0) globalDepositLogs.push({ customerId: t.customerId, depType: 'out', nominal: t.returnUsed });
+      });
+
+      const trueDebtMap = {};
+      globalDebtLogs.forEach(log => {
+        if (!log.customerId) return;
+        if (!trueDebtMap[log.customerId]) trueDebtMap[log.customerId] = 0;
+        trueDebtMap[log.customerId] += log.debtType === 'in' ? Number(log.nominal) : -Number(log.nominal);
+      });
+
+      const trueDepMap = {};
+      globalDepositLogs.forEach(log => {
+        if (!log.customerId) return;
+        if (!trueDepMap[log.customerId]) trueDepMap[log.customerId] = 0;
+        trueDepMap[log.customerId] += log.depType === 'in' ? Number(log.nominal) : -Number(log.nominal);
+      });
+
+      let syncCount = 0;
+      for (const c of customers) {
+        const correctDebt = trueDebtMap[c.id] && trueDebtMap[c.id] > 0 ? trueDebtMap[c.id] : 0;
+        const correctDep = trueDepMap[c.id] && trueDepMap[c.id] > 0 ? trueDepMap[c.id] : 0;
+        if (Number(c.remainingDebt || 0) !== correctDebt || Number(c.returnAmount || 0) !== correctDep) {
+          await updateDocument('customers', c.id, { remainingDebt: correctDebt, returnAmount: correctDep });
+          syncCount++;
+        }
+      }
+      onShowToast(`Berhasil! ${syncCount} data profil pelanggan disinkronkan.`, 'success');
+      setShowSyncModal(false);
+    } catch (error) { onShowToast('Gagal sinkronisasi data', 'error'); }
+  };
+
+  const handleBulkDelete = async () => {
+    let target = []; 
+    if (activeTab === 'sales') target = filteredSales; 
+    else if (activeTab === 'transactions') target = filteredTransactions; 
+    else if (activeTab === 'expenses') target = filteredExpenses; 
+    else if (activeTab === 'debts') target = filteredDebtHistory;
+    else if (activeTab === 'returns') target = filteredDepositHistory;
+
+    if (target.length === 0) return onShowToast('Tidak ada data untuk dihapus', 'error');
+    
+    let count = 0;
+    for (const item of target) { 
+      const colName = item.sourceCollection || (activeTab === 'expenses' ? 'expenses' : 'transactions');
+      if (colName) { await deleteDocument(colName, item.id); count++; }
+    }
+    onShowToast(`${count} data dihapus`, 'success');
+    setShowBulkDeleteModal(false);
+  };
+
   return (
     <div className="pb-10 bg-gray-50 min-h-screen p-2 md:p-6">
       
@@ -550,55 +540,78 @@ const Dashboard = ({ onShowToast }) => {
         ))}
       </div>
 
-      {/* STATS CARDS */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 md:gap-4 mb-8">
+      {/* --- KARTU STATISTIK (DIPERBARUI JADI SCROLL HORIZONTAL) --- */}
+      <div className="flex overflow-x-auto gap-3 md:gap-4 mb-8 pb-4 custom-scrollbar snap-x -mx-2 px-2 md:-mx-0 md:px-0">
         
-        {/* --- KARTU LABA / RUGI BERSIH (BISA DIKLIK) --- */}
+        {/* Kartu 1: Laba Bersih */}
         <div 
           onClick={() => setShowProfitDetailModal(true)}
-          className={`col-span-2 md:col-span-1 rounded-2xl shadow-sm p-4 md:p-6 border-b-4 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all relative ${
+          className={`min-w-[180px] md:min-w-[240px] flex-shrink-0 snap-start rounded-2xl shadow-sm p-4 md:p-6 border-b-4 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all relative flex flex-col justify-between ${
             isProfit ? 'bg-emerald-50/50 border-emerald-600' : 'bg-rose-50/50 border-rose-600'
           }`}
         >
           <div className="absolute top-4 right-4"><Info className={`w-4 h-4 ${isProfit ? 'text-emerald-400' : 'text-rose-400'}`} /></div>
-          <p className="text-[9px] md:text-[10px] font-black text-gray-400 uppercase mb-1">
+          <p className="text-[10px] md:text-[11px] font-black text-gray-400 uppercase mb-2">
             {isProfit ? 'Laba Bersih' : 'Rugi Bersih'}
           </p>
-          <h3 className={`text-base md:text-xl font-black ${isProfit ? 'text-emerald-700' : 'text-rose-700'}`}>
+          <h3 className={`text-lg md:text-2xl font-black mb-1 ${isProfit ? 'text-emerald-700' : 'text-rose-700'}`}>
             {isProfit ? '(+)' : '(-)'} Rp {Math.abs(netProfit || 0).toLocaleString('id-ID')}
           </h3>
-          <div className="flex items-center gap-1 mt-1">
-            <div className={`w-1.5 h-1.5 rounded-full ${isProfit ? 'bg-emerald-500' : 'bg-rose-500'} animate-pulse`}></div>
-            <p className={`text-[8px] font-bold uppercase tracking-wider ${isProfit ? 'text-emerald-600' : 'text-rose-600'}`}>
-              {isProfit ? 'Klik Rincian' : 'Klik Rincian'}
+          <div className="flex items-center gap-1.5 mt-auto pt-2 border-t border-dashed border-emerald-200">
+            <div className={`w-2 h-2 rounded-full shrink-0 ${isProfit ? 'bg-emerald-500' : 'bg-rose-500'} animate-pulse`}></div>
+            <p className={`text-[9px] font-bold uppercase tracking-widest ${isProfit ? 'text-emerald-600' : 'text-rose-600'}`}>
+              Klik Untuk Rincian
             </p>
           </div>
         </div>
-        {/* --------------------------------------------- */}
 
-        <div onClick={() => navigateToTab('transactions')} className="bg-white rounded-2xl shadow-sm p-4 md:p-6 border-b-4 border-teal-500 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all">
-          <p className="text-[9px] md:text-[10px] font-black text-gray-400 uppercase mb-1">Total Pemasukan</p>
-          <h3 className="text-base md:text-xl font-black text-teal-700">Rp {(totalIncome || 0).toLocaleString('id-ID')}</h3>
+        {/* Kartu 2: Total Kerugian */}
+        <div onClick={() => navigateToTab('expenses')} className="min-w-[180px] md:min-w-[240px] flex-shrink-0 snap-start bg-white rounded-2xl shadow-sm p-4 md:p-6 border-b-4 border-red-600 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all bg-red-50/20 flex flex-col justify-between">
+          <div className="absolute top-4 right-4"><ShieldAlert className="w-4 h-4 text-red-300" /></div>
+          <p className="text-[10px] md:text-[11px] font-black text-gray-400 uppercase mb-2">Total Rugi (Retur/Rusak)</p>
+          <h3 className="text-lg md:text-2xl font-black text-red-700 mb-1">Rp {(totalLossValue || 0).toLocaleString('id-ID')}</h3>
+          <p className="text-[9px] font-bold text-red-400 mt-auto pt-2 border-t border-dashed border-red-100 uppercase">Otomatis Potong Laba</p>
         </div>
-        <div onClick={() => navigateToTab('expenses')} className="bg-white rounded-2xl shadow-sm p-4 md:p-6 border-b-4 border-red-500 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all">
-          <p className="text-[9px] md:text-[10px] font-black text-gray-400 uppercase mb-1">Total Uang Keluar</p>
-          <h3 className="text-base md:text-xl font-black text-red-600">Rp {(totalCashExpenses || 0).toLocaleString('id-ID')}</h3>
+
+        {/* Kartu 3: Total Pemasukan */}
+        <div onClick={() => navigateToTab('transactions')} className="min-w-[180px] md:min-w-[240px] flex-shrink-0 snap-start bg-white rounded-2xl shadow-sm p-4 md:p-6 border-b-4 border-teal-500 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all flex flex-col justify-between">
+          <p className="text-[10px] md:text-[11px] font-black text-gray-400 uppercase mb-2">Total Pemasukan Jual</p>
+          <h3 className="text-lg md:text-2xl font-black text-teal-700 mb-1">Rp {(totalIncome || 0).toLocaleString('id-ID')}</h3>
+          <p className="text-[9px] font-bold text-gray-300 mt-auto pt-2 border-t border-dashed border-gray-100 uppercase">Gross Income</p>
         </div>
-        <div onClick={() => navigateToTab('debts')} className="bg-white rounded-2xl shadow-sm p-4 md:p-6 border-b-4 border-orange-500 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all">
-          <p className="text-[9px] md:text-[10px] font-black text-gray-400 uppercase mb-1">Piutang {selectedStoreFilter === 'ALL' ? 'Global' : 'Cabang'}</p>
-          <h3 className="text-base md:text-xl font-black text-orange-600">Rp {(totalUnpaidDebtDisplay || 0).toLocaleString('id-ID')}</h3>
+
+        {/* Kartu 4: Total Uang Keluar */}
+        <div onClick={() => navigateToTab('expenses')} className="min-w-[180px] md:min-w-[240px] flex-shrink-0 snap-start bg-white rounded-2xl shadow-sm p-4 md:p-6 border-b-4 border-rose-400 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all flex flex-col justify-between">
+          <p className="text-[10px] md:text-[11px] font-black text-gray-400 uppercase mb-2">Total Kas Keluar</p>
+          <h3 className="text-lg md:text-2xl font-black text-rose-600 mb-1">Rp {(totalCashExpenses || 0).toLocaleString('id-ID')}</h3>
+          <p className="text-[9px] font-bold text-gray-300 mt-auto pt-2 border-t border-dashed border-gray-100 uppercase">Operasional & Belanja</p>
         </div>
-        <div onClick={() => navigateToTab('returns')} className="bg-white rounded-2xl shadow-sm p-4 md:p-6 border-b-4 border-purple-500 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all">
-          <p className="text-[9px] md:text-[10px] font-black text-gray-400 uppercase mb-1">Deposit {selectedStoreFilter === 'ALL' ? 'Global' : 'Cabang'}</p>
-          <h3 className="text-base md:text-xl font-black text-purple-600">Rp {(totalDepositDisplay || 0).toLocaleString('id-ID')}</h3>
+
+        {/* Kartu 5: Total Piutang */}
+        <div onClick={() => navigateToTab('debts')} className="min-w-[180px] md:min-w-[240px] flex-shrink-0 snap-start bg-white rounded-2xl shadow-sm p-4 md:p-6 border-b-4 border-orange-500 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all flex flex-col justify-between">
+          <p className="text-[10px] md:text-[11px] font-black text-gray-400 uppercase mb-2">Piutang {selectedStoreFilter === 'ALL' ? 'Global' : 'Cabang'}</p>
+          <h3 className="text-lg md:text-2xl font-black text-orange-600 mb-1">Rp {(totalUnpaidDebtDisplay || 0).toLocaleString('id-ID')}</h3>
+          <p className="text-[9px] font-bold text-gray-300 mt-auto pt-2 border-t border-dashed border-gray-100 uppercase">Hutang Belum Dibayar</p>
         </div>
-        <div onClick={() => navigateToTab('netbalance')} className="col-span-2 md:col-span-1 bg-white rounded-2xl shadow-sm p-4 md:p-6 border-b-4 border-blue-600 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all bg-blue-50/30">
-          <p className="text-[9px] md:text-[10px] font-black text-gray-500 uppercase mb-1">Uang Bersih (Net)</p>
-          <h3 className="text-lg md:text-xl font-black text-blue-700">Rp {(balance || 0).toLocaleString('id-ID')}</h3>
+
+        {/* Kartu 6: Total Deposit */}
+        <div onClick={() => navigateToTab('returns')} className="min-w-[180px] md:min-w-[240px] flex-shrink-0 snap-start bg-white rounded-2xl shadow-sm p-4 md:p-6 border-b-4 border-purple-500 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all flex flex-col justify-between">
+          <p className="text-[10px] md:text-[11px] font-black text-gray-400 uppercase mb-2">Deposit {selectedStoreFilter === 'ALL' ? 'Global' : 'Cabang'}</p>
+          <h3 className="text-lg md:text-2xl font-black text-purple-600 mb-1">Rp {(totalDepositDisplay || 0).toLocaleString('id-ID')}</h3>
+          <p className="text-[9px] font-bold text-gray-300 mt-auto pt-2 border-t border-dashed border-gray-100 uppercase">Saldo Pelanggan</p>
         </div>
+
+        {/* Kartu 7: Saldo Bersih */}
+        <div onClick={() => navigateToTab('netbalance')} className="min-w-[180px] md:min-w-[240px] flex-shrink-0 snap-start bg-blue-50/30 rounded-2xl shadow-sm p-4 md:p-6 border-b-4 border-blue-600 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all flex flex-col justify-between">
+          <p className="text-[10px] md:text-[11px] font-black text-blue-500 uppercase mb-2">Uang Bersih Laci (Net)</p>
+          <h3 className="text-lg md:text-2xl font-black text-blue-700 mb-1">Rp {(balance || 0).toLocaleString('id-ID')}</h3>
+          <p className="text-[9px] font-bold text-blue-400 mt-auto pt-2 border-t border-dashed border-blue-200 uppercase">Kas Fisik Saat Ini</p>
+        </div>
+
       </div>
+      {/* ----------------------------------------------------------------- */}
 
-      {/* TAB OVERVIEW */}
+      {/* --- KONTEN TAB OVERVIEW --- */}
       {activeTab === 'overview' && (
         <>
           <div className="bg-white p-4 md:p-5 rounded-3xl border flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between mb-6 shadow-sm">
@@ -922,7 +935,7 @@ const Dashboard = ({ onShowToast }) => {
 
       {/* --- MODALS --- */}
 
-      {/* MODAL PENJELASAN LABA/RUGI (FITUR BARU) */}
+      {/* MODAL PENJELASAN LABA/RUGI */}
       {showProfitDetailModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[150] p-4">
           <div className={`bg-white rounded-[32px] p-6 md:p-8 max-w-md w-full shadow-2xl relative border-t-8 ${isProfit ? 'border-emerald-500' : 'border-rose-500'}`}>
@@ -946,13 +959,13 @@ const Dashboard = ({ onShowToast }) => {
               </div>
 
               <div className="h-px bg-gray-200 my-2"></div>
-              <div className="flex justify-between items-center">
-                <span className="text-xs font-bold text-gray-600">3. Beban Operasional (Listrik, dll)</span>
-                <span className="text-sm font-black text-rose-500">(-) Rp {totalPureOperational.toLocaleString('id-ID')}</span>
+              <div className="flex justify-between items-center text-red-600">
+                <span className="text-xs font-bold">3. Kerugian (Retur & Rusak)</span>
+                <span className="text-sm font-black">(-) Rp {totalLossValue.toLocaleString('id-ID')}</span>
               </div>
-              <div className="flex justify-between items-center">
-                <span className="text-xs font-bold text-gray-600">4. Kerugian Barang Basi/Rusak</span>
-                <span className="text-sm font-black text-rose-500">(-) Rp {totalDamagedGoods.toLocaleString('id-ID')}</span>
+              <div className="flex justify-between items-center text-gray-600">
+                <span className="text-xs font-bold">4. Beban Operasional Asli</span>
+                <span className="text-sm font-black">(-) Rp {totalPureOperational.toLocaleString('id-ID')}</span>
               </div>
             </div>
 
@@ -976,16 +989,12 @@ const Dashboard = ({ onShowToast }) => {
             <div className="flex flex-col gap-2 max-h-[60vh] overflow-y-auto">
               <button onClick={() => { exportMasterExcel({transactions: activeStoreTransactions, filteredExpenses: activeStoreExpenses, filteredDebtHistory, activeStoreCustomersDebt, activeStoreCustomersDeposit, filteredDepositHistory, filteredNetBalance, startDate, endDate, storeName: selectedStoreName, formatDisplayDate, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 border border-green-200"><TableIcon className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">Excel Lengkap</p></div></button>
               <button onClick={() => { exportNeracaExcel({balance, totalUnpaidDebt: totalUnpaidDebtDisplay, totalExpenses: totalCashExpenses, totalDeposit: totalDepositDisplay, totalIncome, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 border border-green-200"><TableIcon className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">Excel Neraca</p></div></button>
-              
-              {/* --- PERUBAHAN: Mengirim Rincian Biaya Operasional Asli & Barang Rusak ke File Export --- */}
-              <button onClick={() => { exportLabaRugiExcel({totalIncome, totalHPP, totalPureOperational, totalDamagedGoods, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 border border-green-200"><TableIcon className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">Excel Laba Rugi</p></div></button>
+              <button onClick={() => { exportLabaRugiExcel({totalIncome, totalHPP, totalPureOperational, totalDamagedGoods: totalLossValue, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 border border-green-200"><TableIcon className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">Excel Laba Rugi</p></div></button>
               
               <div className="h-px w-full bg-gray-200 my-2"></div>
               <button onClick={() => { exportMasterPDF({transactions: activeStoreTransactions, filteredExpenses: activeStoreExpenses, filteredDebtHistory, activeStoreCustomersDebt, activeStoreCustomersDeposit, filteredDepositHistory, filteredNetBalance, startDate, endDate, storeName: selectedStoreName, formatDisplayDate, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-blue-50 text-blue-700 rounded-2xl hover:bg-blue-100 border border-blue-200"><FileText className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">PDF Lengkap</p></div></button>
               <button onClick={() => { exportNeracaPDF({balance, totalUnpaidDebt: totalUnpaidDebtDisplay, totalExpenses: totalCashExpenses, totalDeposit: totalDepositDisplay, totalIncome, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-purple-50 text-purple-700 rounded-2xl hover:bg-purple-100 border border-purple-200"><FileText className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">PDF Neraca</p></div></button>
-              
-              {/* --- PERUBAHAN: Mengirim Rincian Biaya Operasional Asli & Barang Rusak ke File Export --- */}
-              <button onClick={() => { exportLabaRugiPDF({totalIncome, totalHPP, totalPureOperational, totalDamagedGoods, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-purple-50 text-purple-700 rounded-2xl hover:bg-purple-100 border border-purple-200"><FileText className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">PDF Laba Rugi</p></div></button>
+              <button onClick={() => { exportLabaRugiPDF({totalIncome, totalHPP, totalPureOperational, totalDamagedGoods: totalLossValue, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-purple-50 text-purple-700 rounded-2xl hover:bg-purple-100 border border-purple-200"><FileText className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">PDF Laba Rugi</p></div></button>
             </div>
           </div>
         </div>

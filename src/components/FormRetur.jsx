@@ -196,9 +196,22 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
       updateRes = await updateDocument('customers', cust.id, {
         returnAmount: (Number(cust.returnAmount) || 0) + totalReturnAmount
       });
+      
+      // FITUR BARU: Otomatis mencatat kerugian di Dashboard meskipun masuk ke Deposit!
+      if (updateRes.success || updateRes.id) {
+         await addDocument('expenses', {
+          title: `Retur (Jadi Deposit) - ${cust.name}: ${reason}`,
+          amount: totalReturnAmount,
+          category: 'Barang Rusak', // Meminjam kategori ini agar Kas Laci Fisik tidak terpotong!
+          storeId: finalStoreId,        
+          storeName: activeStoreName,   
+          createdAt: new Date()
+        });
+      }
+
     } else {
       updateRes = await addDocument('expenses', {
-        title: `Retur Dana (${cust.name}): ${reason}`,
+        title: `Retur Dana Kas (${cust.name}): ${reason}`,
         amount: totalReturnAmount,
         category: 'Retur',
         storeId: finalStoreId,        

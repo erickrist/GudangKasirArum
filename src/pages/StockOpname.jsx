@@ -34,7 +34,7 @@ const StockOpname = ({ onShowToast }) => {
   
   const [selectedHistoryItem, setSelectedHistoryItem] = useState(null);
   const [modalMode, setModalMode] = useState('add');
-  const [stockMode, setStockMode] = useState('in'); // Bisa 'in', 'out', atau 'rusak'
+  const [stockMode, setStockMode] = useState('in'); 
   const [selectedProduct, setSelectedProduct] = useState(null);
   
   const [searchProduct, setSearchProduct] = useState('');
@@ -55,7 +55,8 @@ const StockOpname = ({ onShowToast }) => {
   });
   
   const [stockAmount, setStockAmount] = useState('');
-  const [damageStoreId, setDamageStoreId] = useState('pusat'); // State baru khusus untuk barang rusak
+  const [stockUnit, setStockUnit] = useState('PCS'); 
+  const [damageStoreId, setDamageStoreId] = useState('pusat'); 
 
   const WHOLESALE_TYPES = ['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'];
 
@@ -282,28 +283,32 @@ const StockOpname = ({ onShowToast }) => {
     if (!selectedProduct || !stockAmount) return;
 
     const amount = Number(stockAmount);
+    const isPcsMode = stockUnit === 'PCS';
+    const pcsPerCarton = WHOLESALE_TYPES.includes(selectedProduct.unitType) ? (selectedProduct.pcsPerCarton || 1) : 1;
+    
+    // Hitung total Pcs yang terpengaruh
+    const totalPcs = isPcsMode ? amount : amount * pcsPerCarton;
     let newStockPcs = selectedProduct.stockPcs;
-    const totalPcs = amount * (WHOLESALE_TYPES.includes(selectedProduct.unitType) ? (selectedProduct.pcsPerCarton || 1) : 1);
 
-    // LOGIKA KHUSUS BARANG RUSAK/BASI
     if (stockMode === 'rusak') {
       const storeObj = stores.find(s => s.id === damageStoreId);
       const storeName = storeObj ? storeObj.name : 'Pusat (Gudang)';
-      const lossAmount = totalPcs * (selectedProduct.hpp || 0);
+      
+      // Jika modal per Karton, bagi dulu biar ketemu harga per Pcs
+      const hppPerPcs = (selectedProduct.hpp || 0) / pcsPerCarton;
+      const lossAmount = totalPcs * hppPerPcs;
 
       newStockPcs -= totalPcs;
       if (newStockPcs < 0) return onShowToast('Stok tidak mencukupi untuk dikurangi', 'error');
 
       const result = await updateDocument('products', selectedProduct.id, { stockPcs: newStockPcs });
       if (result.success) {
-        // 1. Catat Log Stok
-        await addDocument('stock_logs', { productId: selectedProduct.id, productName: selectedProduct.name, type: 'out', amount, unitType: selectedProduct.unitType, totalPcs, note: `Barang Basi/Rusak di ${storeName}`, createdAt: new Date() });
+        await addDocument('stock_logs', { productId: selectedProduct.id, productName: selectedProduct.name, type: 'out', amount, unitType: stockUnit, totalPcs, note: `Barang Basi/Rusak di ${storeName}`, createdAt: new Date() });
         
-        // 2. OTOMATIS CATAT PENGELUARAN KERUGIAN!
         await addDocument('expenses', {
-          title: `Rugi Barang Basi/Rusak: ${amount} ${selectedProduct.unitType} ${selectedProduct.name}`,
+          title: `Rugi Barang Basi/Rusak: ${amount} ${stockUnit} ${selectedProduct.name}`,
           amount: lossAmount,
-          category: 'Barang Rusak', // Kategori khusus kerugian
+          category: 'Barang Rusak',
           storeId: damageStoreId,
           storeName: storeName,
           createdAt: new Date()
@@ -315,13 +320,12 @@ const StockOpname = ({ onShowToast }) => {
       return; 
     }
 
-    // LOGIKA MASUK / KELUAR NORMAL
     if (stockMode === 'in') newStockPcs += totalPcs; else newStockPcs -= totalPcs;
     if (newStockPcs < 0) return onShowToast('Stok tidak mencukupi', 'error');
 
     const result = await updateDocument('products', selectedProduct.id, { stockPcs: newStockPcs });
     if (result.success) {
-      await addDocument('stock_logs', { productId: selectedProduct.id, productName: selectedProduct.name, type: stockMode, amount, unitType: selectedProduct.unitType, totalPcs, note: `Stok Manual ${stockMode==='in'?'Ditambah':'Dikurangi'}`, createdAt: new Date() });
+      await addDocument('stock_logs', { productId: selectedProduct.id, productName: selectedProduct.name, type: stockMode, amount, unitType: stockUnit, totalPcs, note: `Stok Manual ${stockMode==='in'?'Ditambah':'Dikurangi'}`, createdAt: new Date() });
       onShowToast(`Stok ${stockMode === 'in' ? 'ditambah' : 'dikurangi'}`, 'success');
       setShowStockModal(false); setStockAmount('');
     }
@@ -452,13 +456,12 @@ const StockOpname = ({ onShowToast }) => {
                       </div>
                       
                       <div className="grid grid-cols-4 gap-2 mt-auto">
-                        <button onClick={() => { setSelectedProduct(product); setStockMode('in'); setShowStockModal(true); }} className="col-span-2 bg-green-50 text-green-700 py-2 rounded-xl text-[10px] font-black uppercase shadow-sm">Masuk</button>
-                        <button onClick={() => { setSelectedProduct(product); setStockMode('out'); setShowStockModal(true); }} className="col-span-2 bg-orange-50 text-orange-700 py-2 rounded-xl text-[10px] font-black uppercase shadow-sm">Keluar</button>
+                        <button onClick={() => { setSelectedProduct(product); setStockMode('in'); setStockUnit(product.unitType); setShowStockModal(true); }} className="col-span-2 bg-green-50 text-green-700 py-2 rounded-xl text-[10px] font-black uppercase shadow-sm">Masuk</button>
+                        <button onClick={() => { setSelectedProduct(product); setStockMode('out'); setStockUnit(product.unitType); setShowStockModal(true); }} className="col-span-2 bg-orange-50 text-orange-700 py-2 rounded-xl text-[10px] font-black uppercase shadow-sm">Keluar</button>
                         <button onClick={() => handleOpenModal('edit', product)} className="col-span-2 border text-gray-600 py-2 rounded-xl text-[10px] font-black uppercase shadow-sm flex items-center justify-center gap-1"><Edit2 className="w-3 h-3"/> Edit</button>
                         <button onClick={() => { setSelectedProduct(product); setShowDeleteModal(true); }} className="col-span-2 border text-gray-600 hover:text-red-600 py-2 rounded-xl text-[10px] font-black uppercase shadow-sm">Hapus</button>
                       </div>
-                      {/* TOMBOL BARU UNTUK BARANG RUSAK */}
-                      <button onClick={() => { setSelectedProduct(product); setStockMode('rusak'); setShowStockModal(true); }} className="mt-2 w-full bg-red-50 text-red-700 py-2 rounded-xl text-[10px] font-black uppercase shadow-sm border border-red-100 hover:bg-red-100 flex justify-center items-center gap-1.5"><AlertTriangle className="w-3 h-3" /> Lapor Rusak / Basi</button>
+                      <button onClick={() => { setSelectedProduct(product); setStockMode('rusak'); setStockUnit(product.unitType); setShowStockModal(true); }} className="mt-2 w-full bg-red-50 text-red-700 py-2 rounded-xl text-[10px] font-black uppercase shadow-sm border border-red-100 hover:bg-red-100 flex justify-center items-center gap-1.5"><AlertTriangle className="w-3 h-3" /> Lapor Rusak / Basi</button>
                     </div>
                   </div>
                 ))}
@@ -554,7 +557,7 @@ const StockOpname = ({ onShowToast }) => {
               <div className="grid grid-cols-2 gap-3">
                 <div><label className="text-[10px] font-black uppercase text-gray-500 ml-1">Kategori</label><input type="text" required value={formData.category} onChange={(e) => setFormData({ ...formData, category: e.target.value })} className="w-full p-3 bg-gray-50 rounded-xl font-bold mt-1" /></div>
                 <div>
-                  <label className="text-[10px] font-black uppercase text-gray-500 ml-1">Satuan</label>
+                  <label className="text-[10px] font-black uppercase text-gray-500 ml-1">Satuan Utama</label>
                   <select value={formData.unitType} onChange={(e) => setFormData({ ...formData, unitType: e.target.value })} className="w-full p-3 bg-gray-50 rounded-xl font-bold mt-1">
                     <option value="PCS">PCS</option>
                     <option value="KG">KG</option>
@@ -614,24 +617,54 @@ const StockOpname = ({ onShowToast }) => {
               {stockMode === 'in' ? 'Barang Masuk Pusat' : stockMode === 'out' ? 'Barang Keluar Pusat' : 'Lapor Barang Basi / Rusak'}
             </h3>
             <form onSubmit={handleStockUpdate}>
-              <p className="text-xs text-center font-bold text-gray-500 mb-4">{selectedProduct.name} - Sisa: {selectedProduct.stockPcs} {selectedProduct.unitType}</p>
+              <p className="text-xs text-center font-bold text-gray-500 mb-4">{selectedProduct.name} - Sisa: {selectedProduct.stockPcs} {selectedProduct.unitType === 'PCS' ? '' : 'Pcs'}</p>
               
-              {/* DROPDOWN CABANG KHUSUS JIKA BARANG RUSAK */}
               {stockMode === 'rusak' && (
                 <div className="mb-4">
                   <label className="text-[10px] font-black text-gray-400 uppercase ml-1 block mb-1">Lokasi Barang Rusak</label>
-                  <select value={damageStoreId} onChange={e => setDamageStoreId(e.target.value)} required className="w-full p-3 bg-gray-50 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-red-500">
+                  <select value={damageStoreId} onChange={e => setDamageStoreId(e.target.value)} required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-red-500 cursor-pointer">
                     <option value="pusat">🏢 Pusat (Gudang Utama)</option>
                     {stores.map(s => <option key={s.id} value={s.id}>🏪 {s.name}</option>)}
                   </select>
                 </div>
               )}
 
-              <input type="number" step="any" required min="0.01" value={stockAmount} onChange={e => setStockAmount(e.target.value)} className={`w-full p-4 bg-gray-50 rounded-xl font-black text-center text-xl mb-6 focus:ring-2 outline-none ${stockMode === 'rusak' ? 'focus:ring-red-500' : 'focus:ring-teal-500'}`} placeholder={`Jumlah ${selectedProduct.unitType}`}/>
+              {/* FITUR BARU: TOMBOL TOGGLE SATUAN YANG LEBIH MODERN & RAPI */}
+              <div className="mb-6 space-y-3">
+                <input 
+                  type="number" 
+                  step="any" 
+                  required 
+                  min="0.01" 
+                  value={stockAmount} 
+                  onChange={e => setStockAmount(e.target.value)} 
+                  className={`w-full p-4 bg-gray-50 border border-gray-200 rounded-xl font-black text-center text-2xl outline-none transition-all ${stockMode === 'rusak' ? 'focus:border-red-500 focus:ring-2 focus:ring-red-200' : 'focus:border-teal-500 focus:ring-2 focus:ring-teal-200'}`} 
+                  placeholder="Ketik Jumlah..."
+                />
+                
+                {WHOLESALE_TYPES.includes(selectedProduct.unitType) && (
+                  <div className="flex bg-gray-100 p-1.5 rounded-xl border border-gray-200">
+                    <button 
+                      type="button" 
+                      onClick={() => setStockUnit(selectedProduct.unitType)} 
+                      className={`flex-1 py-2.5 rounded-lg text-[10px] font-black uppercase transition-all ${stockUnit === selectedProduct.unitType ? (stockMode === 'rusak' ? 'bg-white shadow-sm text-red-600' : 'bg-white shadow-sm text-teal-600') : 'text-gray-400 hover:text-gray-600'}`}
+                    >
+                      {selectedProduct.unitType} (Utuh)
+                    </button>
+                    <button 
+                      type="button" 
+                      onClick={() => setStockUnit('PCS')} 
+                      className={`flex-1 py-2.5 rounded-lg text-[10px] font-black uppercase transition-all ${stockUnit === 'PCS' ? (stockMode === 'rusak' ? 'bg-white shadow-sm text-red-600' : 'bg-white shadow-sm text-teal-600') : 'text-gray-400 hover:text-gray-600'}`}
+                    >
+                      PCS (Eceran)
+                    </button>
+                  </div>
+                )}
+              </div>
               
-              <div className="flex gap-2">
+              <div className="flex gap-2 mt-2">
                 <button type="button" onClick={() => setShowStockModal(false)} className="flex-1 py-3 bg-gray-100 rounded-xl font-black text-gray-500 hover:bg-gray-200">Batal</button>
-                <button type="submit" className={`flex-1 py-3 text-white rounded-xl font-black shadow-md ${stockMode === 'in' ? 'bg-green-600' : stockMode === 'rusak' ? 'bg-red-600' : 'bg-orange-600'}`}>Simpan</button>
+                <button type="submit" className={`flex-1 py-3 text-white rounded-xl font-black shadow-md ${stockMode === 'in' ? 'bg-green-600 hover:bg-green-700' : stockMode === 'rusak' ? 'bg-red-600 hover:bg-red-700' : 'bg-orange-600 hover:bg-orange-700'}`}>Simpan</button>
               </div>
             </form>
           </div>
