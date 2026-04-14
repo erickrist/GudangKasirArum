@@ -96,7 +96,7 @@ const Dashboard = ({ onShowToast }) => {
     return returnsData.filter(r => r.storeId === selectedStoreFilter || (!r.storeId && selectedStoreFilter === 'pusat'));
   }, [returnsData, selectedStoreFilter]);
 
-  // === PERHITUNGAN UTAMA ===
+  // === PERHITUNGAN UTAMA KAS LACI ===
   const totalIncome = useMemo(() => activeStoreTransactions.reduce((sum, t) => sum + (Number(t.total) || 0), 0), [activeStoreTransactions]);
   
   const totalCashExpenses = useMemo(() => activeStoreExpenses
@@ -105,16 +105,23 @@ const Dashboard = ({ onShowToast }) => {
 
   const balance = totalIncome - totalCashExpenses;
 
+  // === RUMUS LABA RUGI ===
   const totalHPP = useMemo(() => activeStoreTransactions.reduce((sum, t) => {
     if (!t.items) return sum;
     const itemHpp = t.items.reduce((iSum, i) => iSum + (Number(i.capitalPrice || 0) * Number(i.qty || 0)), 0);
     return sum + itemHpp;
   }, 0), [activeStoreTransactions]);
 
-  // --- LOGIKA LABA RUGI & KERUGIAN ---
   const totalOperationalExpenses = useMemo(() => 
     activeStoreExpenses
-      .filter(e => e.category !== 'Kulakan') 
+      .filter(e => e.category !== 'Kulakan' && e.category !== 'Retur Tukar Pabrik') 
+      .reduce((sum, e) => sum + (Number(e.amount) || 0), 0), 
+    [activeStoreExpenses]
+  );
+
+  const totalKulakan = useMemo(() => 
+    activeStoreExpenses
+      .filter(e => e.category === 'Kulakan') 
       .reduce((sum, e) => sum + (Number(e.amount) || 0), 0), 
     [activeStoreExpenses]
   );
@@ -133,9 +140,26 @@ const Dashboard = ({ onShowToast }) => {
     [activeStoreExpenses]
   );
 
-  const totalLossValue = totalDamagedGoods + totalReturnExpenses;
+  const totalReturnCashSupplierLabaBatal = useMemo(() => {
+    let total = 0;
+    activeStoreExpenses.filter(e => e.category === 'Retur Tukar Pabrik').forEach(exp => {
+        const expTime = getSafeDate(exp.createdAt).getTime();
+        const matchedReturn = activeStoreReturns.find(r => r.refundType === 'cash' && Math.abs(getSafeDate(r.createdAt).getTime() - expTime) <= 5000);
+        if (matchedReturn && matchedReturn.items) {
+            const totalHpp = matchedReturn.items.reduce((sum, item) => {
+                const hppPerUnit = item.returnUnit === 'pcs' && item.pcsPerCarton > 1 ? (item.hpp / item.pcsPerCarton) : item.hpp;
+                return sum + (hppPerUnit * item.qty);
+            }, 0);
+            const labaBatal = Math.max(0, exp.amount - totalHpp);
+            total += labaBatal;
+        }
+    });
+    return total;
+  }, [activeStoreExpenses, activeStoreReturns]);
+
+  const totalLossValue = totalDamagedGoods + totalReturnExpenses + totalReturnCashSupplierLabaBatal;
   const totalPureOperational = totalOperationalExpenses - totalDamagedGoods - totalReturnExpenses;
-  const netProfit = totalIncome - totalHPP - totalOperationalExpenses;
+  const netProfit = totalIncome - totalHPP - totalPureOperational - totalLossValue;
   const isProfit = netProfit >= 0;
   // ----------------------------------------------------
 
@@ -221,7 +245,7 @@ const Dashboard = ({ onShowToast }) => {
       }
     });
     activeStoreExpenses.forEach(e => {
-      logs.push({ ...e, sourceCollection: 'expenses', netType: 'out', nominal: e.amount, subjName: e.category === 'Kulakan' ? 'Kulakan / Restock' : e.category === 'Barang Rusak' ? 'Barang Rusak/Basi' : e.category === 'Retur' ? 'Refund Retur' : 'Beban/Pengeluaran', detailNote: e.title });
+      logs.push({ ...e, sourceCollection: 'expenses', netType: 'out', nominal: e.amount, subjName: e.category === 'Kulakan' ? 'Kulakan / Restock' : e.category === 'Barang Rusak' ? 'Barang Rusak/Basi' : e.category === 'Retur' ? 'Refund Retur' : e.category === 'Retur Tukar Pabrik' ? 'Refund Retur (Tukar)' : 'Beban/Pengeluaran', detailNote: e.title });
     });
     return logs.sort((a, b) => getSafeDate(b.createdAt) - getSafeDate(a.createdAt));
   }, [activeStoreTransactions, activeStoreExpenses]);
@@ -327,7 +351,6 @@ const Dashboard = ({ onShowToast }) => {
 
   const displayedLogs = showAllLogs ? allActivityLogs : allActivityLogs.slice(0, 10);
 
-  // ACTIONS (TRANSAKSI MANUAL)
   const handleAddManualIncome = async (e) => {
     e.preventDefault();
     if (!newManualIncome.note || !newManualIncome.amount || !newManualIncome.storeId) return onShowToast('Lengkapi data dan pilih cabang', 'error');
@@ -360,11 +383,13 @@ const Dashboard = ({ onShowToast }) => {
     const cust = customers.find(c => c.id === newManualDebt.customerId);
     if (!cust) return;
     const amount = Number(newManualDebt.amount);
-    const storeObj = stores.find(s => s.id === newManualDebt.storeId);
     
+    const storeObj = stores.find(s => s.id === newManualDebt.storeId);
+    const storeName = storeObj ? storeObj.name : 'Pusat';
+
     const updateRes = await updateDocument('customers', cust.id, { remainingDebt: (Number(cust.remainingDebt) || 0) + amount });
     if (updateRes.success) {
-      await addDocument('transactions', { customerName: cust.name, customerId: cust.id, subtotal: amount, total: 0, note: newManualDebt.note || 'Penambahan Hutang Manual', paymentStatus: 'HUTANG', storeId: newManualDebt.storeId, storeName: storeObj ? storeObj.name : 'Pusat', createdAt: new Date() });
+      await addDocument('transactions', { customerName: cust.name, customerId: cust.id, subtotal: amount, total: 0, note: newManualDebt.note || 'Penambahan Hutang Manual', paymentStatus: 'HUTANG', storeId: newManualDebt.storeId, storeName: storeName, createdAt: new Date() });
       onShowToast('Hutang manual berhasil ditambahkan', 'success');
       setNewManualDebt({ customerId: '', amount: '', note: '', storeId: '' });
     }
@@ -414,7 +439,9 @@ const Dashboard = ({ onShowToast }) => {
       }
       onShowToast('Seluruh data berhasil dihapus bersih', 'success');
       setShowResetModal(false);
-    } catch (error) { onShowToast('Gagal mereset sebagian data', 'error'); }
+    } catch (error) {
+      onShowToast('Gagal mereset sebagian data', 'error');
+    }
   };
 
   const handleSyncCustomers = async () => {
@@ -429,7 +456,9 @@ const Dashboard = ({ onShowToast }) => {
           }
           globalDebtLogs.push({ customerId: t.customerId, debtType: 'in', nominal: amount });
         }
-        if (t.debtPaid > 0) { globalDebtLogs.push({ customerId: t.customerId, debtType: 'out', nominal: t.debtPaid }); }
+        if (t.debtPaid > 0) {
+          globalDebtLogs.push({ customerId: t.customerId, debtType: 'out', nominal: t.debtPaid });
+        }
         if (t.note === 'Cicilan/Pelunasan Hutang' || t.note === 'Pelunasan Hutang Manual' || t.note === 'Nol-kan Hutang Manual' || t.note === 'Koreksi Hutang (Berkurang)') {
            globalDebtLogs.push({ customerId: t.customerId, debtType: 'out', nominal: t.subtotal });
         }
@@ -465,17 +494,20 @@ const Dashboard = ({ onShowToast }) => {
       for (const c of customers) {
         const correctDebt = trueDebtMap[c.id] && trueDebtMap[c.id] > 0 ? trueDebtMap[c.id] : 0;
         const correctDep = trueDepMap[c.id] && trueDepMap[c.id] > 0 ? trueDepMap[c.id] : 0;
+        
         if (Number(c.remainingDebt || 0) !== correctDebt || Number(c.returnAmount || 0) !== correctDep) {
           await updateDocument('customers', c.id, { remainingDebt: correctDebt, returnAmount: correctDep });
           syncCount++;
         }
       }
+      
       onShowToast(`Berhasil! ${syncCount} data profil pelanggan disinkronkan.`, 'success');
       setShowSyncModal(false);
-    } catch (error) { onShowToast('Gagal sinkronisasi data', 'error'); }
+    } catch (error) {
+      onShowToast('Gagal sinkronisasi data', 'error');
+    }
   };
 
-  // --- PENAMBALAN BUG PENGHAPUSAN MASAL ---
   const handleBulkDelete = async () => {
     let target = []; 
     if (activeTab === 'sales') target = filteredSales; 
@@ -489,32 +521,81 @@ const Dashboard = ({ onShowToast }) => {
     let count = 0;
     for (const item of target) { 
       const colName = item.sourceCollection || (activeTab === 'expenses' ? 'expenses' : 'transactions');
-      if (colName) { 
-        if (colName === 'returns') {
-             // Tarik kembali Deposit jika retur dihapus
-             if (item.customerId) {
-                const customer = customers.find(c => c.id === item.customerId);
-                if (customer) {
-                  let newDeposit = Number(customer.returnAmount) || 0;
-                  if (item.depType === 'in') newDeposit = Math.max(0, newDeposit - Number(item.nominal));
-                  else if (item.depType === 'out') newDeposit += Number(item.nominal);
-                  await updateDocument('customers', customer.id, { returnAmount: newDeposit });
-                }
-             }
-             // Hapus expense bayangannya agar Laba kembali normal
-             const relatedExpense = expenses.find(e =>
-                e.amount === item.nominal &&
-                Math.abs(getSafeDate(e.createdAt).getTime() - getSafeDate(item.createdAt).getTime()) < 5000
-             );
-             if (relatedExpense) { await deleteDocument('expenses', relatedExpense.id); }
-        }
-        await deleteDocument(colName, item.id); 
-        count++; 
+      if (colName) {
+        await deleteDocument(colName, item.id);
+        count++;
       }
     }
-    onShowToast(`${count} data dihapus secara permanen`, 'success');
+    onShowToast(`${count} data dihapus`, 'success');
     setShowBulkDeleteModal(false);
   };
+
+  // === FITUR BARU EXPORT: MEMISAH BARIS BERDASARKAN SATUAN (KARTON vs PCS) ===
+  const getProfitDataForExport = () => {
+    const salesMap = {};
+    
+    activeStoreTransactions.forEach(t => {
+      const date = getSafeDate(t.createdAt);
+      let matchesDate = true;
+      if (startDate && endDate) {
+        const start = new Date(startDate); const end = new Date(endDate); end.setHours(23, 59, 59);
+        matchesDate = date >= start && date <= end;
+      }
+      if (matchesDate && t.items) {
+        t.items.forEach(item => {
+          const actualUnit = item.returnUnit === 'pcs' ? 'PCS' : item.unitType;
+          const key = `${item.productId}_${actualUnit}`; // Membuat ID Unik berdasar Satuan
+          
+          if (!salesMap[key]) {
+            const currentProduct = products.find(p => p.id === item.productId);
+            let baseHpp = currentProduct ? (currentProduct.hpp || 0) : 0;
+            // Jika satuan aslinya Karton tapi dijual Pcs, bagi HPP-nya agar Laba Akurat
+            if (actualUnit === 'PCS' && currentProduct && currentProduct.pcsPerCarton > 1 && currentProduct.unitType !== 'PCS') {
+                baseHpp = Math.round(baseHpp / currentProduct.pcsPerCarton);
+            }
+            salesMap[key] = { 
+              name: `${item.name} (${actualUnit})`, 
+              unitType: actualUnit, 
+              qtySold: 0, 
+              qtyReturned: 0, 
+              hpp: baseHpp, 
+              totalSalesValue: 0, 
+              totalReturnValue: 0 
+            };
+          }
+          salesMap[key].qtySold += Number(item.qty);
+          salesMap[key].totalSalesValue += Number(item.subtotal || (item.qty * item.price));
+        });
+      }
+    });
+
+    activeStoreReturns.forEach(r => {
+      const date = getSafeDate(r.createdAt);
+      let matchesDate = true;
+      if (startDate && endDate) {
+        const start = new Date(startDate); const end = new Date(endDate); end.setHours(23, 59, 59);
+        matchesDate = date >= start && date <= end;
+      }
+      if (matchesDate && r.items) {
+        r.items.forEach(item => {
+          const actualUnit = item.returnUnit === 'pcs' ? 'PCS' : item.unitType;
+          const key = `${item.productId}_${actualUnit}`;
+
+          if (salesMap[key]) {
+            salesMap[key].qtyReturned += Number(item.qty);
+            salesMap[key].totalReturnValue += Number(item.qty * (item.finalPrice || item.price));
+          }
+        });
+      }
+    });
+
+    return Object.values(salesMap).map(data => {
+      const totalHpp = data.hpp * (data.qtySold - data.qtyReturned);
+      const netSales = data.totalSalesValue - data.totalReturnValue; 
+      return { ...data, netSales, totalHpp, profit: netSales - totalHpp };
+    }).sort((a, b) => b.qtySold - a.qtySold); 
+  };
+  // =======================================================================
 
   return (
     <div className="pb-10 bg-gray-50 min-h-screen p-2 md:p-6">
@@ -587,7 +668,7 @@ const Dashboard = ({ onShowToast }) => {
 
         <div onClick={() => navigateToTab('expenses')} className="min-w-[180px] md:min-w-[240px] flex-shrink-0 snap-start bg-white rounded-2xl shadow-sm p-4 md:p-6 border-b-4 border-red-600 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all bg-red-50/20 flex flex-col justify-between">
           <div className="absolute top-4 right-4"><ShieldAlert className="w-4 h-4 text-red-300" /></div>
-          <p className="text-[10px] md:text-[11px] font-black text-gray-400 uppercase mb-2">Total Rugi (Retur/Rusak)</p>
+          <p className="text-[10px] md:text-[11px] font-black text-gray-400 uppercase mb-2" title="Total Rugi (Retur/Rusak)">Total Rugi (Retur/Rusak)</p>
           <h3 className="text-lg md:text-2xl font-black text-red-700 mb-1">Rp {(totalLossValue || 0).toLocaleString('id-ID')}</h3>
           <p className="text-[9px] font-bold text-red-400 mt-auto pt-2 border-t border-dashed border-red-100 uppercase">Otomatis Potong Laba</p>
         </div>
@@ -743,8 +824,16 @@ const Dashboard = ({ onShowToast }) => {
             <form onSubmit={activeTab === 'transactions' ? handleAddManualIncome : async (e) => { 
                 e.preventDefault(); 
                 if (!newExpense.storeId) return onShowToast('Pilih cabang toko', 'error');
-                const storeObj = stores.find(s => s.id === newExpense.storeId);
-                await addDocument('expenses', {...newExpense, amount: Number(newExpense.amount), storeId: newExpense.storeId, storeName: storeObj ? storeObj.name : 'Pusat', createdAt: new Date()}); 
+                
+                let finalStoreName = 'Pusat';
+                if (newExpense.storeId === 'ALL') {
+                  finalStoreName = 'Global (Semua Cabang)';
+                } else {
+                  const storeObj = stores.find(s => s.id === newExpense.storeId);
+                  if (storeObj) finalStoreName = storeObj.name;
+                }
+
+                await addDocument('expenses', {...newExpense, amount: Number(newExpense.amount), storeId: newExpense.storeId, storeName: finalStoreName, createdAt: new Date()}); 
                 onShowToast('Disimpan', 'success'); 
                 setNewExpense({title: '', amount: '', category: 'Operasional', storeId: ''}); 
               }} 
@@ -755,10 +844,14 @@ const Dashboard = ({ onShowToast }) => {
                 value={activeTab === 'transactions' ? newManualIncome.storeId : newExpense.storeId} 
                 onChange={(e) => activeTab === 'transactions' ? setNewManualIncome({...newManualIncome, storeId: e.target.value}) : setNewExpense({...newExpense, storeId: e.target.value})} 
                 disabled={activeTab === 'expenses' && newExpense.category === 'Kulakan'}
-                className="w-full md:w-48 bg-gray-50 px-4 py-3 rounded-xl border border-gray-200 text-sm font-bold outline-none focus:ring-2 focus:ring-teal-500 disabled:bg-gray-200"
+                className="w-full md:w-48 bg-gray-50 px-4 py-3 rounded-xl border border-gray-200 text-sm font-bold outline-none focus:ring-2 focus:ring-teal-500 disabled:bg-gray-200 disabled:text-gray-500 cursor-pointer"
               >
-                <option value="" disabled>-- Pilih Cabang --</option><option value="pusat">Cabang Pusat</option>
-                {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                <option value="" disabled>-- Pilih Sumber Dana --</option>
+                {activeTab === 'expenses' && newExpense.category === 'Kulakan' && (
+                  <option value="ALL">🌐 Dana Global (Semua)</option>
+                )}
+                <option value="pusat">🏢 Cabang Pusat</option>
+                {stores.map(s => <option key={s.id} value={s.id}>🏪 {s.name}</option>)}
               </select>
 
               {activeTab === 'expenses' && (
@@ -769,10 +862,10 @@ const Dashboard = ({ onShowToast }) => {
                     setNewExpense({
                       ...newExpense, 
                       category: selectedCat,
-                      storeId: selectedCat === 'Kulakan' ? 'pusat' : newExpense.storeId
+                      storeId: selectedCat === 'Kulakan' ? 'ALL' : '' 
                     });
                   }} 
-                  className="w-full md:w-48 bg-gray-50 px-4 py-3 rounded-xl border border-gray-200 text-sm font-bold outline-none focus:ring-2 focus:ring-red-500"
+                  className="w-full md:w-48 bg-gray-50 px-4 py-3 rounded-xl border border-gray-200 text-sm font-bold outline-none focus:ring-2 focus:ring-red-500 cursor-pointer"
                 >
                   <option value="Operasional">Beban Operasional</option>
                   <option value="Kulakan">Kulakan / Restock</option>
@@ -973,13 +1066,13 @@ const Dashboard = ({ onShowToast }) => {
               </div>
 
               <div className="h-px bg-gray-200 my-2"></div>
-              <div className="flex justify-between items-center text-red-600">
-                <span className="text-xs font-bold">3. Kerugian (Retur & Rusak)</span>
-                <span className="text-sm font-black">(-) Rp {totalLossValue.toLocaleString('id-ID')}</span>
+              <div className="flex justify-between items-center">
+                <span className="text-xs font-bold text-gray-600">3. Beban Operasional (Listrik, dll)</span>
+                <span className="text-sm font-black text-rose-500">(-) Rp {totalPureOperational.toLocaleString('id-ID')}</span>
               </div>
-              <div className="flex justify-between items-center text-gray-600">
-                <span className="text-xs font-bold">4. Beban Operasional Asli</span>
-                <span className="text-sm font-black">(-) Rp {totalPureOperational.toLocaleString('id-ID')}</span>
+              <div className="flex justify-between items-center">
+                <span className="text-xs font-bold text-gray-600">4. Kerugian Barang Basi/Rusak</span>
+                <span className="text-sm font-black text-rose-500">(-) Rp {totalLossValue.toLocaleString('id-ID')}</span>
               </div>
             </div>
 
@@ -1003,12 +1096,12 @@ const Dashboard = ({ onShowToast }) => {
             <div className="flex flex-col gap-2 max-h-[60vh] overflow-y-auto">
               <button onClick={() => { exportMasterExcel({transactions: activeStoreTransactions, filteredExpenses: activeStoreExpenses, filteredDebtHistory, activeStoreCustomersDebt, activeStoreCustomersDeposit, filteredDepositHistory, filteredNetBalance, startDate, endDate, storeName: selectedStoreName, formatDisplayDate, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 border border-green-200"><TableIcon className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">Excel Lengkap</p></div></button>
               <button onClick={() => { exportNeracaExcel({balance, totalUnpaidDebt: totalUnpaidDebtDisplay, totalExpenses: totalCashExpenses, totalDeposit: totalDepositDisplay, totalIncome, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 border border-green-200"><TableIcon className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">Excel Neraca</p></div></button>
-              <button onClick={() => { exportLabaRugiExcel({totalIncome, totalHPP, totalPureOperational, totalDamagedGoods: totalLossValue, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 border border-green-200"><TableIcon className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">Excel Laba Rugi</p></div></button>
+              <button onClick={() => { exportLabaRugiExcel({totalIncome, totalHPP, totalPureOperational, totalKulakan, totalLossValue, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 border border-green-200"><TableIcon className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">Excel Laba Rugi</p></div></button>
               
               <div className="h-px w-full bg-gray-200 my-2"></div>
               <button onClick={() => { exportMasterPDF({transactions: activeStoreTransactions, filteredExpenses: activeStoreExpenses, filteredDebtHistory, activeStoreCustomersDebt, activeStoreCustomersDeposit, filteredDepositHistory, filteredNetBalance, startDate, endDate, storeName: selectedStoreName, formatDisplayDate, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-blue-50 text-blue-700 rounded-2xl hover:bg-blue-100 border border-blue-200"><FileText className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">PDF Lengkap</p></div></button>
               <button onClick={() => { exportNeracaPDF({balance, totalUnpaidDebt: totalUnpaidDebtDisplay, totalExpenses: totalCashExpenses, totalDeposit: totalDepositDisplay, totalIncome, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-purple-50 text-purple-700 rounded-2xl hover:bg-purple-100 border border-purple-200"><FileText className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">PDF Neraca</p></div></button>
-              <button onClick={() => { exportLabaRugiPDF({totalIncome, totalHPP, totalPureOperational, totalDamagedGoods: totalLossValue, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-purple-50 text-purple-700 rounded-2xl hover:bg-purple-100 border border-purple-200"><FileText className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">PDF Laba Rugi</p></div></button>
+              <button onClick={() => { exportLabaRugiPDF({totalIncome, totalHPP, totalPureOperational, totalKulakan, totalLossValue, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-purple-50 text-purple-700 rounded-2xl hover:bg-purple-100 border border-purple-200"><FileText className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">PDF Laba Rugi</p></div></button>
             </div>
           </div>
         </div>
@@ -1084,7 +1177,7 @@ const Dashboard = ({ onShowToast }) => {
         </div>
       )}
 
-      {/* --- PENAMBALAN BUG: LOGIKA HAPUS DIPERBAIKI --- */}
+      {/* MODAL HAPUS DATA */}
       {showDeleteModal && selectedItem && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
           <div className="bg-white rounded-[32px] p-6 md:p-8 max-w-sm w-full shadow-2xl text-center">
@@ -1138,8 +1231,8 @@ const Dashboard = ({ onShowToast }) => {
                           }
                        }
                        const relatedExpense = expenses.find(e =>
-                          e.amount === Number(selectedItem.nominal) &&
-                          Math.abs(getSafeDate(e.createdAt).getTime() - getSafeDate(selectedItem.createdAt).getTime()) < 5000
+                          ['Barang Rusak', 'Retur', 'Retur Tukar Pabrik'].includes(e.category) &&
+                          Math.abs(getSafeDate(e.createdAt).getTime() - getSafeDate(selectedItem.createdAt).getTime()) <= 5000
                        );
                        if (relatedExpense) {
                           await deleteDocument('expenses', relatedExpense.id);
@@ -1187,6 +1280,7 @@ const Dashboard = ({ onShowToast }) => {
       )}
 
       <FormRetur isOpen={showReturnModal} onClose={() => setShowReturnModal(false)} onShowToast={onShowToast} />
+      {/* EXPORT DATA DENGAN FUNGSI BARU */}
       {showEditTransModal && selectedEditTransaction && (<EditTransactionModal isOpen={showEditTransModal} transaction={selectedEditTransaction} products={products} customers={customers} onClose={() => setShowEditTransModal(false)} onShowToast={onShowToast} />)}
       {showNota && selectedNotaTransaction && (<Nota transaction={selectedNotaTransaction} onClose={() => setShowNota(false)} />)}
     </div>

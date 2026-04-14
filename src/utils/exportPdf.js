@@ -43,7 +43,7 @@ export const exportMasterPDF = ({
   const inList = transactions.filter(t => Number(t.total) > 0);
   if (inList.length > 0) {
     checkPageBreak(30);
-    doc.setFontSize(11); doc.setFont("helvetica", "bold"); doc.text("1. PEMASUKAN", 14, currentY); currentY += 5;
+    doc.setFontSize(11); doc.setFont("helvetica", "bold"); doc.text("1. PEMASUKAN PENJUALAN", 14, currentY); currentY += 5;
     let totalIn = 0;
     const inBody = inList.map(t => {
       totalIn += Number(t.total);
@@ -54,17 +54,35 @@ export const exportMasterPDF = ({
     currentY = doc.lastAutoTable.finalY + 12;
   }
 
-  // 2. PENGELUARAN
-  if (filteredExpenses.length > 0) {
+  // PISAHKAN PENGELUARAN JADI 2 (OPERASIONAL & KULAKAN)
+  const opsExpenses = filteredExpenses.filter(e => e.category !== 'Kulakan' && e.category !== 'Restock');
+  const kulakanExpenses = filteredExpenses.filter(e => e.category === 'Kulakan' || e.category === 'Restock');
+
+  // 2A. BIAYA OPERASIONAL
+  if (opsExpenses.length > 0) {
     checkPageBreak(30);
-    doc.setFontSize(11); doc.setFont("helvetica", "bold"); doc.text("2. PENGELUARAN", 14, currentY); currentY += 5;
-    let totalEx = 0;
-    const exBody = filteredExpenses.map(e => {
-      totalEx += Number(e.amount);
+    doc.setFontSize(11); doc.setFont("helvetica", "bold"); doc.text("2A. BIAYA OPERASIONAL (Gaji, Listrik, Retur, dll)", 14, currentY); currentY += 5;
+    let totalOps = 0;
+    const opsBody = opsExpenses.map(e => {
+      totalOps += Number(e.amount);
+      return [formatDisplayDate(e.createdAt), e.category || 'Operasional', e.title, `- Rp ${Number(e.amount).toLocaleString('id-ID')}`];
+    });
+    opsBody.push([{ content: 'TOTAL OPERASIONAL:', colSpan: 3, styles: { halign: 'right', fontStyle: 'bold' } }, { content: `Rp ${totalOps.toLocaleString('id-ID')}`, styles: { fontStyle: 'bold', textColor: [220, 38, 38], fillColor: [253, 237, 236] } }]);
+    autoTable(doc, { startY: currentY, head: [['Tanggal & Jam', 'Kategori', 'Keterangan Pengeluaran', 'Nominal']], body: opsBody, theme: 'grid', headStyles: { fillColor: [231, 76, 60] }, didParseCell: customDidParseCell, margin: { left: 14 } });
+    currentY = doc.lastAutoTable.finalY + 12;
+  }
+
+  // 2B. BIAYA KULAKAN / RESTOCK
+  if (kulakanExpenses.length > 0) {
+    checkPageBreak(30);
+    doc.setFontSize(11); doc.setFont("helvetica", "bold"); doc.text("2B. BIAYA KULAKAN / RESTOCK BARANG", 14, currentY); currentY += 5;
+    let totalKulakan = 0;
+    const kulakanBody = kulakanExpenses.map(e => {
+      totalKulakan += Number(e.amount);
       return [formatDisplayDate(e.createdAt), e.title, `- Rp ${Number(e.amount).toLocaleString('id-ID')}`];
     });
-    exBody.push([{ content: 'TOTAL PENGELUARAN:', colSpan: 2, styles: { halign: 'right', fontStyle: 'bold' } }, { content: `Rp ${totalEx.toLocaleString('id-ID')}`, styles: { fontStyle: 'bold', textColor: [220, 38, 38], fillColor: [253, 237, 236] } }]);
-    autoTable(doc, { startY: currentY, head: [['Tanggal & Jam', 'Keterangan Pengeluaran', 'Nominal']], body: exBody, theme: 'grid', headStyles: { fillColor: [231, 76, 60] }, didParseCell: customDidParseCell, margin: { left: 14 } });
+    kulakanBody.push([{ content: 'TOTAL KULAKAN:', colSpan: 2, styles: { halign: 'right', fontStyle: 'bold' } }, { content: `Rp ${totalKulakan.toLocaleString('id-ID')}`, styles: { fontStyle: 'bold', textColor: [220, 38, 38], fillColor: [253, 237, 236] } }]);
+    autoTable(doc, { startY: currentY, head: [['Tanggal & Jam', 'Keterangan Barang', 'Nominal']], body: kulakanBody, theme: 'grid', headStyles: { fillColor: [211, 84, 0] }, didParseCell: customDidParseCell, margin: { left: 14 } });
     currentY = doc.lastAutoTable.finalY + 12;
   }
 
@@ -214,7 +232,7 @@ export const exportLabaRugiPDF = ({ totalIncome, totalHPP, totalPureOperational,
     [{ content: 'LABA KOTOR', styles: { fontStyle: 'bold' } }, { content: `Rp ${labaKotor.toLocaleString('id-ID')}`, styles: { fontStyle: 'bold', textColor: labaKotor >= 0 ? [0, 128, 0] : [220, 38, 38] } }],
     [{ content: 'BEBAN / PENGELUARAN', colSpan: 2, styles: { fontStyle: 'bold', fillColor: [240, 240, 240] } }],
     ['Total Pengeluaran Kas Operasional', `- Rp ${totalPureOperational.toLocaleString('id-ID')}`],
-    ['Kerugian Barang Basi / Rusak', `- Rp ${totalDamagedGoods.toLocaleString('id-ID')}`],
+    ['Kerugian (Retur/Barang Rusak/Batal Laba)', `- Rp ${totalDamagedGoods.toLocaleString('id-ID')}`],
     [{ content: 'LABA / (RUGI) BERSIH', styles: { fontStyle: 'bold' } }, { content: `Rp ${labaBersih.toLocaleString('id-ID')}`, styles: { fontStyle: 'bold', textColor: labaBersih >= 0 ? [0, 128, 0] : [220, 38, 38] } }]
   ];
 
@@ -225,6 +243,7 @@ export const exportLabaRugiPDF = ({ totalIncome, totalHPP, totalPureOperational,
   onShowToast('File PDF Laba Rugi berhasil diunduh', 'success');
 };
 
+// FIX: PDF LAPORAN STOK DIPISAH KARTON & PCS
 export const exportHistoriStokPDF = (filteredHistory, startDate, endDate, storeName, formatDisplayDate, onShowToast) => {
   if (filteredHistory.length === 0) return onShowToast('Tidak ada data untuk diexport', 'error');
 
@@ -234,13 +253,23 @@ export const exportHistoriStokPDF = (filteredHistory, startDate, endDate, storeN
   doc.text(`Cabang Filter: ${storeName}`, 14, 21);
   doc.text(`Periode: ${startDate || 'Semua Data'} s/d ${endDate || 'Sekarang'}`, 14, 26);
 
-  const body = filteredHistory.map(log => [
-    formatDisplayDate(log.createdAt), log.storeName || 'Pusat', log.productName, log.type, `${log.amount} ${log.unitType}`, `${log.totalPcs} Pcs`, log.note
-  ]);
+  const body = filteredHistory.map(log => {
+    let pcsPerCarton = 1;
+    if (log.unitType !== 'PCS' && log.unitType !== 'KG' && log.amount > 0) {
+      pcsPerCarton = Math.round(log.totalPcs / log.amount) || 1;
+    }
+    const utuh = Math.floor(log.totalPcs / pcsPerCarton);
+    const ecer = log.totalPcs % pcsPerCarton;
+
+    return [
+      formatDisplayDate(log.createdAt), log.storeName || 'Pusat', log.productName, log.type, 
+      `${utuh} ${log.unitType}`, `${ecer} Pcs`, `${log.totalPcs} Pcs`, log.note
+    ];
+  });
 
   autoTable(doc, { 
-    head: [['Tanggal & Jam', 'Cabang', 'Nama Barang', 'Status', 'Jumlah', 'Total (PCS)', 'Keterangan']], 
-    body, startY: 32,
+    head: [['Tanggal & Jam', 'Cabang', 'Nama Barang', 'Status', 'Jml Utuh', 'Jml Ecer', 'Total Pcs', 'Keterangan']], 
+    body, startY: 32, styles: { fontSize: 8 },
     didParseCell: function(data) {
       if (data.section === 'body' && data.column.index === 3) {
         if (data.cell.raw === 'MASUK') data.cell.styles.textColor = [0, 128, 0];
@@ -253,6 +282,7 @@ export const exportHistoriStokPDF = (filteredHistory, startDate, endDate, storeN
   onShowToast('Laporan PDF berhasil diunduh', 'success');
 };
 
+// FIX: PDF KEUNTUNGAN DIPISAH KARTON & PCS
 export const exportKeuntunganPDF = (profitData, startDate, endDate, storeName, onShowToast) => {
   if (profitData.length === 0) return onShowToast('Tidak ada data penjualan di periode ini', 'error');
 
@@ -266,11 +296,20 @@ export const exportKeuntunganPDF = (profitData, startDate, endDate, storeName, o
 
   const body = profitData.map(item => {
     totalModal += item.totalHpp; totalPendapatan += item.netSales; totalUntung += item.profit;
-    const avgSellPrice = item.qtySold > 0 ? Math.round(item.totalSalesValue / item.qtySold) : 0;
+    
+    const pcsPerCarton = item.pcsPerCarton || 1;
+    const soldPcs = item.qtySoldPcs !== undefined ? item.qtySoldPcs : Math.round(item.qtySold * pcsPerCarton);
+    const retPcs = item.qtyReturnedPcs !== undefined ? item.qtyReturnedPcs : Math.round(item.qtyReturned * pcsPerCarton);
+
+    const soldUtuh = Math.floor(soldPcs / pcsPerCarton);
+    const soldEcer = soldPcs % pcsPerCarton;
+    const retUtuh = Math.floor(retPcs / pcsPerCarton);
+    const retEcer = retPcs % pcsPerCarton;
     
     return [
-      item.name, `${item.qtySold} ${item.unitType}`, `${item.qtyReturned} ${item.unitType}`, 
-      `Rp ${item.hpp.toLocaleString('id-ID')}`, `Rp ${avgSellPrice.toLocaleString('id-ID')}`,
+      item.name, 
+      `${soldUtuh} ${item.unitType}`, `${soldEcer} Pcs`, 
+      `${retUtuh} ${item.unitType}`, `${retEcer} Pcs`, 
       `Rp ${item.totalHpp.toLocaleString('id-ID')}`, `Rp ${item.netSales.toLocaleString('id-ID')}`, 
       `Rp ${item.profit.toLocaleString('id-ID')}`
     ];
@@ -284,7 +323,7 @@ export const exportKeuntunganPDF = (profitData, startDate, endDate, storeName, o
   ]);
 
   autoTable(doc, { 
-    head: [['Nama Barang', 'Keluar', 'Retur', 'Modal Sat', 'Jual Sat', 'Tot Modal', 'Pendapatan', 'Laba/(Rugi)']], 
+    head: [['Nama Barang', 'Laku(Uth)', 'Rtr(Uth)', 'Rtr(Pcs)', 'Tot Modal', 'Pendapatan', 'Laba/Rugi']], 
     body, startY: 32, styles: { fontSize: 8 }, 
     didParseCell: function(data) {
       if (data.section === 'body' && data.column.index === 7 && data.row.index < body.length - 1) {

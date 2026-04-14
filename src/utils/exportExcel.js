@@ -25,15 +25,30 @@ export const exportMasterExcel = ({
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(inData), "1. Pemasukan");
   }
 
-  // 2. PENGELUARAN
-  let totalEx = 0;
-  const exData = filteredExpenses.map(e => {
-    totalEx += Number(e.amount);
-    return { 'Tanggal & Jam': formatDisplayDate(e.createdAt), 'Keterangan Pengeluaran': e.title, 'Nominal': `- Rp ${Number(e.amount).toLocaleString('id-ID')}` };
+  // PISAHKAN PENGELUARAN JADI 2 (OPERASIONAL & KULAKAN)
+  const opsExpenses = filteredExpenses.filter(e => e.category !== 'Kulakan' && e.category !== 'Restock');
+  const kulakanExpenses = filteredExpenses.filter(e => e.category === 'Kulakan' || e.category === 'Restock');
+
+  // 2A. BIAYA OPERASIONAL
+  let totalOps = 0;
+  const opsData = opsExpenses.map(e => {
+    totalOps += Number(e.amount);
+    return { 'Tanggal & Jam': formatDisplayDate(e.createdAt), 'Kategori': e.category, 'Keterangan Pengeluaran': e.title, 'Nominal': `- Rp ${Number(e.amount).toLocaleString('id-ID')}` };
   });
-  if (exData.length > 0) {
-    exData.push({ 'Tanggal & Jam': 'TOTAL PENGELUARAN', 'Keterangan Pengeluaran': '', 'Nominal': `Rp ${totalEx.toLocaleString('id-ID')}` });
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(exData), "2. Pengeluaran");
+  if (opsData.length > 0) {
+    opsData.push({ 'Tanggal & Jam': 'TOTAL BIAYA OPERASIONAL', 'Kategori': '', 'Keterangan Pengeluaran': '', 'Nominal': `Rp ${totalOps.toLocaleString('id-ID')}` });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(opsData), "2A. Operasional");
+  }
+
+  // 2B. BIAYA KULAKAN / RESTOCK
+  let totalKulakan = 0;
+  const kulakanData = kulakanExpenses.map(e => {
+    totalKulakan += Number(e.amount);
+    return { 'Tanggal & Jam': formatDisplayDate(e.createdAt), 'Kategori': e.category, 'Keterangan Pengeluaran': e.title, 'Nominal': `- Rp ${Number(e.amount).toLocaleString('id-ID')}` };
+  });
+  if (kulakanData.length > 0) {
+    kulakanData.push({ 'Tanggal & Jam': 'TOTAL BIAYA KULAKAN', 'Kategori': '', 'Keterangan Pengeluaran': '', 'Nominal': `Rp ${totalKulakan.toLocaleString('id-ID')}` });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(kulakanData), "2B. Kulakan");
   }
 
   // 3. HISTORI HUTANG
@@ -144,7 +159,7 @@ export const exportLabaRugiExcel = ({ totalIncome, totalHPP, totalPureOperationa
     ['LABA KOTOR', labaKotor], [],
     ['BEBAN / PENGELUARAN', ''],
     ['Total Pengeluaran Operasional', `-${totalPureOperational}`],
-    ['Kerugian Barang Basi / Rusak', `-${totalDamagedGoods}`], [],
+    ['Kerugian (Retur/Barang Rusak/Batal Laba)', `-${totalDamagedGoods}`], [],
     ['LABA / (RUGI) BERSIH', labaBersih]
   ];
 
@@ -219,18 +234,31 @@ export const exportDataProduk = (products, stores, onShowToast) => {
   onShowToast('Data produk berhasil diexport', 'success');
 };
 
+// FIX: EXCEL LAPORAN STOK DIPISAH KARTON & PCS
 export const exportHistoriStokExcel = (filteredHistory, startDate, endDate, storeName, formatDisplayDate, onShowToast) => {
   if (filteredHistory.length === 0) return onShowToast('Tidak ada data untuk diexport', 'error');
   
-  const reportData = filteredHistory.map(log => ({
-    'Tanggal & Jam': formatDisplayDate(log.createdAt),
-    'Cabang / Lokasi': log.storeName || 'Pusat',
-    'Nama Barang': log.productName,
-    'Status': log.type,
-    'Jumlah': `${log.amount} ${log.unitType}`,
-    'Total Keluar/Masuk (PCS)': log.totalPcs,
-    'Keterangan Detail': log.note
-  }));
+  const reportData = filteredHistory.map(log => {
+    let pcsPerCarton = 1;
+    if (log.unitType !== 'PCS' && log.unitType !== 'KG' && log.amount > 0) {
+      pcsPerCarton = Math.round(log.totalPcs / log.amount) || 1;
+    }
+    
+    const utuh = Math.floor(log.totalPcs / pcsPerCarton);
+    const ecer = log.totalPcs % pcsPerCarton;
+
+    return {
+      'Tanggal & Jam': formatDisplayDate(log.createdAt),
+      'Cabang / Lokasi': log.storeName || 'Pusat',
+      'Nama Barang': log.productName,
+      'Status': log.type,
+      'Satuan Utama': log.unitType,
+      'Keluar/Masuk (Utuh)': utuh,
+      'Keluar/Masuk (Ecer/Pcs)': ecer,
+      'Total Keseluruhan (PCS)': log.totalPcs,
+      'Keterangan Detail': log.note
+    };
+  });
 
   const ws = XLSX.utils.json_to_sheet(reportData);
   const wb = XLSX.utils.book_new();
@@ -239,17 +267,27 @@ export const exportHistoriStokExcel = (filteredHistory, startDate, endDate, stor
   onShowToast('Histori Stok Excel berhasil diunduh', 'success');
 };
 
+// FIX: EXCEL KEUNTUNGAN DIPISAH KARTON & PCS
 export const exportKeuntunganExcel = (profitData, startDate, endDate, storeName, onShowToast) => {
-  if (profitData.length === 0) return onShowToast('Tidak ada data penjualan kasir di periode/cabang ini', 'error');
+  if (profitData.length === 0) return onShowToast('Tidak ada data penjualan di periode ini', 'error');
 
   const reportData = profitData.map(item => {
-    const avgSellPrice = item.qtySold > 0 ? Math.round(item.totalSalesValue / item.qtySold) : 0;
+    const pcsPerCarton = item.pcsPerCarton || 1;
+    const soldPcs = item.qtySoldPcs !== undefined ? item.qtySoldPcs : Math.round(item.qtySold * pcsPerCarton);
+    const retPcs = item.qtyReturnedPcs !== undefined ? item.qtyReturnedPcs : Math.round(item.qtyReturned * pcsPerCarton);
+
+    const soldUtuh = Math.floor(soldPcs / pcsPerCarton);
+    const soldEcer = soldPcs % pcsPerCarton;
+    const retUtuh = Math.floor(retPcs / pcsPerCarton);
+    const retEcer = retPcs % pcsPerCarton;
+
     return {
       'Nama Barang': item.name,
-      'Keluar (Qty)': `${item.qtySold} ${item.unitType}`,
-      'Retur / Hangus': `${item.qtyReturned} ${item.unitType}`,
-      'Modal Satuan': item.hpp,
-      'Harga Jual Satuan Rata-rata': avgSellPrice,
+      'Satuan Utama': item.unitType,
+      'Laku (Utuh)': soldUtuh,
+      'Laku (Ecer/Pcs)': soldEcer,
+      'Retur (Utuh)': retUtuh,
+      'Retur (Ecer/Pcs)': retEcer,
       'Total Modal (HPP)': item.totalHpp, 
       'Pendapatan Bersih': item.netSales, 
       'Laba / (Rugi) Bersih': item.profit 
@@ -261,8 +299,9 @@ export const exportKeuntunganExcel = (profitData, startDate, endDate, storeName,
   const totalUntungRugi = profitData.reduce((sum, item) => sum + item.profit, 0);
 
   reportData.push({
-    'Nama Barang': 'TOTAL KESELURUHAN', 'Keluar (Qty)': '', 'Retur / Hangus': '', 'Modal Satuan': '',
-    'Harga Jual Satuan Rata-rata': '', 'Total Modal (HPP)': totalModal, 'Pendapatan Bersih': totalPendapatan, 'Laba / (Rugi) Bersih': totalUntungRugi
+    'Nama Barang': 'TOTAL KESELURUHAN', 'Satuan Utama': '', 'Laku (Utuh)': '', 'Laku (Ecer/Pcs)': '',
+    'Retur (Utuh)': '', 'Retur (Ecer/Pcs)': '', 'Total Modal (HPP)': totalModal, 
+    'Pendapatan Bersih': totalPendapatan, 'Laba / (Rugi) Bersih': totalUntungRugi
   });
 
   const ws = XLSX.utils.json_to_sheet(reportData);

@@ -165,8 +165,10 @@ const StockOpname = ({ onShowToast }) => {
     });
   }, [allStockHistory, searchHistory, startDate, endDate]);
 
+  // FIX: SUNTIKAN PERHITUNGAN PCS UNTUK EXCEL & PDF AGAR AKURAT 100%
   const getProfitData = () => {
     const salesMap = {};
+    
     activeTransactions.forEach(t => {
       const date = getSafeDate(t.createdAt);
       let matchesDate = true;
@@ -178,8 +180,25 @@ const StockOpname = ({ onShowToast }) => {
         t.items.forEach(item => {
           if (!salesMap[item.productId]) {
             const currentProduct = products.find(p => p.id === item.productId);
-            salesMap[item.productId] = { name: item.name, unitType: item.unitType, qtySold: 0, qtyReturned: 0, hpp: currentProduct ? (currentProduct.hpp || 0) : 0, totalSalesValue: 0, totalReturnValue: 0 };
+            salesMap[item.productId] = { 
+              name: item.name, 
+              unitType: item.unitType, 
+              pcsPerCarton: currentProduct ? (currentProduct.pcsPerCarton || 1) : 1,
+              qtySoldPcs: 0, 
+              qtyReturnedPcs: 0, 
+              qtySold: 0, 
+              qtyReturned: 0, 
+              hpp: currentProduct ? (currentProduct.hpp || 0) : 0, 
+              totalSalesValue: 0, 
+              totalReturnValue: 0 
+            };
           }
+          
+          const pcsPerCarton = salesMap[item.productId].pcsPerCarton;
+          const isItemPcs = item.returnUnit === 'pcs' || item.unitType === 'PCS';
+          const qtyInPcs = isItemPcs ? Number(item.qty) : Number(item.qty) * pcsPerCarton;
+          
+          salesMap[item.productId].qtySoldPcs += qtyInPcs;
           salesMap[item.productId].qtySold += Number(item.qty);
           salesMap[item.productId].totalSalesValue += Number(item.subtotal || (item.qty * item.price));
         });
@@ -196,7 +215,16 @@ const StockOpname = ({ onShowToast }) => {
       if (matchesDate && r.items) {
         r.items.forEach(item => {
           if (salesMap[item.productId]) {
-            salesMap[item.productId].qtyReturned += Number(item.qty);
+            const pcsPerCarton = salesMap[item.productId].pcsPerCarton;
+            const isItemPcs = item.returnUnit === 'pcs' || item.unitType === 'PCS';
+            const qtyInPcs = isItemPcs ? Number(item.qty) : Number(item.qty) * pcsPerCarton;
+            
+            salesMap[item.productId].qtyReturnedPcs += qtyInPcs;
+            
+            let returnedQtyConv = Number(item.qty);
+            if (item.returnUnit === 'pcs' && pcsPerCarton > 1) returnedQtyConv = returnedQtyConv / pcsPerCarton;
+            
+            salesMap[item.productId].qtyReturned += returnedQtyConv;
             salesMap[item.productId].totalReturnValue += Number(item.qty * (item.finalPrice || item.price));
           }
         });
@@ -207,7 +235,7 @@ const StockOpname = ({ onShowToast }) => {
       const totalHpp = data.hpp * (data.qtySold - data.qtyReturned);
       const netSales = data.totalSalesValue - data.totalReturnValue; 
       return { ...data, netSales, totalHpp, profit: netSales - totalHpp };
-    }).sort((a, b) => b.qtySold - a.qtySold); 
+    }).sort((a, b) => b.qtySoldPcs - a.qtySoldPcs); 
   };
 
   const resetForm = () => {
@@ -277,7 +305,6 @@ const StockOpname = ({ onShowToast }) => {
     if (result.success) { onShowToast('Produk dihapus', 'success'); setShowDeleteModal(false); }
   };
 
-  // --- LOGIKA UPDATE STOK (MASUK, KELUAR, DAN RUSAK) ---
   const handleStockUpdate = async (e) => {
     e.preventDefault();
     if (!selectedProduct || !stockAmount) return;
@@ -286,7 +313,6 @@ const StockOpname = ({ onShowToast }) => {
     const isPcsMode = stockUnit === 'PCS';
     const pcsPerCarton = WHOLESALE_TYPES.includes(selectedProduct.unitType) ? (selectedProduct.pcsPerCarton || 1) : 1;
     
-    // Hitung total Pcs yang terpengaruh
     const totalPcs = isPcsMode ? amount : amount * pcsPerCarton;
     let newStockPcs = selectedProduct.stockPcs;
 
@@ -294,7 +320,6 @@ const StockOpname = ({ onShowToast }) => {
       const storeObj = stores.find(s => s.id === damageStoreId);
       const storeName = storeObj ? storeObj.name : 'Pusat (Gudang)';
       
-      // Jika modal per Karton, bagi dulu biar ketemu harga per Pcs
       const hppPerPcs = (selectedProduct.hpp || 0) / pcsPerCarton;
       const lossAmount = totalPcs * hppPerPcs;
 
@@ -629,7 +654,6 @@ const StockOpname = ({ onShowToast }) => {
                 </div>
               )}
 
-              {/* FITUR BARU: TOMBOL TOGGLE SATUAN YANG LEBIH MODERN & RAPI */}
               <div className="mb-6 space-y-3">
                 <input 
                   type="number" 

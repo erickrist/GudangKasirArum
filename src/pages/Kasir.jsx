@@ -2,13 +2,12 @@ import { useState } from 'react';
 import { Plus, Trash2, ShoppingCart, User, X, Search, Store, MapPin } from 'lucide-react';
 import { useCollection, addDocument, updateDocument, updateStockBatch } from '../hooks/useFirestore';
 import { useCart } from '../hooks/useCart'; 
-import { usePricing } from '../hooks/usePricing'; // <-- IMPORT HOOK PRICING KITA
+import { usePricing } from '../hooks/usePricing'; 
 import Loading from '../components/common/Loading';
 import EmptyState from '../components/common/EmptyState';
 import Nota from '../components/Nota';
 import CartItem from '../components/CartItem';
 
-// Sesuaikan path ini jika Anda sudah memindahkan file ke folder /modals/
 import QuickAddCustomer from '../components/QuickAddCustomer';
 import PaymentModal from '../components/PaymentModal';
 
@@ -17,13 +16,11 @@ const Kasir = ({ onShowToast }) => {
   const { data: customers, loading: loadingCustomers } = useCollection('customers');
   const { data: stores, loading: loadingStores } = useCollection('stores');
   
-  // HOOK KERANJANG
   const {
     cart, selectedCustomer, setSelectedCustomer,
     addToCart, updateQty, updateDiscount, removeFromCart, calculateSubtotal, clearCart
   } = useCart();
 
-  // HOOK PRICING (Untuk Multi-Toko)
   const { activeStoreId, handleStoreChange, getProductPrice } = usePricing(stores);
 
   const [showCustomerModal, setShowCustomerModal] = useState(false);
@@ -52,20 +49,41 @@ const Kasir = ({ onShowToast }) => {
     (c.phone && c.phone.includes(searchCustomer))
   );
 
-  // FUNGSI MEMASUKKAN BARANG KE KERANJANG
-  const handleAddToCartClick = (product) => {
+  // === FITUR BARU: TAMBAH BARANG (BISA GROSIR / BISA ECERAN PCS) ===
+  const handleAddToCartClick = (product, type = 'WHOLESALE') => {
     if (!activeStoreId && stores.length > 0) {
        return onShowToast('Silakan pilih Cabang Toko di atas terlebih dahulu!', 'error');
     }
     
-    // Ambil harga yang sudah disesuaikan dengan toko aktif dari hook
     const resolvedPrice = getProductPrice(product);
+    const hppPrice = product.hpp || 0;
 
-    // Kirim produk dengan harga yang sudah di-override ke dalam hook keranjang
-    addToCart({
-      ...product,
-      price: resolvedPrice
-    });
+    // JIKA KASIR KLIK TOMBOL "+ PCS (ECER)"
+    if (type === 'PCS' && product.pcsPerCarton > 1) {
+       const pcsPrice = Math.round(resolvedPrice / product.pcsPerCarton);
+       const pcsHpp = Math.round(hppPrice / product.pcsPerCarton);
+       
+       addToCart({
+          ...product,
+          id: `${product.id}_PCS`, // ID Unik Keranjang (Biar misah dari Karton)
+          productId: `${product.id}_PCS`, 
+          originalId: product.id, // ID Asli Database (Penting untuk potong stok!)
+          name: `${product.name} (Eceran)`,
+          unitType: 'PCS',
+          price: pcsPrice,
+          capitalPrice: pcsHpp,
+          pcsPerCarton: 1, 
+       });
+    } 
+    // JIKA KASIR KLIK TOMBOL "+ KARTON/GROSIR"
+    else {
+       addToCart({
+          ...product,
+          originalId: product.id, // Tagging ID asli
+          price: resolvedPrice,
+          capitalPrice: hppPrice
+       });
+    }
   };
 
   const handleAddNewCustomer = async (formData) => {
@@ -92,18 +110,39 @@ const Kasir = ({ onShowToast }) => {
   const handlePaymentConfirm = async (paymentData) => {
     if (!selectedCustomer) return onShowToast('Pilih pembeli terlebih dahulu', 'error');
 
-    const stockUpdates = [];
+    // === LOGIKA ANTI-BUG: PENGGABUNGAN STOK SEBELUM DISIMPAN ===
+    const stockDeductions = {};
+    
     for (const item of cart) {
+      // Pastikan merujuk ke ID barang asli di database (bukan ID bayangan keranjang)
+      const realId = item.originalId || item.productId || item.id;
+      
       let pcsToReduce = item.qty;
       if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType)) {
          pcsToReduce = item.qty * (item.pcsPerCarton || 1);
       }   
-      const newStock = item.stockPcs - pcsToReduce;
 
-      if (newStock < 0) return onShowToast(`Stok ${item.name} di pusat tidak mencukupi`, 'error');
-
-      stockUpdates.push({ productId: item.productId, newStock: newStock });
+      if (!stockDeductions[realId]) {
+          const dbProduct = products.find(p => p.id === realId);
+          stockDeductions[realId] = {
+              stockPcs: dbProduct ? dbProduct.stockPcs : item.stockPcs,
+              reduceAmount: 0,
+              name: item.name.replace(' (Eceran)', '') // Nama asli
+          };
+      }
+      stockDeductions[realId].reduceAmount += pcsToReduce;
     }
+
+    const stockUpdates = [];
+    for (const [id, data] of Object.entries(stockDeductions)) {
+        const newStock = data.stockPcs - data.reduceAmount;
+        // Cek jika gabungan Karton + Pcs melebihi stok gudang
+        if (newStock < 0) {
+            return onShowToast(`Stok ${data.name} di pusat tidak mencukupi. (Sisa: ${data.stockPcs} Pcs, Diminta: ${data.reduceAmount} Pcs)`, 'error');
+        }
+        stockUpdates.push({ productId: id, newStock: newStock });
+    }
+    // ==============================================================
 
     let subtotal = calculateSubtotal();
     let finalTotal = subtotal;
@@ -121,19 +160,14 @@ const Kasir = ({ onShowToast }) => {
     const activeStoreName = stores.find(s => s.id === activeStoreId)?.name || 'Cabang Pusat / Utama';
 
     const transactionData = {
-      // DATA TOKO
       storeId: activeStoreId || 'pusat',
       storeName: activeStoreName,
-      
-      // DATA PEMBELI
       customerId: selectedCustomer.id,
       customerName: selectedCustomer.name,
       customerPhone: selectedCustomer.phone || '',
       customerAddress: selectedCustomer.address || '',
-      
-      // DATA BARANG
       items: cart.map(item => ({
-        productId: item.productId,
+        productId: item.originalId || item.productId || item.id, // Catat ke ID asli agar Laba Rugi akurat
         name: item.name,
         qty: item.qty,
         unitType: item.unitType,
@@ -143,8 +177,6 @@ const Kasir = ({ onShowToast }) => {
         discount: item.discount || 0,
         subtotal: item.price * item.qty - (item.discount || 0),
       })),
-      
-      // DATA PEMBAYARAN
       subtotal: subtotal,
       total: finalTotal,
       returnUsed: returnUsed,
@@ -229,9 +261,7 @@ const Kasir = ({ onShowToast }) => {
                   className="w-full md:w-64 appearance-none bg-gray-50 border border-gray-200 text-gray-800 px-4 py-3 rounded-xl font-black text-sm outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent cursor-pointer shadow-sm"
                >
                   <option value="" disabled>-- Pilih Cabang --</option>
-                  {/* OPSI PUSAT */}
                   <option value="pusat">🏢 CABANG PUSAT / UTAMA</option> 
-                  
                   {stores.map(store => (
                      <option key={store.id} value={store.id}>🏪 {store.name.toUpperCase()}</option>
                   ))}
@@ -277,16 +307,13 @@ const Kasir = ({ onShowToast }) => {
             ) : (
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-4 max-h-[50vh] md:max-h-[600px] overflow-y-auto custom-scrollbar pr-1 md:pr-2">
                 {filteredProducts.map((product) => {
-                  // AMBIL HARGA DINAMIS SEBELUM DIRENDER
                   const resolvedPrice = getProductPrice(product);
 
                   return (
-                    <button
+                    <div
                       key={product.id}
-                      onClick={() => handleAddToCartClick(product)}
-                      disabled={product.stockPcs < 1}
-                      className={`text-left border rounded-xl md:rounded-2xl overflow-hidden hover:shadow-lg transition-all duration-300 flex flex-col active:scale-95 ${
-                        product.stockPcs < 1 ? 'opacity-50 cursor-not-allowed border-gray-200 grayscale' : 'hover:border-teal-400 border-gray-200 bg-white'
+                      className={`text-left border rounded-xl md:rounded-2xl overflow-hidden transition-all duration-300 flex flex-col ${
+                        product.stockPcs < 1 ? 'opacity-50 border-gray-200 grayscale' : 'hover:border-teal-400 hover:shadow-lg border-gray-200 bg-white'
                       }`}
                     >
                       {product.image && (
@@ -297,15 +324,40 @@ const Kasir = ({ onShowToast }) => {
                           <h4 className="font-black text-gray-800 text-xs md:text-sm mb-1 uppercase tracking-tight line-clamp-2 leading-snug">{product.name}</h4>
                           <p className="text-[8px] md:text-[9px] font-bold text-teal-600 uppercase tracking-widest mb-2 md:mb-3 bg-teal-50 inline-block px-1.5 md:px-2 py-1 rounded-md">{product.category}</p>
                         </div>
-                        <div className="mt-2 flex flex-col sm:flex-row justify-between items-start sm:items-end border-t border-dashed border-gray-100 pt-2 md:pt-3 gap-1 md:gap-0">
-                          <div>
-                            <span className="text-xs md:text-sm font-black text-teal-600 block">Rp {resolvedPrice.toLocaleString('id-ID')}</span>
-                            <span className={`text-[9px] md:text-[10px] font-bold uppercase tracking-widest block mt-0.5 md:mt-1 ${product.stockPcs < 10 ? 'text-red-500' : 'text-gray-400'}`}>Stok Pusat: {product.stockPcs}</span>
+                        
+                        <div className="mt-2 flex flex-col justify-between border-t border-dashed border-gray-100 pt-2 md:pt-3 gap-2">
+                          <div className="flex justify-between items-end">
+                              <div>
+                                <span className="text-xs md:text-sm font-black text-teal-600 block">Rp {resolvedPrice.toLocaleString('id-ID')}</span>
+                                <span className={`text-[9px] md:text-[10px] font-bold uppercase tracking-widest block mt-0.5 md:mt-1 ${product.stockPcs < 10 ? 'text-red-500' : 'text-gray-400'}`}>Stok: {product.stockPcs} Pcs</span>
+                              </div>
                           </div>
-                          <span className="text-[8px] md:text-[9px] font-black bg-gray-100 text-gray-600 px-1.5 py-1 md:px-2 rounded uppercase tracking-wider self-end sm:self-auto">{product.unitType}</span>
+                          
+                          {/* TOMBOL GROSIR & ECERAN YANG CANGGIH */}
+                          <div className="grid grid-cols-2 gap-2 mt-1">
+                             <button 
+                               disabled={product.stockPcs < 1} 
+                               onClick={() => handleAddToCartClick(product, 'WHOLESALE')} 
+                               className="bg-teal-50 text-teal-700 py-2 rounded-lg text-[9px] md:text-[10px] font-black uppercase hover:bg-teal-100 transition-colors shadow-sm disabled:opacity-50 active:scale-95"
+                             >
+                               + 1 {product.unitType}
+                             </button>
+                             {product.pcsPerCarton > 1 && !['PCS', 'KG'].includes(product.unitType) ? (
+                               <button 
+                                 disabled={product.stockPcs < 1} 
+                                 onClick={() => handleAddToCartClick(product, 'PCS')} 
+                                 className="bg-purple-50 text-purple-700 py-2 rounded-lg text-[9px] md:text-[10px] font-black uppercase hover:bg-purple-100 transition-colors shadow-sm disabled:opacity-50 active:scale-95"
+                               >
+                                 + 1 PCS
+                               </button>
+                             ) : (
+                               <div className="col-span-1"></div>
+                             )}
+                          </div>
+
                         </div>
                       </div>
-                    </button>
+                    </div>
                   );
                 })}
               </div>
@@ -430,7 +482,6 @@ const Kasir = ({ onShowToast }) => {
                           <p className="text-[9px] md:text-[10px] font-bold text-gray-500 tracking-widest mt-0.5">{customer.phone || 'Tanpa No HP'}</p>
                         </div>
                         
-                        {/* BAGIAN INI YANG DIKEMBALIKAN: Menampilkan Label Hutang/Deposit */}
                         {(hasDebt || hasDeposit) && (
                           <div className="flex flex-col items-end gap-1 shrink-0">
                             {hasDebt && (

@@ -82,7 +82,10 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
 
   const [cart, setCart] = useState([]);
   const [selectedCustomer, setSelectedCustomer] = useState('');
-  const [refundType, setRefundType] = useState('deposit');
+  
+  // 4 OPSI RETUR CERDAS
+  const [refundAction, setRefundAction] = useState('deposit_rusak');
+  
   const [reason, setReason] = useState('');
   const [searchProduct, setSearchProduct] = useState('');
   
@@ -109,6 +112,7 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
         unitType: product.unitType,
         pcsPerCarton: product.pcsPerCarton || 1,
         price: resolvedPrice, 
+        hpp: product.hpp || 0, // Ditarik untuk perhitungan Laba Impas
         qty: 1,
         returnUnit: 'pack', 
         isManual: false
@@ -127,6 +131,7 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
       unitType: 'Item',
       pcsPerCarton: 1,
       price: Number(manualItem.price),
+      hpp: Number(manualItem.price), // Manual diasumsikan HPP = Harga (Impas)
       qty: Number(manualItem.qty),
       returnUnit: 'pack', 
       isManual: true
@@ -166,7 +171,15 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
     return item.price;
   };
 
+  const getItemHpp = (item) => {
+    if (item.returnUnit === 'pcs' && item.pcsPerCarton > 1) {
+      return Math.round(item.hpp / item.pcsPerCarton);
+    }
+    return item.hpp;
+  };
+
   const totalReturnAmount = cart.reduce((sum, item) => sum + (getItemPrice(item) * (Number(item.qty) || 0)), 0);
+  const totalReturnHpp = cart.reduce((sum, item) => sum + (getItemHpp(item) * (Number(item.qty) || 0)), 0);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -192,32 +205,63 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
     const activeStoreName = stores.find(s => s.id === finalStoreId)?.name || 'Cabang Pusat / Utama';
 
     let updateRes;
-    if (refundType === 'deposit') {
+    const isDeposit = refundAction.startsWith('deposit');
+    const labaKotorBatal = Math.max(0, totalReturnAmount - totalReturnHpp); // Hanya selisih untung (misal 500 perak)
+
+    if (isDeposit) {
+      // 1. Tambah Saldo Deposit Pelanggan (Uang fisik laci tetap utuh)
       updateRes = await updateDocument('customers', cust.id, {
         returnAmount: (Number(cust.returnAmount) || 0) + totalReturnAmount
       });
       
-      // FITUR BARU: Otomatis mencatat kerugian di Dashboard meskipun masuk ke Deposit!
       if (updateRes.success || updateRes.id) {
-         await addDocument('expenses', {
-          title: `Retur (Jadi Deposit) - ${cust.name}: ${reason}`,
-          amount: totalReturnAmount,
-          category: 'Barang Rusak', // Meminjam kategori ini agar Kas Laci Fisik tidak terpotong!
-          storeId: finalStoreId,        
-          storeName: activeStoreName,   
-          createdAt: new Date()
-        });
+         if (refundAction === 'deposit_rusak') {
+            // Barang Dibuang -> Potong Laba Full senilai Harga Jual (Biar ruginya pas sebesar HPP)
+            await addDocument('expenses', {
+              title: `Retur (Deposit & Barang Dibuang) - ${cust.name}: ${reason}`,
+              amount: totalReturnAmount,
+              category: 'Barang Rusak', 
+              storeId: finalStoreId,        
+              storeName: activeStoreName,   
+              createdAt: new Date()
+            });
+         } else if (refundAction === 'deposit_supplier') {
+            // Kembali ke Pabrik -> Tidak rugi HPP. Hanya membatalkan "Laba Kotornya" saja.
+            if (labaKotorBatal > 0) {
+                await addDocument('expenses', {
+                  title: `Batal Laba (Retur Deposit & Tukar Pabrik) - ${cust.name}: ${reason}`,
+                  amount: labaKotorBatal,
+                  category: 'Barang Rusak', 
+                  storeId: finalStoreId,        
+                  storeName: activeStoreName,   
+                  createdAt: new Date()
+                });
+            }
+         }
       }
-
     } else {
-      updateRes = await addDocument('expenses', {
-        title: `Retur Dana Kas (${cust.name}): ${reason}`,
-        amount: totalReturnAmount,
-        category: 'Retur',
-        storeId: finalStoreId,        
-        storeName: activeStoreName,   
-        createdAt: new Date()
-      });
+      // PENGEMBALIAN UANG TUNAI
+      if (refundAction === 'cash_rusak') {
+         // Barang Dibuang -> Potong Laci Kasir + Potong Laba (Rugi HPP)
+         updateRes = await addDocument('expenses', {
+            title: `Retur Dana Kas & Barang Dibuang (${cust.name}): ${reason}`,
+            amount: totalReturnAmount,
+            category: 'Retur',
+            storeId: finalStoreId,        
+            storeName: activeStoreName,   
+            createdAt: new Date()
+         });
+      } else if (refundAction === 'cash_supplier') {
+         // Tukar Pabrik -> Potong Laci Kasir + Laba TETAP IMPAS (Tidak rugi HPP)
+         updateRes = await addDocument('expenses', {
+            title: `Retur Kas & Tukar Pabrik (${cust.name}): ${reason}`,
+            amount: totalReturnAmount,
+            category: 'Retur Tukar Pabrik', // Kategori khusus agar di Dashboard bisa dipilah
+            storeId: finalStoreId,        
+            storeName: activeStoreName,   
+            createdAt: new Date()
+         });
+      }
     }
 
     if (updateRes.success || updateRes.id) {
@@ -226,17 +270,18 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
         customerId: cust.id,
         amount: totalReturnAmount,
         reason: finalReason,
-        refundType: refundType,
+        refundType: isDeposit ? 'deposit' : 'cash', 
         items: cart.map(i => ({ ...i, finalPrice: getItemPrice(i) })), 
         storeId: finalStoreId,        
         storeName: activeStoreName,   
         createdAt: new Date()
       });
       
-      onShowToast('Retur berhasil diproses (Stok tidak dikembalikan ke gudang)', 'success');
+      onShowToast('Retur berhasil diproses (Laba sudah disesuaikan)', 'success');
       setCart([]);
       setReason('');
       setSelectedCustomer('');
+      setRefundAction('deposit_rusak');
       onClose();
     } else {
       onShowToast('Gagal memproses retur', 'error');
@@ -360,8 +405,22 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
                 </div>
               </div>
 
-              <div className="space-y-1"><label className="text-[10px] font-black text-gray-400 uppercase ml-1 md:ml-2">Alasan Retur</label><input type="text" required placeholder="Contoh: Kemasan Rusak, Barang Basi, dll" value={reason} onChange={e => setReason(e.target.value)} className="w-full px-3 md:px-4 py-2.5 md:py-3 bg-gray-50 rounded-xl text-xs md:text-sm font-bold border-none outline-none focus:ring-2 focus:ring-purple-500" /></div>
-              <div className="space-y-1"><label className="text-[10px] font-black text-gray-400 uppercase ml-1 md:ml-2">Tujuan Pengembalian Dana</label><select value={refundType} onChange={e => setRefundType(e.target.value)} className="w-full bg-purple-50 text-purple-800 rounded-xl px-3 md:px-4 py-2.5 md:py-3 text-[10px] md:text-sm font-black border border-purple-100 outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer appearance-none"><option value="deposit">Simpan sebagai SALDO DEPOSIT</option><option value="cash">Masuk pengeluaran (Potong Uang Toko)</option></select></div>
+              <div className="space-y-1"><label className="text-[10px] font-black text-gray-400 uppercase ml-1 md:ml-2">Alasan Retur</label><input type="text" required placeholder="Contoh: Kemasan Rusak, Bisa Ditukar, dll" value={reason} onChange={e => setReason(e.target.value)} className="w-full px-3 md:px-4 py-2.5 md:py-3 bg-gray-50 rounded-xl text-xs md:text-sm font-bold border-none outline-none focus:ring-2 focus:ring-purple-500" /></div>
+              
+              {/* 4 OPSI KEPUTUSAN RETUR CERDAS */}
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-gray-400 uppercase ml-1 md:ml-2">Tujuan Pengembalian Dana & Kondisi Barang</label>
+                <div className="relative">
+                  <select value={refundAction} onChange={e => setRefundAction(e.target.value)} className="w-full bg-purple-50 text-purple-800 rounded-xl px-3 md:px-4 py-2.5 md:py-3 text-[10px] md:text-xs font-black border border-purple-100 outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer appearance-none">
+                    <option value="deposit_rusak">🟢 DEPOSIT & Barang Dibuang (Toko Rugi Modal)</option>
+                    <option value="deposit_supplier">🟢 DEPOSIT & Tukar Pabrik (Toko Batal Untung - IMPAS)</option>
+                    <option value="cash_rusak">🔴 TUNAI & Barang Dibuang (Toko Rugi Modal)</option>
+                    <option value="cash_supplier">🔴 TUNAI & Tukar Pabrik (Toko Batal Untung - IMPAS)</option>
+                  </select>
+                  <ChevronDown className="absolute right-4 top-3 w-4 h-4 text-purple-600 pointer-events-none" />
+                </div>
+              </div>
+
             </form>
           </div>
         </div>
