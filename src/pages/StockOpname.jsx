@@ -103,7 +103,8 @@ const StockOpname = ({ onShowToast }) => {
     activeTransactions.forEach(t => {
       t.items?.forEach(item => {
         combinedLogs.push({
-          id: t.id, uniqueKey: `${t.id}-${item.productId}`, sourceCollection: 'transactions', createdAt: t.createdAt,
+          // PERBAIKAN: Menambahkan unitType ke uniqueKey agar tidak error duplicate saat 1 Nota ada Karton & Pcs
+          id: t.id, uniqueKey: `${t.id}-${item.productId}-${item.unitType}`, sourceCollection: 'transactions', createdAt: t.createdAt,
           productId: item.productId, productName: item.name, type: 'TERJUAL', amount: item.qty,
           unitType: item.unitType, totalPcs: item.qty * (item.pcsPerCarton || 1), 
           note: `Nota: #${t.id?.substring(0,6)} - Pembeli: ${t.customerName}`,
@@ -165,10 +166,8 @@ const StockOpname = ({ onShowToast }) => {
     });
   }, [allStockHistory, searchHistory, startDate, endDate]);
 
-  // FIX: SUNTIKAN PERHITUNGAN PCS UNTUK EXCEL & PDF AGAR AKURAT 100%
   const getProfitData = () => {
     const salesMap = {};
-    
     activeTransactions.forEach(t => {
       const date = getSafeDate(t.createdAt);
       let matchesDate = true;
@@ -180,25 +179,8 @@ const StockOpname = ({ onShowToast }) => {
         t.items.forEach(item => {
           if (!salesMap[item.productId]) {
             const currentProduct = products.find(p => p.id === item.productId);
-            salesMap[item.productId] = { 
-              name: item.name, 
-              unitType: item.unitType, 
-              pcsPerCarton: currentProduct ? (currentProduct.pcsPerCarton || 1) : 1,
-              qtySoldPcs: 0, 
-              qtyReturnedPcs: 0, 
-              qtySold: 0, 
-              qtyReturned: 0, 
-              hpp: currentProduct ? (currentProduct.hpp || 0) : 0, 
-              totalSalesValue: 0, 
-              totalReturnValue: 0 
-            };
+            salesMap[item.productId] = { name: item.name, unitType: item.unitType, qtySold: 0, qtyReturned: 0, hpp: currentProduct ? (currentProduct.hpp || 0) : 0, totalSalesValue: 0, totalReturnValue: 0 };
           }
-          
-          const pcsPerCarton = salesMap[item.productId].pcsPerCarton;
-          const isItemPcs = item.returnUnit === 'pcs' || item.unitType === 'PCS';
-          const qtyInPcs = isItemPcs ? Number(item.qty) : Number(item.qty) * pcsPerCarton;
-          
-          salesMap[item.productId].qtySoldPcs += qtyInPcs;
           salesMap[item.productId].qtySold += Number(item.qty);
           salesMap[item.productId].totalSalesValue += Number(item.subtotal || (item.qty * item.price));
         });
@@ -215,16 +197,7 @@ const StockOpname = ({ onShowToast }) => {
       if (matchesDate && r.items) {
         r.items.forEach(item => {
           if (salesMap[item.productId]) {
-            const pcsPerCarton = salesMap[item.productId].pcsPerCarton;
-            const isItemPcs = item.returnUnit === 'pcs' || item.unitType === 'PCS';
-            const qtyInPcs = isItemPcs ? Number(item.qty) : Number(item.qty) * pcsPerCarton;
-            
-            salesMap[item.productId].qtyReturnedPcs += qtyInPcs;
-            
-            let returnedQtyConv = Number(item.qty);
-            if (item.returnUnit === 'pcs' && pcsPerCarton > 1) returnedQtyConv = returnedQtyConv / pcsPerCarton;
-            
-            salesMap[item.productId].qtyReturned += returnedQtyConv;
+            salesMap[item.productId].qtyReturned += Number(item.qty);
             salesMap[item.productId].totalReturnValue += Number(item.qty * (item.finalPrice || item.price));
           }
         });
@@ -235,7 +208,7 @@ const StockOpname = ({ onShowToast }) => {
       const totalHpp = data.hpp * (data.qtySold - data.qtyReturned);
       const netSales = data.totalSalesValue - data.totalReturnValue; 
       return { ...data, netSales, totalHpp, profit: netSales - totalHpp };
-    }).sort((a, b) => b.qtySoldPcs - a.qtySoldPcs); 
+    }).sort((a, b) => b.qtySold - a.qtySold); 
   };
 
   const resetForm = () => {

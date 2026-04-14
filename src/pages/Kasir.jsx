@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Plus, Trash2, ShoppingCart, User, X, Search, Store, MapPin } from 'lucide-react';
-import { useCollection, addDocument, updateDocument, updateStockBatch } from '../hooks/useFirestore';
+import { useCollection, addDocument, updateDocument } from '../hooks/useFirestore';
 import { useCart } from '../hooks/useCart'; 
 import { usePricing } from '../hooks/usePricing'; 
 import Loading from '../components/common/Loading';
@@ -49,7 +49,6 @@ const Kasir = ({ onShowToast }) => {
     (c.phone && c.phone.includes(searchCustomer))
   );
 
-  // === FITUR BARU: TAMBAH BARANG (BISA GROSIR / BISA ECERAN PCS) ===
   const handleAddToCartClick = (product, type = 'WHOLESALE') => {
     if (!activeStoreId && stores.length > 0) {
        return onShowToast('Silakan pilih Cabang Toko di atas terlebih dahulu!', 'error');
@@ -58,16 +57,15 @@ const Kasir = ({ onShowToast }) => {
     const resolvedPrice = getProductPrice(product);
     const hppPrice = product.hpp || 0;
 
-    // JIKA KASIR KLIK TOMBOL "+ PCS (ECER)"
     if (type === 'PCS' && product.pcsPerCarton > 1) {
        const pcsPrice = Math.round(resolvedPrice / product.pcsPerCarton);
        const pcsHpp = Math.round(hppPrice / product.pcsPerCarton);
        
        addToCart({
           ...product,
-          id: `${product.id}_PCS`, // ID Unik Keranjang (Biar misah dari Karton)
+          id: `${product.id}_PCS`, 
           productId: `${product.id}_PCS`, 
-          originalId: product.id, // ID Asli Database (Penting untuk potong stok!)
+          originalId: product.id, 
           name: `${product.name} (Eceran)`,
           unitType: 'PCS',
           price: pcsPrice,
@@ -75,11 +73,10 @@ const Kasir = ({ onShowToast }) => {
           pcsPerCarton: 1, 
        });
     } 
-    // JIKA KASIR KLIK TOMBOL "+ KARTON/GROSIR"
     else {
        addToCart({
           ...product,
-          originalId: product.id, // Tagging ID asli
+          originalId: product.id,
           price: resolvedPrice,
           capitalPrice: hppPrice
        });
@@ -110,39 +107,41 @@ const Kasir = ({ onShowToast }) => {
   const handlePaymentConfirm = async (paymentData) => {
     if (!selectedCustomer) return onShowToast('Pilih pembeli terlebih dahulu', 'error');
 
-    // === LOGIKA ANTI-BUG: PENGGABUNGAN STOK SEBELUM DISIMPAN ===
+    // MEREKAP PENGGABUNGAN STOK KARTON DAN PCS (DENGAN PEMBERSIH ID)
     const stockDeductions = {};
     
     for (const item of cart) {
-      // Pastikan merujuk ke ID barang asli di database (bukan ID bayangan keranjang)
-      const realId = item.originalId || item.productId || item.id;
+      // FIX ABSOLUT: Apapun yang terjadi, bersihkan _PCS dari ID
+      let realId = item.originalId || item.productId || item.id;
+      if (typeof realId === 'string' && realId.endsWith('_PCS')) {
+          realId = realId.replace('_PCS', '');
+      }
       
-      let pcsToReduce = item.qty;
+      let pcsToReduce = Number(item.qty) || 0;
       if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType)) {
-         pcsToReduce = item.qty * (item.pcsPerCarton || 1);
+         pcsToReduce = (Number(item.qty) || 0) * (Number(item.pcsPerCarton) || 1);
       }   
 
       if (!stockDeductions[realId]) {
           const dbProduct = products.find(p => p.id === realId);
           stockDeductions[realId] = {
-              stockPcs: dbProduct ? dbProduct.stockPcs : item.stockPcs,
+              stockPcs: dbProduct ? Number(dbProduct.stockPcs) : 0,
               reduceAmount: 0,
-              name: item.name.replace(' (Eceran)', '') // Nama asli
+              name: item.name.replace(' (Eceran)', '') 
           };
       }
       stockDeductions[realId].reduceAmount += pcsToReduce;
     }
 
+    // CEK STOK SEBELUM PROSES
     const stockUpdates = [];
     for (const [id, data] of Object.entries(stockDeductions)) {
         const newStock = data.stockPcs - data.reduceAmount;
-        // Cek jika gabungan Karton + Pcs melebihi stok gudang
         if (newStock < 0) {
             return onShowToast(`Stok ${data.name} di pusat tidak mencukupi. (Sisa: ${data.stockPcs} Pcs, Diminta: ${data.reduceAmount} Pcs)`, 'error');
         }
         stockUpdates.push({ productId: id, newStock: newStock });
     }
-    // ==============================================================
 
     let subtotal = calculateSubtotal();
     let finalTotal = subtotal;
@@ -166,17 +165,24 @@ const Kasir = ({ onShowToast }) => {
       customerName: selectedCustomer.name,
       customerPhone: selectedCustomer.phone || '',
       customerAddress: selectedCustomer.address || '',
-      items: cart.map(item => ({
-        productId: item.originalId || item.productId || item.id, // Catat ke ID asli agar Laba Rugi akurat
-        name: item.name,
-        qty: item.qty,
-        unitType: item.unitType,
-        pcsPerCarton: item.pcsPerCarton,
-        price: item.price, 
-        capitalPrice: item.capitalPrice || 0, 
-        discount: item.discount || 0,
-        subtotal: item.price * item.qty - (item.discount || 0),
-      })),
+      items: cart.map(item => {
+        // Bersihkan ID juga untuk disimpan di Laporan Penjualan (Dashboard)
+        let cleanId = item.originalId || item.productId || item.id;
+        if (typeof cleanId === 'string' && cleanId.endsWith('_PCS')) {
+            cleanId = cleanId.replace('_PCS', '');
+        }
+        return {
+          productId: cleanId, 
+          name: item.name,
+          qty: item.qty,
+          unitType: item.unitType,
+          pcsPerCarton: item.pcsPerCarton,
+          price: item.price, 
+          capitalPrice: item.capitalPrice || 0, 
+          discount: item.discount || 0,
+          subtotal: item.price * item.qty - (item.discount || 0),
+        };
+      }),
       subtotal: subtotal,
       total: finalTotal,
       returnUsed: returnUsed,
@@ -189,9 +195,14 @@ const Kasir = ({ onShowToast }) => {
     const result = await addDocument('transactions', transactionData);
 
     if (result.success) {
-      const stockResult = await updateStockBatch(stockUpdates);
+      // MEMOTONG STOK SATU-PERSATU
+      let allStockUpdated = true;
+      for (const update of stockUpdates) {
+         const updateRes = await updateDocument('products', update.productId, { stockPcs: update.newStock });
+         if (!updateRes.success) allStockUpdated = false;
+      }
 
-      if (stockResult.success) {
+      if (allStockUpdated) {
         const customerUpdates = {};
         if (returnUsed > 0) customerUpdates.returnAmount = Math.max(0, selectedCustomer.returnAmount - returnUsed);
         
@@ -203,17 +214,16 @@ const Kasir = ({ onShowToast }) => {
         }
 
         if (Object.keys(customerUpdates).length > 0) {
-          const updateResult = await updateDocument('customers', selectedCustomer.id, customerUpdates);
-          if (!updateResult.success) return onShowToast('Transaksi berhasil tapi gagal update data pembeli', 'error');
+          await updateDocument('customers', selectedCustomer.id, customerUpdates);
         }
 
         setLastTransaction({ id: result.id, ...transactionData });
         setShowNota(true);
         clearCart(); 
         setShowPaymentModal(false);
-        onShowToast('Transaksi berhasil', 'success');
+        onShowToast('Transaksi berhasil!', 'success');
       } else {
-        onShowToast('Transaksi berhasil tapi gagal update stok pusat', 'error');
+        onShowToast('Transaksi berhasil, tapi ada stok yang gagal terpotong. Harap cek Gudang!', 'error');
       }
     } else {
       onShowToast('Gagal memproses transaksi', 'error');
@@ -310,10 +320,12 @@ const Kasir = ({ onShowToast }) => {
                   const resolvedPrice = getProductPrice(product);
 
                   return (
-                    <div
+                    <button
                       key={product.id}
-                      className={`text-left border rounded-xl md:rounded-2xl overflow-hidden transition-all duration-300 flex flex-col ${
-                        product.stockPcs < 1 ? 'opacity-50 border-gray-200 grayscale' : 'hover:border-teal-400 hover:shadow-lg border-gray-200 bg-white'
+                      onClick={() => handleAddToCartClick(product, 'WHOLESALE')}
+                      disabled={product.stockPcs < 1}
+                      className={`text-left border rounded-xl md:rounded-2xl overflow-hidden hover:shadow-lg transition-all duration-300 flex flex-col active:scale-95 ${
+                        product.stockPcs < 1 ? 'opacity-50 cursor-not-allowed border-gray-200 grayscale' : 'hover:border-teal-400 border-gray-200 bg-white'
                       }`}
                     >
                       {product.image && (
@@ -324,7 +336,6 @@ const Kasir = ({ onShowToast }) => {
                           <h4 className="font-black text-gray-800 text-xs md:text-sm mb-1 uppercase tracking-tight line-clamp-2 leading-snug">{product.name}</h4>
                           <p className="text-[8px] md:text-[9px] font-bold text-teal-600 uppercase tracking-widest mb-2 md:mb-3 bg-teal-50 inline-block px-1.5 md:px-2 py-1 rounded-md">{product.category}</p>
                         </div>
-                        
                         <div className="mt-2 flex flex-col justify-between border-t border-dashed border-gray-100 pt-2 md:pt-3 gap-2">
                           <div className="flex justify-between items-end">
                               <div>
@@ -333,11 +344,10 @@ const Kasir = ({ onShowToast }) => {
                               </div>
                           </div>
                           
-                          {/* TOMBOL GROSIR & ECERAN YANG CANGGIH */}
                           <div className="grid grid-cols-2 gap-2 mt-1">
                              <button 
                                disabled={product.stockPcs < 1} 
-                               onClick={() => handleAddToCartClick(product, 'WHOLESALE')} 
+                               onClick={(e) => { e.stopPropagation(); handleAddToCartClick(product, 'WHOLESALE'); }} 
                                className="bg-teal-50 text-teal-700 py-2 rounded-lg text-[9px] md:text-[10px] font-black uppercase hover:bg-teal-100 transition-colors shadow-sm disabled:opacity-50 active:scale-95"
                              >
                                + 1 {product.unitType}
@@ -345,7 +355,7 @@ const Kasir = ({ onShowToast }) => {
                              {product.pcsPerCarton > 1 && !['PCS', 'KG'].includes(product.unitType) ? (
                                <button 
                                  disabled={product.stockPcs < 1} 
-                                 onClick={() => handleAddToCartClick(product, 'PCS')} 
+                                 onClick={(e) => { e.stopPropagation(); handleAddToCartClick(product, 'PCS'); }} 
                                  className="bg-purple-50 text-purple-700 py-2 rounded-lg text-[9px] md:text-[10px] font-black uppercase hover:bg-purple-100 transition-colors shadow-sm disabled:opacity-50 active:scale-95"
                                >
                                  + 1 PCS
@@ -357,7 +367,7 @@ const Kasir = ({ onShowToast }) => {
 
                         </div>
                       </div>
-                    </div>
+                    </button>
                   );
                 })}
               </div>
@@ -387,7 +397,6 @@ const Kasir = ({ onShowToast }) => {
               </div>
             </div>
 
-            {/* PEMBELI SECTION */}
             {selectedCustomer ? (
               <div className="bg-gray-50 border border-gray-100 rounded-xl md:rounded-2xl p-3 md:p-4 mb-4 md:mb-6">
                 <div className="flex items-center justify-between mb-2">
@@ -417,7 +426,6 @@ const Kasir = ({ onShowToast }) => {
               </button>
             )}
 
-            {/* DAFTAR ITEM KERANJANG */}
             <div className="space-y-2 md:space-y-3 mb-4 md:mb-6 max-h-[35vh] md:max-h-[350px] overflow-y-auto custom-scrollbar pr-1 md:pr-2 scroll-smooth">
               {cart.length === 0 ? (
                 <div className="text-center py-6 md:py-10 border-2 border-dashed border-gray-100 rounded-xl md:rounded-2xl">
@@ -433,7 +441,6 @@ const Kasir = ({ onShowToast }) => {
               )}
             </div>
 
-            {/* TOTAL & CHECKOUT */}
             <div className="border-t border-gray-100 pt-4 md:pt-6 space-y-3 md:space-y-4">
               <div className="flex justify-between items-center px-1 md:px-2"><span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Subtotal</span><span className="text-xs md:text-sm font-bold text-gray-600">Rp {subtotal.toLocaleString('id-ID')}</span></div>
               <div className="bg-teal-50 border border-teal-100 p-3 md:p-4 rounded-xl md:rounded-2xl">
@@ -447,7 +454,6 @@ const Kasir = ({ onShowToast }) => {
         </div>
       </div>
 
-      {/* MODAL PILIH PEMBELI */}
       {showCustomerModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
           <div className="bg-white rounded-[24px] md:rounded-[32px] p-5 md:p-8 w-full max-w-md max-h-[85vh] overflow-y-auto custom-scrollbar shadow-2xl">
@@ -522,7 +528,6 @@ const Kasir = ({ onShowToast }) => {
         <Nota transaction={lastTransaction} onClose={() => { setShowNota(false); setLastTransaction(null); }} />
       )}
 
-      {/* MODAL KONFIRMASI RESET TRANSAKSI */}
       {showResetModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[120] p-4">
           <div className="bg-white rounded-[24px] md:rounded-[32px] p-6 md:p-8 w-full max-w-sm shadow-2xl text-center transform transition-all animate-in zoom-in-95 duration-200">
