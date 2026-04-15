@@ -281,8 +281,6 @@ export const exportHistoristockPDF = (filteredHistory, startDate, endDate, store
   doc.save(`Histori_stock_${storeName}_${Date.now()}.pdf`);
   onShowToast('Laporan PDF berhasil diunduh', 'success');
 };
-
-// FIX: PDF KEUNTUNGAN DIPISAH KARTON & PCS
 export const exportKeuntunganPDF = (profitData, startDate, endDate, storeName, onShowToast) => {
   if (profitData.length === 0) return onShowToast('Tidak ada data penjualan di periode ini', 'error');
 
@@ -308,13 +306,17 @@ export const exportKeuntunganPDF = (profitData, startDate, endDate, storeName, o
     
     return [
       item.name, 
-      `${soldUtuh} ${item.unitType}`, `${soldEcer} Pcs`, 
-      `${retUtuh} ${item.unitType}`, `${retEcer} Pcs`, 
-      `Rp ${item.totalHpp.toLocaleString('id-ID')}`, `Rp ${item.netSales.toLocaleString('id-ID')}`, 
+      `${soldUtuh} ${item.unitType}`, 
+      `${soldEcer} Pcs`,              // Data ke-3 (Laku Eceran)
+      `${retUtuh} ${item.unitType}`, 
+      `${retEcer} Pcs`, 
+      `Rp ${item.totalHpp.toLocaleString('id-ID')}`, 
+      `Rp ${item.netSales.toLocaleString('id-ID')}`, 
       `Rp ${item.profit.toLocaleString('id-ID')}`
     ];
   });
 
+  // FIX: colSpan diubah jadi 5 agar menggeser 3 data terakhir (Modal, Pendapatan, Laba) ke posisi yang pas
   body.push([
     { content: 'TOTAL KESELURUHAN', colSpan: 5, styles: { halign: 'right', fontStyle: 'bold' } },
     { content: `Rp ${totalModal.toLocaleString('id-ID')}`, styles: { fontStyle: 'bold' } },
@@ -323,9 +325,11 @@ export const exportKeuntunganPDF = (profitData, startDate, endDate, storeName, o
   ]);
 
   autoTable(doc, { 
-    head: [['Nama Barang', 'Laku(Uth)', 'Rtr(Uth)', 'Rtr(Pcs)', 'Tot Modal', 'Pendapatan', 'Laba/Rugi']], 
+    // FIX: Header 'Laku(Pcs)' ditambahkan agar total kolomnya pas 8!
+    head: [['Nama Barang', 'Laku(Uth)', 'Laku(Pcs)', 'Rtr(Uth)', 'Rtr(Pcs)', 'Tot Modal', 'Pendapatan', 'Laba/Rugi']], 
     body, startY: 32, styles: { fontSize: 8 }, 
     didParseCell: function(data) {
+      // Index 7 berarti kolom ke-8 (Laba/Rugi) akan diwarnai otomatis
       if (data.section === 'body' && data.column.index === 7 && data.row.index < body.length - 1) {
         const profitValue = parseInt(data.cell.raw.replace(/Rp |\./g, '').replace(/-/g, '-')); 
         if (profitValue < 0) data.cell.styles.textColor = [220, 38, 38]; 
