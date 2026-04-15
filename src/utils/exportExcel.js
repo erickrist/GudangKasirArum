@@ -269,25 +269,13 @@ export const exportHistoristockExcel = (filteredHistory, startDate, endDate, sto
 
 // FIX: EXCEL KEUNTUNGAN DIPISAH KARTON & PCS
 export const exportKeuntunganExcel = (profitData, startDate, endDate, storeName, onShowToast) => {
-  if (profitData.length === 0) return onShowToast('Tidak ada data penjualan di periode ini', 'error');
+  if (profitData.length === 0) return onShowToast('Tidak ada data penjualan kasir di periode/cabang ini', 'error');
 
   const reportData = profitData.map(item => {
-    const pcsPerCarton = item.pcsPerCarton || 1;
-    const soldPcs = item.qtySoldPcs !== undefined ? item.qtySoldPcs : Math.round(item.qtySold * pcsPerCarton);
-    const retPcs = item.qtyReturnedPcs !== undefined ? item.qtyReturnedPcs : Math.round(item.qtyReturned * pcsPerCarton);
-
-    const soldUtuh = Math.floor(soldPcs / pcsPerCarton);
-    const soldEcer = soldPcs % pcsPerCarton;
-    const retUtuh = Math.floor(retPcs / pcsPerCarton);
-    const retEcer = retPcs % pcsPerCarton;
-
     return {
       'Nama Barang': item.name,
-      'Satuan Utama': item.unitType,
-      'Laku (Utuh)': soldUtuh,
-      'Laku (Ecer/Pcs)': soldEcer,
-      'Retur (Utuh)': retUtuh,
-      'Retur (Ecer/Pcs)': retEcer,
+      'Total Terjual': item.displaySold || '-',
+      'Total Diretur': item.displayReturned || '-',
       'Total Modal (HPP)': item.totalHpp, 
       'Pendapatan Bersih': item.netSales, 
       'Laba / (Rugi) Bersih': item.profit 
@@ -299,9 +287,8 @@ export const exportKeuntunganExcel = (profitData, startDate, endDate, storeName,
   const totalUntungRugi = profitData.reduce((sum, item) => sum + item.profit, 0);
 
   reportData.push({
-    'Nama Barang': 'TOTAL KESELURUHAN', 'Satuan Utama': '', 'Laku (Utuh)': '', 'Laku (Ecer/Pcs)': '',
-    'Retur (Utuh)': '', 'Retur (Ecer/Pcs)': '', 'Total Modal (HPP)': totalModal, 
-    'Pendapatan Bersih': totalPendapatan, 'Laba / (Rugi) Bersih': totalUntungRugi
+    'Nama Barang': 'TOTAL KESELURUHAN', 'Total Terjual': '', 'Total Diretur': '',
+    'Total Modal (HPP)': totalModal, 'Pendapatan Bersih': totalPendapatan, 'Laba / (Rugi) Bersih': totalUntungRugi
   });
 
   const ws = XLSX.utils.json_to_sheet(reportData);

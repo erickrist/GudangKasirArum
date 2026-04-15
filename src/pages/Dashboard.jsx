@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { useSearchParams } from 'react-router-dom'; // <-- IMPORT BARU UNTUK URL PARAMS
+import { useSearchParams } from 'react-router-dom';
 import { 
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar
 } from 'recharts';
@@ -13,8 +13,8 @@ import Nota from '../components/Nota';
 import FormRetur from '../components/FormRetur';
 import EditTransactionModal from '../components/EditTransactionModal';
 
-import { exportMasterExcel, exportNeracaExcel, exportLabaRugiExcel } from '../utils/exportExcel';
-import { exportMasterPDF, exportNeracaPDF, exportLabaRugiPDF } from '../utils/exportPdf';
+import { exportMasterExcel, exportNeracaExcel, exportLabaRugiExcel, exportKeuntunganExcel } from '../utils/exportExcel';
+import { exportMasterPDF, exportNeracaPDF, exportLabaRugiPDF, exportKeuntunganPDF } from '../utils/exportPdf';
 
 import TabSales from './Dashboard/TabSales';
 import TabDebt from './Dashboard/TabDebt';
@@ -27,9 +27,8 @@ const Dashboard = ({ onShowToast }) => {
   const { data: products, loading: loadingProd } = useCollection('products');
   const { data: stores, loading: loadingStores } = useCollection('stores');
 
-  // === FITUR BARU: URL QUERY PARAMS ===
   const [searchParams, setSearchParams] = useSearchParams();
-  const activeTab = searchParams.get('tab') || 'overview'; // Default ke overview jika URL kosong
+  const activeTab = searchParams.get('tab') || 'overview';
 
   const [selectedStoreFilter, setSelectedStoreFilter] = useState('ALL');
   const [chartPeriod, setChartPeriod] = useState('daily');
@@ -100,7 +99,6 @@ const Dashboard = ({ onShowToast }) => {
     return returnsData.filter(r => r.storeId === selectedStoreFilter || (!r.storeId && selectedStoreFilter === 'pusat'));
   }, [returnsData, selectedStoreFilter]);
 
-  // === PERHITUNGAN UTAMA KAS LACI ===
   const totalIncome = useMemo(() => activeStoreTransactions.reduce((sum, t) => sum + (Number(t.total) || 0), 0), [activeStoreTransactions]);
   
   const totalCashExpenses = useMemo(() => activeStoreExpenses
@@ -109,7 +107,6 @@ const Dashboard = ({ onShowToast }) => {
 
   const balance = totalIncome - totalCashExpenses;
 
-  // === RUMUS LABA RUGI ===
   const totalHPP = useMemo(() => activeStoreTransactions.reduce((sum, t) => {
     if (!t.items) return sum;
     const itemHpp = t.items.reduce((iSum, i) => iSum + (Number(i.capitalPrice || 0) * Number(i.qty || 0)), 0);
@@ -165,7 +162,6 @@ const Dashboard = ({ onShowToast }) => {
   const totalPureOperational = totalOperationalExpenses - totalDamagedGoods - totalReturnExpenses;
   const netProfit = totalIncome - totalHPP - totalPureOperational - totalLossValue;
   const isProfit = netProfit >= 0;
-  // ----------------------------------------------------
 
   const debtLogs = useMemo(() => {
     let logs = [];
@@ -283,6 +279,91 @@ const Dashboard = ({ onShowToast }) => {
   const filteredDepositHistory = useMemo(() => applyFilters(depositLogs, ['customerName', 'note', 'reason']), [depositLogs, searchTerm, startDate, endDate]);
   const filteredNetBalance = useMemo(() => applyFilters(netLogs, ['customerName', 'note', 'title', 'subjName', 'detailNote']), [netLogs, searchTerm, startDate, endDate]);
 
+  // === FIX RUMUS LABA PER BARANG (LOGIKA PCS & TEKS 1 BALL + 2 PCS) ===
+  const getProfitData = () => {
+    const salesMap = {};
+    
+    activeStoreTransactions.forEach(t => {
+      const date = getSafeDate(t.createdAt);
+      let matchesDate = true;
+      if (startDate && endDate) {
+        const start = new Date(startDate); const end = new Date(endDate); end.setHours(23, 59, 59);
+        matchesDate = date >= start && date <= end;
+      }
+      if (matchesDate && t.items) {
+        t.items.forEach(item => {
+          let realId = item.productId;
+          if (typeof realId === 'string' && realId.endsWith('_PCS')) realId = realId.replace('_PCS', '');
+
+          const currentProduct = products.find(p => p.id === realId);
+          const realUnit = currentProduct ? currentProduct.unitType : (item.unitType === 'PCS' ? 'KARTON' : item.unitType);
+          const pcsPerCarton = currentProduct ? (currentProduct.pcsPerCarton || 1) : (item.pcsPerCarton || 1);
+
+          if (!salesMap[realId]) {
+            salesMap[realId] = { 
+              name: currentProduct ? currentProduct.name : item.name.replace(' (Eceran)', ''), 
+              unitType: realUnit, pcsPerCarton: pcsPerCarton, qtySoldPcs: 0, qtyReturnedPcs: 0, 
+              hppPerPcs: currentProduct ? ((currentProduct.hpp || 0) / pcsPerCarton) : ((item.capitalPrice || 0) / (item.unitType === 'PCS' ? 1 : pcsPerCarton)), 
+              totalSalesValue: 0, totalReturnValue: 0 
+            };
+          }
+
+          let itemPcs = Number(item.qty);
+          if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType)) itemPcs = Number(item.qty) * pcsPerCarton;
+
+          salesMap[realId].qtySoldPcs += itemPcs;
+          salesMap[realId].totalSalesValue += Number(item.subtotal || (item.qty * item.price));
+        });
+      }
+    });
+
+    activeStoreReturns.forEach(r => {
+      const date = getSafeDate(r.createdAt);
+      let matchesDate = true;
+      if (startDate && endDate) {
+        const start = new Date(startDate); const end = new Date(endDate); end.setHours(23, 59, 59);
+        matchesDate = date >= start && date <= end;
+      }
+      if (matchesDate && r.items) {
+        r.items.forEach(item => {
+          let realId = item.productId;
+          if (typeof realId === 'string' && realId.endsWith('_PCS')) realId = realId.replace('_PCS', '');
+
+          if (salesMap[realId]) {
+            const pcsPerCarton = salesMap[realId].pcsPerCarton;
+            let itemPcs = Number(item.qty);
+            if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType) && item.returnUnit !== 'pcs') itemPcs = Number(item.qty) * pcsPerCarton;
+
+            salesMap[realId].qtyReturnedPcs += itemPcs;
+            salesMap[realId].totalReturnValue += Number(item.qty * (item.finalPrice || item.price));
+          }
+        });
+      }
+    });
+
+    const formatUnitText = (totalPcs, pcsPerCarton, unitType) => {
+       if (totalPcs === 0) return '-';
+       if (pcsPerCarton <= 1 || ['PCS', 'KG'].includes(unitType)) return `${totalPcs} ${unitType}`;
+       const utuh = Math.floor(totalPcs / pcsPerCarton);
+       const ecer = totalPcs % pcsPerCarton;
+       let textParts = [];
+       if (utuh > 0) textParts.push(`${utuh} ${unitType}`);
+       if (ecer > 0) textParts.push(`${ecer} PCS`);
+       return textParts.join(' + ');
+    };
+
+    return Object.values(salesMap).map(data => {
+      const netPcsSold = data.qtySoldPcs - data.qtyReturnedPcs;
+      const totalHpp = Math.round(data.hppPerPcs * netPcsSold);
+      const netSales = data.totalSalesValue - data.totalReturnValue; 
+      return { 
+         ...data, netSales, totalHpp, profit: netSales - totalHpp,
+         displaySold: formatUnitText(data.qtySoldPcs, data.pcsPerCarton, data.unitType),
+         displayReturned: formatUnitText(data.qtyReturnedPcs, data.pcsPerCarton, data.unitType)
+      };
+    }).sort((a, b) => b.qtySoldPcs - a.qtySoldPcs); 
+  };
+
   const dynamicChartData = useMemo(() => {
     const dataMap = {};
     const processData = (list, isExpense = false) => {
@@ -303,9 +384,8 @@ const Dashboard = ({ onShowToast }) => {
     return Object.values(dataMap).slice(-12);
   }, [activeStoreTransactions, activeStoreExpenses, chartPeriod]);
 
-  // === FUNGSI NAVIGASI YANG UPDATE URL ===
   const navigateToTab = (tabId) => {
-    setSearchParams({ tab: tabId }); // MENGUBAH URL MENJADI /?tab=nama_tab
+    setSearchParams({ tab: tabId });
     setCurrentPage(1);
     setSearchTerm('');
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1040,6 +1120,11 @@ const Dashboard = ({ onShowToast }) => {
               <button onClick={() => { exportMasterPDF({transactions: activeStoreTransactions, filteredExpenses: activeStoreExpenses, filteredDebtHistory, activeStoreCustomersDebt, activeStoreCustomersDeposit, filteredDepositHistory, filteredNetBalance, startDate, endDate, storeName: selectedStoreName, formatDisplayDate, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-blue-50 text-blue-700 rounded-2xl hover:bg-blue-100 border border-blue-200"><FileText className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">PDF Lengkap</p></div></button>
               <button onClick={() => { exportNeracaPDF({balance, totalUnpaidDebt: totalUnpaidDebtDisplay, totalExpenses: totalCashExpenses, totalDeposit: totalDepositDisplay, totalIncome, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-purple-50 text-purple-700 rounded-2xl hover:bg-purple-100 border border-purple-200"><FileText className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">PDF Neraca</p></div></button>
               <button onClick={() => { exportLabaRugiPDF({totalIncome, totalHPP, totalPureOperational, totalKulakan, totalLossValue, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-purple-50 text-purple-700 rounded-2xl hover:bg-purple-100 border border-purple-200"><FileText className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">PDF Laba Rugi</p></div></button>
+
+              {/* --- TOMBOL BARU LABA PER BARANG --- */}
+              <div className="h-px w-full bg-gray-200 my-2"></div>
+              <button onClick={() => { exportKeuntunganExcel(getProfitData(), startDate, endDate, selectedStoreName, onShowToast); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 border border-green-200"><TableIcon className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">Excel Laba per Barang</p></div></button>
+              <button onClick={() => { exportKeuntunganPDF(getProfitData(), startDate, endDate, selectedStoreName, onShowToast); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-blue-50 text-blue-700 rounded-2xl hover:bg-blue-100 border border-blue-200"><FileText className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">PDF Laba per Barang</p></div></button>
             </div>
           </div>
         </div>
@@ -1060,7 +1145,7 @@ const Dashboard = ({ onShowToast }) => {
       {/* MODAL EDIT BALANCE */}
       {showEditBalanceModal && selectedCustomer && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
-          <div className="bg-white rounded-[32px] p-6 md:p-8 max-w-sm w-full shadow-2xl relative border-t-8 border-teal-600">
+          <div className="bg-white rounded-[32px] p-6 md:p-8 max-sm w-full shadow-2xl relative border-t-8 border-teal-600">
             <button onClick={() => setShowEditBalanceModal(false)} className="absolute right-6 top-6 text-gray-400"><X /></button>
             <h3 className="text-lg md:text-xl font-black text-gray-800 mb-2 uppercase">Koreksi Manual</h3>
             <div className="mb-6">

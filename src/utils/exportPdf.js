@@ -295,42 +295,28 @@ export const exportKeuntunganPDF = (profitData, startDate, endDate, storeName, o
   const body = profitData.map(item => {
     totalModal += item.totalHpp; totalPendapatan += item.netSales; totalUntung += item.profit;
     
-    const pcsPerCarton = item.pcsPerCarton || 1;
-    const soldPcs = item.qtySoldPcs !== undefined ? item.qtySoldPcs : Math.round(item.qtySold * pcsPerCarton);
-    const retPcs = item.qtyReturnedPcs !== undefined ? item.qtyReturnedPcs : Math.round(item.qtyReturned * pcsPerCarton);
-
-    const soldUtuh = Math.floor(soldPcs / pcsPerCarton);
-    const soldEcer = soldPcs % pcsPerCarton;
-    const retUtuh = Math.floor(retPcs / pcsPerCarton);
-    const retEcer = retPcs % pcsPerCarton;
-    
     return [
       item.name, 
-      `${soldUtuh} ${item.unitType}`, 
-      `${soldEcer} Pcs`,              // Data ke-3 (Laku Eceran)
-      `${retUtuh} ${item.unitType}`, 
-      `${retEcer} Pcs`, 
+      item.displaySold || '-',       
+      item.displayReturned || '-',   
       `Rp ${item.totalHpp.toLocaleString('id-ID')}`, 
       `Rp ${item.netSales.toLocaleString('id-ID')}`, 
       `Rp ${item.profit.toLocaleString('id-ID')}`
     ];
   });
 
-  // FIX: colSpan diubah jadi 5 agar menggeser 3 data terakhir (Modal, Pendapatan, Laba) ke posisi yang pas
   body.push([
-    { content: 'TOTAL KESELURUHAN', colSpan: 5, styles: { halign: 'right', fontStyle: 'bold' } },
+    { content: 'TOTAL KESELURUHAN', colSpan: 3, styles: { halign: 'right', fontStyle: 'bold' } },
     { content: `Rp ${totalModal.toLocaleString('id-ID')}`, styles: { fontStyle: 'bold' } },
     { content: `Rp ${totalPendapatan.toLocaleString('id-ID')}`, styles: { fontStyle: 'bold' } },
     { content: `Rp ${totalUntung.toLocaleString('id-ID')}`, styles: { fontStyle: 'bold', textColor: totalUntung < 0 ? [220, 38, 38] : [0, 128, 0] } }
   ]);
 
   autoTable(doc, { 
-    // FIX: Header 'Laku(Pcs)' ditambahkan agar total kolomnya pas 8!
-    head: [['Nama Barang', 'Laku(Uth)', 'Laku(Pcs)', 'Rtr(Uth)', 'Rtr(Pcs)', 'Tot Modal', 'Pendapatan', 'Laba/Rugi']], 
+    head: [['Nama Barang', 'Terjual (Grosir & Ecer)', 'Diretur (Grosir & Ecer)', 'Tot Modal', 'Pendapatan', 'Laba/Rugi']], 
     body, startY: 32, styles: { fontSize: 8 }, 
     didParseCell: function(data) {
-      // Index 7 berarti kolom ke-8 (Laba/Rugi) akan diwarnai otomatis
-      if (data.section === 'body' && data.column.index === 7 && data.row.index < body.length - 1) {
+      if (data.section === 'body' && data.column.index === 5 && data.row.index < body.length - 1) {
         const profitValue = parseInt(data.cell.raw.replace(/Rp |\./g, '').replace(/-/g, '-')); 
         if (profitValue < 0) data.cell.styles.textColor = [220, 38, 38]; 
         else data.cell.styles.textColor = [0, 128, 0]; 
