@@ -191,7 +191,7 @@ export const exportTemplateProduk = (stores, onShowToast) => {
     baseData[`Harga Jual (${store.name})`] = 155000;
   });
 
-  baseData["Stok Saat Ini (Satuan)"] = 10;
+  baseData["stock Saat Ini (Satuan)"] = 10;
   baseData["Url Gambar"] = '';
 
   const worksheet = XLSX.utils.json_to_sheet([baseData]);
@@ -206,7 +206,7 @@ export const exportDataProduk = (products, stores, onShowToast) => {
 
   const exportData = products.map(p => {
     const isiPerSatuan = Number(p.pcsPerCarton) || 1;
-    const stokSatuan = Math.floor((Number(p.stockPcs) || 0) / isiPerSatuan);
+    const stockSatuan = Math.floor((Number(p.stockPcs) || 0) / isiPerSatuan);
     
     const row = {
       "Nama Barang": p.name || '',
@@ -221,7 +221,7 @@ export const exportDataProduk = (products, stores, onShowToast) => {
        row[`Harga Jual (${store.name})`] = p.storePrices?.[store.id] !== undefined ? p.storePrices[store.id] : (p.defaultPrice || p.price || 0);
     });
 
-    row["Stok Saat Ini (Satuan)"] = stokSatuan;
+    row["stock Saat Ini (Satuan)"] = stockSatuan;
     row["Url Gambar"] = p.image || '';
 
     return row;
@@ -234,8 +234,8 @@ export const exportDataProduk = (products, stores, onShowToast) => {
   onShowToast('Data produk berhasil diexport', 'success');
 };
 
-// FIX: EXCEL LAPORAN STOK DIPISAH KARTON & PCS
-export const exportHistoriStokExcel = (filteredHistory, startDate, endDate, storeName, formatDisplayDate, onShowToast) => {
+// FIX: EXCEL LAPORAN stock DIPISAH KARTON & PCS
+export const exportHistoristockExcel = (filteredHistory, startDate, endDate, storeName, formatDisplayDate, onShowToast) => {
   if (filteredHistory.length === 0) return onShowToast('Tidak ada data untuk diexport', 'error');
   
   const reportData = filteredHistory.map(log => {
@@ -263,8 +263,8 @@ export const exportHistoriStokExcel = (filteredHistory, startDate, endDate, stor
   const ws = XLSX.utils.json_to_sheet(reportData);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, `Histori_${storeName}`);
-  XLSX.writeFile(wb, `Histori_Stok_${storeName}_${startDate||'Awal'}_sd_${endDate||'Sekarang'}.xlsx`);
-  onShowToast('Histori Stok Excel berhasil diunduh', 'success');
+  XLSX.writeFile(wb, `Histori_stock_${storeName}_${startDate||'Awal'}_sd_${endDate||'Sekarang'}.xlsx`);
+  onShowToast('Histori stock Excel berhasil diunduh', 'success');
 };
 
 // FIX: EXCEL KEUNTUNGAN DIPISAH KARTON & PCS

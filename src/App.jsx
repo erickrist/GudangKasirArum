@@ -1,3 +1,4 @@
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useState } from 'react';
 import Sidebar from './components/layout/Sidebar';
 import Header from './components/layout/Header';
@@ -5,20 +6,23 @@ import Dashboard from './pages/Dashboard';
 import Kasir from './pages/Kasir';
 import StockOpname from './pages/StockOpname';
 import DataPembeli from './pages/DataPembeli';
-import DataToko from './pages/DataToko'; // <--- IMPORT HALAMAN BARU
+import DataToko from './pages/DataToko'; 
 import Toast from './components/common/Toast';
 
-// OPTIMASI 1: Pindahkan ke luar agar tidak dirender ulang terus-menerus
+// Mapping judul halaman berdasarkan path URL
 const PAGE_TITLES = {
-  dashboard: 'Dashboard',
-  kasir: 'Kasir',
-  stock: 'Stock Opname',
-  pembeli: 'Data Pembeli',
-  toko: 'Data Toko', // <--- TAMBAHAN TITLE HALAMAN BARU
+  '/': 'Dashboard',
+  '/kasir': 'Kasir',
+  '/stock': 'Stock Opname',
+  '/pembeli': 'Data Pembeli',
+  '/toko': 'Data Toko', 
 };
 
-function App() {
-  const [currentPage, setCurrentPage] = useState('dashboard');
+// Komponen pembungkus agar bisa menggunakan hooks useLocation
+function AppContent() {
+  const location = useLocation();
+  const currentPath = location.pathname;
+  
   const [toast, setToast] = useState(null);
 
   const showToast = (message, type = 'success') => {
@@ -29,35 +33,28 @@ function App() {
     setToast(null);
   };
 
-  const renderPage = () => {
-    switch (currentPage) {
-      case 'dashboard':
-        return <Dashboard onShowToast={showToast} />;
-      case 'kasir':
-        return <Kasir onShowToast={showToast} />;
-      case 'stock':
-        return <StockOpname onShowToast={showToast} />;
-      case 'pembeli':
-        return <DataPembeli onShowToast={showToast} />;
-      case 'toko': // <--- RENDER HALAMAN TOKO
-        return <DataToko onShowToast={showToast} />;
-      default:
-        return <Dashboard onShowToast={showToast} />;
-    }
-  };
-
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
-      <Sidebar currentPage={currentPage} onNavigate={setCurrentPage} />
+      {/* Mengirimkan currentPath ke Sidebar untuk mendeteksi menu yang aktif */}
+      <Sidebar currentPath={currentPath} />
 
-      {/* OPTIMASI 2: Hapus 'w-full md:w-auto', biarkan 'flex-1' yang bekerja menyesuaikan ruang */}
       <div className="md:ml-64 flex-1 flex flex-col min-h-screen overflow-x-hidden pb-24 md:pb-0">
         
-        {/* OPTIMASI 3: Berikan nilai default jika page tidak ditemukan */}
-        <Header title={PAGE_TITLES[currentPage] || 'Dashboard'} />
+        {/* Header otomatis berubah tulisan sesuai URL saat ini */}
+        <Header title={PAGE_TITLES[currentPath] || 'Dashboard'} />
 
         <main className="px-4 md:px-8 py-4 md:py-6 flex-1">
-          {renderPage()}
+          {/* SISTEM ROUTING URL BARU */}
+          <Routes>
+            <Route path="/" element={<Dashboard onShowToast={showToast} />} />
+            <Route path="/kasir" element={<Kasir onShowToast={showToast} />} />
+            <Route path="/stock" element={<StockOpname onShowToast={showToast} />} />
+            <Route path="/pembeli" element={<DataPembeli onShowToast={showToast} />} />
+            <Route path="/toko" element={<DataToko onShowToast={showToast} />} />
+            
+            {/* Jika user mengetik URL ngawur, otomatis tendang balik ke Dashboard */}
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
         </main>
         
       </div>
@@ -70,6 +67,15 @@ function App() {
         />
       )}
     </div>
+  );
+}
+
+// Komponen Utama App dibungkus dengan Router
+function App() {
+  return (
+    <Router>
+      <AppContent />
+    </Router>
   );
 }
 

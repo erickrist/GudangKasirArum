@@ -243,8 +243,8 @@ export const exportLabaRugiPDF = ({ totalIncome, totalHPP, totalPureOperational,
   onShowToast('File PDF Laba Rugi berhasil diunduh', 'success');
 };
 
-// FIX: PDF LAPORAN STOK DIPISAH KARTON & PCS
-export const exportHistoriStokPDF = (filteredHistory, startDate, endDate, storeName, formatDisplayDate, onShowToast) => {
+// FIX: PDF LAPORAN stock DIPISAH KARTON & PCS
+export const exportHistoristockPDF = (filteredHistory, startDate, endDate, storeName, formatDisplayDate, onShowToast) => {
   if (filteredHistory.length === 0) return onShowToast('Tidak ada data untuk diexport', 'error');
 
   const doc = new jsPDF('l', 'mm', 'a4');
@@ -278,7 +278,7 @@ export const exportHistoriStokPDF = (filteredHistory, startDate, endDate, storeN
       }
     }
   });
-  doc.save(`Histori_Stok_${storeName}_${Date.now()}.pdf`);
+  doc.save(`Histori_stock_${storeName}_${Date.now()}.pdf`);
   onShowToast('Laporan PDF berhasil diunduh', 'success');
 };
 

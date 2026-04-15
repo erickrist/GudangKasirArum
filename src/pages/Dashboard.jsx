@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom'; // <-- IMPORT BARU UNTUK URL PARAMS
 import { 
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar
 } from 'recharts';
@@ -26,8 +27,11 @@ const Dashboard = ({ onShowToast }) => {
   const { data: products, loading: loadingProd } = useCollection('products');
   const { data: stores, loading: loadingStores } = useCollection('stores');
 
+  // === FITUR BARU: URL QUERY PARAMS ===
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = searchParams.get('tab') || 'overview'; // Default ke overview jika URL kosong
+
   const [selectedStoreFilter, setSelectedStoreFilter] = useState('ALL');
-  const [activeTab, setActiveTab] = useState('overview');
   const [chartPeriod, setChartPeriod] = useState('daily');
   const [showAllLogs, setShowAllLogs] = useState(false); 
   
@@ -299,8 +303,9 @@ const Dashboard = ({ onShowToast }) => {
     return Object.values(dataMap).slice(-12);
   }, [activeStoreTransactions, activeStoreExpenses, chartPeriod]);
 
+  // === FUNGSI NAVIGASI YANG UPDATE URL ===
   const navigateToTab = (tabId) => {
-    setActiveTab(tabId);
+    setSearchParams({ tab: tabId }); // MENGUBAH URL MENJADI /?tab=nama_tab
     setCurrentPage(1);
     setSearchTerm('');
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -529,73 +534,6 @@ const Dashboard = ({ onShowToast }) => {
     onShowToast(`${count} data dihapus`, 'success');
     setShowBulkDeleteModal(false);
   };
-
-  // === FITUR BARU EXPORT: MEMISAH BARIS BERDASARKAN SATUAN (KARTON vs PCS) ===
-  const getProfitDataForExport = () => {
-    const salesMap = {};
-    
-    activeStoreTransactions.forEach(t => {
-      const date = getSafeDate(t.createdAt);
-      let matchesDate = true;
-      if (startDate && endDate) {
-        const start = new Date(startDate); const end = new Date(endDate); end.setHours(23, 59, 59);
-        matchesDate = date >= start && date <= end;
-      }
-      if (matchesDate && t.items) {
-        t.items.forEach(item => {
-          const actualUnit = item.returnUnit === 'pcs' ? 'PCS' : item.unitType;
-          const key = `${item.productId}_${actualUnit}`; // Membuat ID Unik berdasar Satuan
-          
-          if (!salesMap[key]) {
-            const currentProduct = products.find(p => p.id === item.productId);
-            let baseHpp = currentProduct ? (currentProduct.hpp || 0) : 0;
-            // Jika satuan aslinya Karton tapi dijual Pcs, bagi HPP-nya agar Laba Akurat
-            if (actualUnit === 'PCS' && currentProduct && currentProduct.pcsPerCarton > 1 && currentProduct.unitType !== 'PCS') {
-                baseHpp = Math.round(baseHpp / currentProduct.pcsPerCarton);
-            }
-            salesMap[key] = { 
-              name: `${item.name} (${actualUnit})`, 
-              unitType: actualUnit, 
-              qtySold: 0, 
-              qtyReturned: 0, 
-              hpp: baseHpp, 
-              totalSalesValue: 0, 
-              totalReturnValue: 0 
-            };
-          }
-          salesMap[key].qtySold += Number(item.qty);
-          salesMap[key].totalSalesValue += Number(item.subtotal || (item.qty * item.price));
-        });
-      }
-    });
-
-    activeStoreReturns.forEach(r => {
-      const date = getSafeDate(r.createdAt);
-      let matchesDate = true;
-      if (startDate && endDate) {
-        const start = new Date(startDate); const end = new Date(endDate); end.setHours(23, 59, 59);
-        matchesDate = date >= start && date <= end;
-      }
-      if (matchesDate && r.items) {
-        r.items.forEach(item => {
-          const actualUnit = item.returnUnit === 'pcs' ? 'PCS' : item.unitType;
-          const key = `${item.productId}_${actualUnit}`;
-
-          if (salesMap[key]) {
-            salesMap[key].qtyReturned += Number(item.qty);
-            salesMap[key].totalReturnValue += Number(item.qty * (item.finalPrice || item.price));
-          }
-        });
-      }
-    });
-
-    return Object.values(salesMap).map(data => {
-      const totalHpp = data.hpp * (data.qtySold - data.qtyReturned);
-      const netSales = data.totalSalesValue - data.totalReturnValue; 
-      return { ...data, netSales, totalHpp, profit: netSales - totalHpp };
-    }).sort((a, b) => b.qtySold - a.qtySold); 
-  };
-  // =======================================================================
 
   return (
     <div className="pb-10 bg-gray-50 min-h-screen p-2 md:p-6">
@@ -1071,7 +1009,7 @@ const Dashboard = ({ onShowToast }) => {
                 <span className="text-sm font-black text-rose-500">(-) Rp {totalPureOperational.toLocaleString('id-ID')}</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-xs font-bold text-gray-600">4. Kerugian Barang Basi/Rusak</span>
+                <span className="text-xs font-bold text-gray-600">4. Kerugian Barang Batal/Rusak</span>
                 <span className="text-sm font-black text-rose-500">(-) Rp {totalLossValue.toLocaleString('id-ID')}</span>
               </div>
             </div>
@@ -1280,7 +1218,6 @@ const Dashboard = ({ onShowToast }) => {
       )}
 
       <FormRetur isOpen={showReturnModal} onClose={() => setShowReturnModal(false)} onShowToast={onShowToast} />
-      {/* EXPORT DATA DENGAN FUNGSI BARU */}
       {showEditTransModal && selectedEditTransaction && (<EditTransactionModal isOpen={showEditTransModal} transaction={selectedEditTransaction} products={products} customers={customers} onClose={() => setShowEditTransModal(false)} onShowToast={onShowToast} />)}
       {showNota && selectedNotaTransaction && (<Nota transaction={selectedNotaTransaction} onClose={() => setShowNota(false)} />)}
     </div>

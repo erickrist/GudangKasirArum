@@ -11,8 +11,8 @@ import EmptyState from '../components/common/EmptyState';
 
 import * as XLSX from 'xlsx';
 
-import { exportTemplateProduk, exportDataProduk, exportHistoriStokExcel, exportKeuntunganExcel } from '../utils/exportExcel';
-import { exportHistoriStokPDF, exportKeuntunganPDF } from '../utils/exportPdf';
+import { exportTemplateProduk, exportDataProduk, exportHistoristockExcel, exportKeuntunganExcel } from '../utils/exportExcel';
+import { exportHistoristockPDF, exportKeuntunganPDF } from '../utils/exportPdf';
 
 const StockOpname = ({ onShowToast }) => {
   const { data: products, loading: loadingProducts } = useCollection('products');
@@ -297,7 +297,7 @@ const StockOpname = ({ onShowToast }) => {
       const lossAmount = totalPcs * hppPerPcs;
 
       newStockPcs -= totalPcs;
-      if (newStockPcs < 0) return onShowToast('Stok tidak mencukupi untuk dikurangi', 'error');
+      if (newStockPcs < 0) return onShowToast('stock tidak mencukupi untuk dikurangi', 'error');
 
       const result = await updateDocument('products', selectedProduct.id, { stockPcs: newStockPcs });
       if (result.success) {
@@ -319,12 +319,12 @@ const StockOpname = ({ onShowToast }) => {
     }
 
     if (stockMode === 'in') newStockPcs += totalPcs; else newStockPcs -= totalPcs;
-    if (newStockPcs < 0) return onShowToast('Stok tidak mencukupi', 'error');
+    if (newStockPcs < 0) return onShowToast('stock tidak mencukupi', 'error');
 
     const result = await updateDocument('products', selectedProduct.id, { stockPcs: newStockPcs });
     if (result.success) {
-      await addDocument('stock_logs', { productId: selectedProduct.id, productName: selectedProduct.name, type: stockMode, amount, unitType: stockUnit, totalPcs, note: `Stok Manual ${stockMode==='in'?'Ditambah':'Dikurangi'}`, createdAt: new Date() });
-      onShowToast(`Stok ${stockMode === 'in' ? 'ditambah' : 'dikurangi'}`, 'success');
+      await addDocument('stock_logs', { productId: selectedProduct.id, productName: selectedProduct.name, type: stockMode, amount, unitType: stockUnit, totalPcs, note: `stock Manual ${stockMode==='in'?'Ditambah':'Dikurangi'}`, createdAt: new Date() });
+      onShowToast(`stock ${stockMode === 'in' ? 'ditambah' : 'dikurangi'}`, 'success');
       setShowStockModal(false); setStockAmount('');
     }
   };
@@ -348,7 +348,7 @@ const StockOpname = ({ onShowToast }) => {
           const unit = (row["Satuan (Karton/Ball/Pcs/dll)"] || row.TipeSatuan || 'PCS').toUpperCase();
           const isWholesale = WHOLESALE_TYPES.includes(unit);
           const isiPerSatuan = Number(row["Isi per Satuan (Pcs)"] || row.IsiPerUnit) || 1;
-          const stokSatuan = Number(row["Stok Saat Ini (Satuan)"] || row.StokPcs) || 0;
+          const stockSatuan = Number(row["stock Saat Ini (Satuan)"] || row.stockPcs) || 0;
           
           const defaultPrice = parseFloat(row["Harga Jual Default (Satuan)"] || row["Harga Jual (Satuan)"] || row.HargaJual || row.Harga) || 0;
 
@@ -366,7 +366,7 @@ const StockOpname = ({ onShowToast }) => {
             name: rawName, category: row["Kategori"] || row.Kategori || 'Umum', unitType: unit,
             hpp: parseFloat(row["Harga Beli Modal (Satuan)"] || row.HargaBeli) || 0,
             price: defaultPrice, defaultPrice: defaultPrice, storePrices: dynamicStorePrices,
-            pcsPerCarton: isWholesale ? isiPerSatuan : 1, stockPcs: stokSatuan * (isWholesale ? isiPerSatuan : 1),
+            pcsPerCarton: isWholesale ? isiPerSatuan : 1, stockPcs: stockSatuan * (isWholesale ? isiPerSatuan : 1),
             image: row["Url Gambar"] || row.UrlGambar || '',
           };
 
@@ -413,7 +413,7 @@ const StockOpname = ({ onShowToast }) => {
     <div className="pb-10 min-h-screen">
       
       <div className="flex gap-2 mb-4 md:mb-6 bg-white p-2 rounded-xl shadow-sm border overflow-x-auto custom-scrollbar whitespace-nowrap">
-        {[ { id: 'products', label: 'Daftar Produk & Stok', icon: Package }, { id: 'history', label: 'Laporan & Histori', icon: History } ].map(tab => (
+        {[ { id: 'products', label: 'Daftar Produk & stock', icon: Package }, { id: 'history', label: 'Laporan & Histori', icon: History } ].map(tab => (
           <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex items-center gap-2 px-4 md:px-6 py-2.5 md:py-3 rounded-lg text-xs md:text-sm font-bold whitespace-nowrap ${activeTab === tab.id ? 'bg-teal-600 text-white shadow-md' : 'text-gray-500 hover:bg-gray-100'}`}><tab.icon className="w-4 h-4" /> {tab.label}</button>
         ))}
       </div>
@@ -450,7 +450,7 @@ const StockOpname = ({ onShowToast }) => {
                         <div className="flex justify-between items-center"><span className="text-[10px] font-black text-gray-400 uppercase">Satuan</span><span className="text-xs font-black text-gray-800 bg-gray-100 px-2 rounded">{product.unitType}</span></div>
                         <div className="flex justify-between items-center"><span className="text-[10px] font-black text-gray-400 uppercase">Modal</span><span className="text-sm font-black text-orange-600">Rp {(product.hpp||0).toLocaleString('id-ID')}</span></div>
                         <div className="flex justify-between items-center"><span className="text-[10px] font-black text-gray-400 uppercase">Jual Default</span><span className="text-sm font-black text-blue-600">Rp {(product.defaultPrice||product.price||0).toLocaleString('id-ID')}</span></div>
-                        <div className="flex justify-between items-center pt-2 border-t border-dashed"><span className="text-[10px] font-black text-gray-400 uppercase">Stok Pusat</span><span className={`text-lg font-black ${product.stockPcs < 10 ? 'text-red-600' : 'text-green-700'}`}>{product.stockPcs} {product.unitType !== 'PCS' && product.unitType !== 'KG' ? 'Pcs' : product.unitType}</span></div>
+                        <div className="flex justify-between items-center pt-2 border-t border-dashed"><span className="text-[10px] font-black text-gray-400 uppercase">stock Pusat</span><span className={`text-lg font-black ${product.stockPcs < 10 ? 'text-red-600' : 'text-green-700'}`}>{product.stockPcs} {product.unitType !== 'PCS' && product.unitType !== 'KG' ? 'Pcs' : product.unitType}</span></div>
                       </div>
                       
                       <div className="grid grid-cols-4 gap-2 mt-auto">
@@ -474,7 +474,7 @@ const StockOpname = ({ onShowToast }) => {
         <div className="space-y-6">
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
             <div className="bg-white p-6 rounded-[32px] border shadow-sm">
-              <h3 className="font-black mb-4 flex items-center gap-2"><TrendingUp className="w-5 h-5 text-teal-600"/> Grafik Stok (Pcs)</h3>
+              <h3 className="font-black mb-4 flex items-center gap-2"><TrendingUp className="w-5 h-5 text-teal-600"/> Grafik stock (Pcs)</h3>
               <div className="h-[250px]"><ResponsiveContainer width="100%" height="100%"><BarChart data={stockChartData}><CartesianGrid strokeDasharray="3 3" vertical={false}/><XAxis dataKey="label" style={{fontSize: '9px'}}/><YAxis style={{fontSize: '9px'}} width={35}/><Tooltip/><Bar name="Masuk" dataKey="masuk" fill="#10b981" radius={[4, 4, 0, 0]}/><Bar name="Keluar" dataKey="keluar" fill="#f59e0b" radius={[4, 4, 0, 0]}/></BarChart></ResponsiveContainer></div>
             </div>
             <div className="bg-white p-6 rounded-[32px] border shadow-sm">
@@ -531,10 +531,10 @@ const StockOpname = ({ onShowToast }) => {
               <button onClick={() => setShowExportModal(false)}><X/></button>
             </div>
             <div className="p-6 space-y-3">
-              <button onClick={() => { exportHistoriStokExcel(filteredHistory, startDate, endDate, selectedStoreName, formatDisplayDate, onShowToast); setShowExportModal(false); }} className="w-full text-left p-4 bg-green-50 border border-green-200 rounded-2xl flex items-center gap-4"><TableIcon className="w-6 h-6 text-green-600"/><span className="font-black text-green-800">Excel Laporan Stok</span></button>
+              <button onClick={() => { exportHistoristockExcel(filteredHistory, startDate, endDate, selectedStoreName, formatDisplayDate, onShowToast); setShowExportModal(false); }} className="w-full text-left p-4 bg-green-50 border border-green-200 rounded-2xl flex items-center gap-4"><TableIcon className="w-6 h-6 text-green-600"/><span className="font-black text-green-800">Excel Laporan stock</span></button>
               <button onClick={() => { exportKeuntunganExcel(getProfitData(), startDate, endDate, selectedStoreName, onShowToast); setShowExportModal(false); }} className="w-full text-left p-4 bg-green-50 border border-green-200 rounded-2xl flex items-center gap-4"><TableIcon className="w-6 h-6 text-green-600"/><span className="font-black text-green-800">Excel Laba Penjualan</span></button>
               <div className="h-px w-full bg-gray-100 my-2"></div>
-              <button onClick={() => { exportHistoriStokPDF(filteredHistory, startDate, endDate, selectedStoreName, formatDisplayDate, onShowToast); setShowExportModal(false); }} className="w-full text-left p-4 bg-blue-50 border border-blue-200 rounded-2xl flex items-center gap-4"><FileText className="w-6 h-6 text-blue-600"/><span className="font-black text-blue-800">PDF Laporan Stok</span></button>
+              <button onClick={() => { exportHistoristockPDF(filteredHistory, startDate, endDate, selectedStoreName, formatDisplayDate, onShowToast); setShowExportModal(false); }} className="w-full text-left p-4 bg-blue-50 border border-blue-200 rounded-2xl flex items-center gap-4"><FileText className="w-6 h-6 text-blue-600"/><span className="font-black text-blue-800">PDF Laporan stock</span></button>
               <button onClick={() => { exportKeuntunganPDF(getProfitData(), startDate, endDate, selectedStoreName, onShowToast); setShowExportModal(false); }} className="w-full text-left p-4 bg-blue-50 border border-blue-200 rounded-2xl flex items-center gap-4"><FileText className="w-6 h-6 text-blue-600"/><span className="font-black text-blue-800">PDF Laba Penjualan</span></button>
             </div>
           </div>
@@ -590,11 +590,11 @@ const StockOpname = ({ onShowToast }) => {
               )}
 
               {!WHOLESALE_TYPES.includes(formData.unitType) && (
-                 <div className="pt-2"><label className="text-[10px] font-black uppercase text-green-600 ml-1">Stok Gudang Pusat ({formData.unitType})</label><input type="number" step="any" required min="0" value={formData.stockPcs} onChange={(e) => setFormData({ ...formData, stockPcs: e.target.value === '' ? '' : Number(e.target.value) || 0 })} className="w-full p-3 bg-green-50 border border-green-200 text-green-800 rounded-xl font-black mt-1" /></div>
+                 <div className="pt-2"><label className="text-[10px] font-black uppercase text-green-600 ml-1">stock Gudang Pusat ({formData.unitType})</label><input type="number" step="any" required min="0" value={formData.stockPcs} onChange={(e) => setFormData({ ...formData, stockPcs: e.target.value === '' ? '' : Number(e.target.value) || 0 })} className="w-full p-3 bg-green-50 border border-green-200 text-green-800 rounded-xl font-black mt-1" /></div>
               )}
               {WHOLESALE_TYPES.includes(formData.unitType) && (
                  <div className="grid grid-cols-2 gap-3 pt-2">
-                   <div><label className="text-[10px] font-black uppercase text-purple-600 ml-1">Stok Pusat ({formData.unitType})</label><input type="number" min="0" step="any" value={formData.stockPcs === '' ? '' : (formData.stockPcs / (formData.pcsPerCarton || 1))} onChange={(e) => { if (e.target.value === '') setFormData({ ...formData, stockPcs: '' }); else setFormData({ ...formData, stockPcs: Number(parseFloat(e.target.value) * (formData.pcsPerCarton || 1)) || 0 }); }} className="w-full p-3 bg-purple-50 border border-purple-200 text-purple-800 rounded-xl font-black mt-1" /></div>
+                   <div><label className="text-[10px] font-black uppercase text-purple-600 ml-1">stock Pusat ({formData.unitType})</label><input type="number" min="0" step="any" value={formData.stockPcs === '' ? '' : (formData.stockPcs / (formData.pcsPerCarton || 1))} onChange={(e) => { if (e.target.value === '') setFormData({ ...formData, stockPcs: '' }); else setFormData({ ...formData, stockPcs: Number(parseFloat(e.target.value) * (formData.pcsPerCarton || 1)) || 0 }); }} className="w-full p-3 bg-purple-50 border border-purple-200 text-purple-800 rounded-xl font-black mt-1" /></div>
                    <div><label className="text-[10px] font-black uppercase text-green-600 ml-1">Total Pcs</label><input type="number" step="any" required min="0" value={formData.stockPcs} onChange={(e) => setFormData({ ...formData, stockPcs: e.target.value === '' ? '' : Number(e.target.value) || 0 })} className="w-full p-3 bg-green-50 border border-green-200 text-green-800 rounded-xl font-black mt-1" /></div>
                  </div>
               )}
