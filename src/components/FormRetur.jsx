@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { X, Search, Plus, Minus, Trash2, Package, User, ChevronDown, Edit3, Database, Repeat2, Store } from 'lucide-react';
+import { X, Search, Plus, Minus, Trash2, Package, User, ChevronDown, Edit3, Database, Store } from 'lucide-react';
 import { useCollection, addDocument, updateDocument } from '../hooks/useFirestore';
 import { usePricing } from '../hooks/usePricing'; 
 
@@ -83,7 +83,6 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
   const [cart, setCart] = useState([]);
   const [selectedCustomer, setSelectedCustomer] = useState('');
   
-  // 4 OPSI RETUR CERDAS
   const [refundAction, setRefundAction] = useState('deposit_rusak');
   
   const [reason, setReason] = useState('');
@@ -99,22 +98,25 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
     p.category.toLowerCase().includes(searchProduct.toLowerCase())
   );
 
-  const addToCartAuto = (product) => {
+  const addToCartAuto = (product, isEceran = false) => {
     const resolvedPrice = getProductPrice(product);
+    const cartItemId = isEceran ? `${product.id}_PCS` : product.id;
 
-    const existing = cart.find(item => item.productId === product.id);
+    const existing = cart.find(item => item.cartItemId === cartItemId);
+    
     if (existing) {
-      setCart(cart.map(item => item.productId === product.id ? { ...item, qty: Number(item.qty) + 1 } : item));
+      setCart(cart.map(item => item.cartItemId === cartItemId ? { ...item, qty: Number(item.qty) + 1 } : item));
     } else {
       setCart([...cart, {
-        productId: product.id,
+        cartItemId: cartItemId,     
+        productId: product.id,      
         name: product.name,
         unitType: product.unitType,
         pcsPerCarton: product.pcsPerCarton || 1,
         price: resolvedPrice, 
-        hpp: product.hpp || 0, // Ditarik untuk perhitungan Laba Impas
+        hpp: product.hpp || 0,
         qty: 1,
-        returnUnit: 'pack', 
+        returnUnit: isEceran ? 'pcs' : 'pack', 
         isManual: false
       }]);
     }
@@ -126,12 +128,13 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
     
     const newItemId = `manual-${Date.now()}`;
     setCart([...cart, {
+      cartItemId: newItemId,
       productId: newItemId,
       name: manualItem.name,
       unitType: 'Item',
       pcsPerCarton: 1,
       price: Number(manualItem.price),
-      hpp: Number(manualItem.price), // Manual diasumsikan HPP = Harga (Impas)
+      hpp: Number(manualItem.price), 
       qty: Number(manualItem.qty),
       returnUnit: 'pack', 
       isManual: true
@@ -141,27 +144,18 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
     onShowToast('Barang manual ditambahkan', 'success');
   };
 
-  const updateQty = (productId, newQty) => {
+  const updateQty = (cartItemId, newQty) => {
     if (newQty === '' || isNaN(newQty)) {
-        setCart(cart.map(item => item.productId === productId ? { ...item, qty: '' } : item));
+        setCart(cart.map(item => item.cartItemId === cartItemId ? { ...item, qty: '' } : item));
         return;
     }
 
     const qty = Number(newQty);
     if (qty <= 0) {
-      setCart(cart.filter(item => item.productId !== productId));
+      setCart(cart.filter(item => item.cartItemId !== cartItemId));
       return;
     }
-    setCart(cart.map(item => item.productId === productId ? { ...item, qty: qty } : item));
-  };
-
-  const toggleReturnUnit = (productId) => {
-    setCart(cart.map(item => {
-      if (item.productId === productId && item.pcsPerCarton > 1) {
-        return { ...item, returnUnit: item.returnUnit === 'pack' ? 'pcs' : 'pack' };
-      }
-      return item;
-    }));
+    setCart(cart.map(item => item.cartItemId === cartItemId ? { ...item, qty: qty } : item));
   };
 
   const getItemPrice = (item) => {
@@ -206,17 +200,15 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
 
     let updateRes;
     const isDeposit = refundAction.startsWith('deposit');
-    const labaKotorBatal = Math.max(0, totalReturnAmount - totalReturnHpp); // Hanya selisih untung (misal 500 perak)
+    const labaKotorBatal = Math.max(0, totalReturnAmount - totalReturnHpp); 
 
     if (isDeposit) {
-      // 1. Tambah Saldo Deposit Pelanggan (Uang fisik laci tetap utuh)
       updateRes = await updateDocument('customers', cust.id, {
         returnAmount: (Number(cust.returnAmount) || 0) + totalReturnAmount
       });
       
       if (updateRes.success || updateRes.id) {
          if (refundAction === 'deposit_rusak') {
-            // Barang Dibuang -> Potong Laba Full senilai Harga Jual (Biar ruginya pas sebesar HPP)
             await addDocument('expenses', {
               title: `Retur (Deposit & Barang Dibuang) - ${cust.name}: ${reason}`,
               amount: totalReturnAmount,
@@ -226,7 +218,6 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
               createdAt: new Date()
             });
          } else if (refundAction === 'deposit_supplier') {
-            // Kembali ke Pabrik -> Tidak rugi HPP. Hanya membatalkan "Laba Kotornya" saja.
             if (labaKotorBatal > 0) {
                 await addDocument('expenses', {
                   title: `Batal Laba (Retur Deposit & Tukar Pabrik) - ${cust.name}: ${reason}`,
@@ -240,9 +231,7 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
          }
       }
     } else {
-      // PENGEMBALIAN UANG TUNAI
       if (refundAction === 'cash_rusak') {
-         // Barang Dibuang -> Potong Laci Kasir + Potong Laba (Rugi HPP)
          updateRes = await addDocument('expenses', {
             title: `Retur Dana Kas & Barang Dibuang (${cust.name}): ${reason}`,
             amount: totalReturnAmount,
@@ -252,11 +241,10 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
             createdAt: new Date()
          });
       } else if (refundAction === 'cash_supplier') {
-         // Tukar Pabrik -> Potong Laci Kasir + Laba TETAP IMPAS (Tidak rugi HPP)
          updateRes = await addDocument('expenses', {
             title: `Retur Kas & Tukar Pabrik (${cust.name}): ${reason}`,
             amount: totalReturnAmount,
-            category: 'Retur Tukar Pabrik', // Kategori khusus agar di Dashboard bisa dipilah
+            category: 'Retur Tukar Pabrik', 
             storeId: finalStoreId,        
             storeName: activeStoreName,   
             createdAt: new Date()
@@ -271,7 +259,17 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
         amount: totalReturnAmount,
         reason: finalReason,
         refundType: isDeposit ? 'deposit' : 'cash', 
-        items: cart.map(i => ({ ...i, finalPrice: getItemPrice(i) })), 
+        items: cart.map(i => ({ 
+            productId: i.productId, 
+            name: i.name,
+            qty: i.qty,
+            unitType: i.unitType,
+            pcsPerCarton: i.pcsPerCarton,
+            price: i.price,
+            hpp: i.hpp,
+            returnUnit: i.returnUnit,
+            finalPrice: getItemPrice(i) 
+        })), 
         storeId: finalStoreId,        
         storeName: activeStoreName,   
         createdAt: new Date()
@@ -323,10 +321,26 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
                     filteredProducts.map(p => {
                       const dynamicPrice = getProductPrice(p);
                       return (
-                        <button key={p.id} onClick={() => addToCartAuto(p)} className="w-full flex justify-between items-center p-3 md:p-4 bg-white border border-gray-200 rounded-xl hover:border-purple-500 hover:shadow-md transition-all text-left active:scale-95">
-                          <div className="flex-1 pr-2"><p className="font-black text-gray-800 text-xs md:text-sm uppercase truncate">{p.name}</p><p className="text-[10px] md:text-xs text-gray-500 font-bold">Rp {dynamicPrice.toLocaleString()} {p.pcsPerCarton > 1 && <span className="text-purple-400"> (Isi {p.pcsPerCarton} Pcs / {p.unitType})</span>}</p></div>
-                          <span className="bg-purple-100 text-purple-700 text-[9px] md:text-[10px] font-black px-2 py-1 rounded-lg">{p.unitType}</span>
-                        </button>
+                        <div key={p.id} className="w-full flex flex-col p-3 md:p-4 bg-white border border-gray-200 rounded-xl hover:border-purple-500 hover:shadow-md transition-all text-left">
+                          <div className="flex justify-between items-start mb-2">
+                            <div className="flex-1 pr-2">
+                              <p className="font-black text-gray-800 text-xs md:text-sm uppercase truncate">{p.name}</p>
+                              <p className="text-[10px] md:text-xs text-gray-500 font-bold">Rp {dynamicPrice.toLocaleString()} {p.pcsPerCarton > 1 && <span className="text-purple-400"> (Isi {p.pcsPerCarton} Pcs / {p.unitType})</span>}</p>
+                            </div>
+                            <span className="bg-purple-100 text-purple-700 text-[9px] md:text-[10px] font-black px-2 py-1 rounded-lg">{p.unitType}</span>
+                          </div>
+                          
+                          <div className="flex gap-2 border-t border-dashed border-gray-100 pt-2 mt-auto">
+                            <button onClick={() => addToCartAuto(p, false)} className="flex-1 bg-purple-50 text-purple-700 py-2 rounded-lg text-[9px] md:text-[10px] font-black uppercase hover:bg-purple-100 transition-colors shadow-sm active:scale-95">
+                              + 1 {p.unitType}
+                            </button>
+                            {p.pcsPerCarton > 1 && !['PCS', 'KG'].includes(p.unitType) && (
+                              <button onClick={() => addToCartAuto(p, true)} className="flex-1 bg-orange-50 text-orange-700 py-2 rounded-lg text-[9px] md:text-[10px] font-black uppercase hover:bg-orange-100 transition-colors shadow-sm active:scale-95">
+                                + 1 PCS
+                              </button>
+                            )}
+                          </div>
+                        </div>
                       );
                     })}
                 </div>
@@ -373,31 +387,24 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
                     cart.map(item => {
                       const finalPrice = getItemPrice(item);
                       const isPcsMode = item.returnUnit === 'pcs';
-                      const canToggle = !item.isManual && item.pcsPerCarton > 1;
 
                       return (
-                        <div key={item.productId} className={`flex flex-col gap-2.5 p-3 md:p-4 bg-white border-2 rounded-xl transition-colors ${isPcsMode ? 'border-orange-200 bg-orange-50/50' : 'border-gray-100'}`}>
+                        <div key={item.cartItemId} className={`flex flex-col gap-2.5 p-3 md:p-4 bg-white border-2 rounded-xl transition-colors ${isPcsMode ? 'border-orange-200 bg-orange-50/50' : 'border-gray-100'}`}>
                           <div className="flex justify-between items-start">
                             <div className="pr-2 flex-1"><p className="font-black text-xs md:text-sm text-gray-800 uppercase line-clamp-1">{item.name} {item.isManual && <span className="text-[8px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded ml-1">Manual</span>}</p><p className="text-[9px] md:text-[10px] text-gray-500 font-bold mt-0.5 whitespace-nowrap">{isPcsMode ? 'Eceran (Pcs)' : `Utuh (${item.unitType})`}: Rp {finalPrice.toLocaleString()} / {isPcsMode ? 'Pcs' : item.unitType}</p></div>
-                            <button type="button" onClick={() => updateQty(item.productId, 0)} className="text-gray-400 p-1 hover:bg-red-50 hover:text-red-500 rounded-lg"><Trash2 className="w-4 h-4"/></button>
+                            <button type="button" onClick={() => updateQty(item.cartItemId, 0)} className="text-gray-400 p-1 hover:bg-red-50 hover:text-red-500 rounded-lg"><Trash2 className="w-4 h-4"/></button>
                           </div>
                           
                           <div className="flex flex-wrap items-center gap-3">
                             <div className="flex items-center gap-1.5 bg-gray-100/70 p-1 rounded-lg border border-gray-200/50">
-                                <button type="button" onClick={() => updateQty(item.productId, (Number(item.qty) || 1) - 1)} className="w-6 h-6 bg-white border border-gray-300 rounded flex items-center justify-center hover:bg-gray-100 text-gray-600 shadow-sm"><Minus className="w-3.5 h-3.5" /></button>
-                                <input type="number" min="0.01" step="any" value={item.qty} onChange={(e) => updateQty(item.productId, e.target.value)} className="w-12 h-7 text-center font-black text-sm text-purple-700 bg-white border-2 border-purple-200 rounded-lg focus:ring-2 focus:ring-purple-400 focus:border-purple-500 outline-none p-0" />
-                                <button type="button" onClick={() => updateQty(item.productId, (Number(item.qty) || 0) + 1)} className="w-6 h-6 bg-purple-600 text-white rounded flex items-center justify-center hover:bg-purple-700 shadow-md shadow-purple-100"><Plus className="w-3.5 h-3.5" /></button>
+                                <button type="button" onClick={() => updateQty(item.cartItemId, (Number(item.qty) || 1) - 1)} className="w-6 h-6 bg-white border border-gray-300 rounded flex items-center justify-center hover:bg-gray-100 text-gray-600 shadow-sm"><Minus className="w-3.5 h-3.5" /></button>
+                                {/* INPUT MANUAL NOMINAL: Tinggal klik dan ketik angka bebas di sini */}
+                                <input type="number" min="0.01" step="any" value={item.qty} onChange={(e) => updateQty(item.cartItemId, e.target.value)} className="w-12 h-7 text-center font-black text-sm text-purple-700 bg-white border-2 border-purple-200 rounded-lg focus:ring-2 focus:ring-purple-400 focus:border-purple-500 outline-none p-0" />
+                                <button type="button" onClick={() => updateQty(item.cartItemId, (Number(item.qty) || 0) + 1)} className="w-6 h-6 bg-purple-600 text-white rounded flex items-center justify-center hover:bg-purple-700 shadow-md shadow-purple-100"><Plus className="w-3.5 h-3.5" /></button>
                             </div>
                             <div className="flex items-center gap-1.5"><span className="font-bold text-gray-400 text-xs">x</span><span className="font-black text-sm text-gray-800">Rp {finalPrice.toLocaleString()}</span></div>
                             <span className="font-black text-sm text-purple-700 ml-auto text-right">Rp {(finalPrice * (Number(item.qty) || 0)).toLocaleString()}</span>
                           </div>
-
-                          {canToggle && (
-                            <div className="pt-2 border-t border-gray-100 mt-1">
-                                <button type="button" onClick={() => toggleReturnUnit(item.productId)} className={`w-full text-center flex items-center justify-center gap-1.5 text-[10px] md:text-xs font-extrabold px-3 py-2 rounded-xl border-2 transition-all shadow-sm ${isPcsMode ? 'bg-orange-100 text-orange-800 border-orange-300 hover:bg-orange-200' : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400'}`}>
-                                <Repeat2 className={`w-4 h-4 ${isPcsMode ? 'text-orange-600' : 'text-gray-400'}`} />{isPcsMode ? ` Ganti Satuan Retur ke ${item.unitType} (Utuh)` : ` Ganti Satuan Retur ke Pcs (Eceran)`}</button>
-                            </div>
-                          )}
                         </div>
                       )
                     })
@@ -412,10 +419,10 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
                 <label className="text-[10px] font-black text-gray-400 uppercase ml-1 md:ml-2">Tujuan Pengembalian Dana & Kondisi Barang</label>
                 <div className="relative">
                   <select value={refundAction} onChange={e => setRefundAction(e.target.value)} className="w-full bg-purple-50 text-purple-800 rounded-xl px-3 md:px-4 py-2.5 md:py-3 text-[10px] md:text-xs font-black border border-purple-100 outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer appearance-none">
-                    <option value="deposit_rusak">🟢 DEPOSIT & Barang Dibuang (Toko Rugi Modal)</option>
-                    <option value="deposit_supplier">🟢 DEPOSIT & Tukar Pabrik (Toko Batal Untung - IMPAS)</option>
-                    <option value="cash_rusak">🔴 TUNAI & Barang Dibuang (Toko Rugi Modal)</option>
-                    <option value="cash_supplier">🔴 TUNAI & Tukar Pabrik (Toko Batal Untung - IMPAS)</option>
+                    <option value="deposit_rusak">📦 DEPOSIT & Barang Dibuang (Toko Rugi Modal)</option>
+                    <option value="deposit_supplier">📦 DEPOSIT & Tukar Pabrik (Toko Batal Untung - IMPAS)</option>
+                    <option value="cash_rusak">💸 TUNAI & Barang Dibuang (Toko Rugi Modal)</option>
+                    <option value="cash_supplier">💸 TUNAI & Tukar Pabrik (Toko Batal Untung - IMPAS)</option>
                   </select>
                   <ChevronDown className="absolute right-4 top-3 w-4 h-4 text-purple-600 pointer-events-none" />
                 </div>

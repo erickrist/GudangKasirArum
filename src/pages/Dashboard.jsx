@@ -279,7 +279,6 @@ const Dashboard = ({ onShowToast }) => {
   const filteredDepositHistory = useMemo(() => applyFilters(depositLogs, ['customerName', 'note', 'reason']), [depositLogs, searchTerm, startDate, endDate]);
   const filteredNetBalance = useMemo(() => applyFilters(netLogs, ['customerName', 'note', 'title', 'subjName', 'detailNote']), [netLogs, searchTerm, startDate, endDate]);
 
-  // === FIX RUMUS LABA PER BARANG (LOGIKA PCS & TEKS 1 BALL + 2 PCS) ===
   const getProfitData = () => {
     const salesMap = {};
     
@@ -1121,7 +1120,6 @@ const Dashboard = ({ onShowToast }) => {
               <button onClick={() => { exportNeracaPDF({balance, totalUnpaidDebt: totalUnpaidDebtDisplay, totalExpenses: totalCashExpenses, totalDeposit: totalDepositDisplay, totalIncome, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-purple-50 text-purple-700 rounded-2xl hover:bg-purple-100 border border-purple-200"><FileText className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">PDF Neraca</p></div></button>
               <button onClick={() => { exportLabaRugiPDF({totalIncome, totalHPP, totalPureOperational, totalKulakan, totalLossValue, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-purple-50 text-purple-700 rounded-2xl hover:bg-purple-100 border border-purple-200"><FileText className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">PDF Laba Rugi</p></div></button>
 
-              {/* --- TOMBOL BARU LABA PER BARANG --- */}
               <div className="h-px w-full bg-gray-200 my-2"></div>
               <button onClick={() => { exportKeuntunganExcel(getProfitData(), startDate, endDate, selectedStoreName, onShowToast); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 border border-green-200"><TableIcon className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">Excel Laba per Barang</p></div></button>
               <button onClick={() => { exportKeuntunganPDF(getProfitData(), startDate, endDate, selectedStoreName, onShowToast); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-blue-50 text-blue-700 rounded-2xl hover:bg-blue-100 border border-blue-200"><FileText className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">PDF Laba per Barang</p></div></button>
@@ -1145,7 +1143,7 @@ const Dashboard = ({ onShowToast }) => {
       {/* MODAL EDIT BALANCE */}
       {showEditBalanceModal && selectedCustomer && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
-          <div className="bg-white rounded-[32px] p-6 md:p-8 max-sm w-full shadow-2xl relative border-t-8 border-teal-600">
+          <div className="bg-white rounded-[32px] p-6 md:p-8 max-w-sm w-full shadow-2xl relative border-t-8 border-teal-600">
             <button onClick={() => setShowEditBalanceModal(false)} className="absolute right-6 top-6 text-gray-400"><X /></button>
             <h3 className="text-lg md:text-xl font-black text-gray-800 mb-2 uppercase">Koreksi Manual</h3>
             <div className="mb-6">
@@ -1200,7 +1198,7 @@ const Dashboard = ({ onShowToast }) => {
         </div>
       )}
 
-      {/* MODAL HAPUS DATA */}
+      {/* MODAL HAPUS DATA (FIXED: STOK & PIUTANG AMAN) */}
       {showDeleteModal && selectedItem && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
           <div className="bg-white rounded-[32px] p-6 md:p-8 max-w-sm w-full shadow-2xl text-center">
@@ -1210,27 +1208,57 @@ const Dashboard = ({ onShowToast }) => {
               <button onClick={async () => { 
                 try {
                   if (selectedItem.isSale) {
+                    // 1. RESTORE STOK (SUPER AMAN: BEBAS BENTROK)
                     if (selectedItem.items) {
+                      const stockToRestore = {};
+                      
                       for (const item of selectedItem.items) {
-                        const product = products.find(p => p.id === item.productId);
+                        let realId = item.productId || item.id;
+                        if (typeof realId === 'string' && realId.endsWith('_PCS')) {
+                           realId = realId.replace('_PCS', '');
+                        }
+                        
+                        let pcs = Number(item.qty);
+                        if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType?.toUpperCase()) && item.returnUnit !== 'pcs') {
+                          pcs = pcs * (Number(item.pcsPerCarton) || 1);
+                        }
+                        
+                        if (!stockToRestore[realId]) stockToRestore[realId] = 0;
+                        stockToRestore[realId] += pcs;
+                      }
+
+                      // Update stok ke database satu per satu
+                      for (const [id, pcsToRestore] of Object.entries(stockToRestore)) {
+                        const product = products.find(p => p.id === id);
                         if (product) {
-                          const pcsToRestore = item.qty * (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType) ? (item.pcsPerCarton || 1) : 1);
-                          await updateDocument('products', product.id, { stockPcs: product.stockPcs + pcsToRestore });
+                          await updateDocument('products', id, { stockPcs: Number(product.stockPcs) + pcsToRestore });
                         }
                       }
                     }
+
+                    // 2. RESTORE PIUTANG & DEPOSIT
                     if (selectedItem.customerId) {
                       const customer = customers.find(c => c.id === selectedItem.customerId);
                       if (customer) {
                         let newDebt = Number(customer.remainingDebt) || 0;
                         let newDeposit = Number(customer.returnAmount) || 0;
-                        if (selectedItem.paymentStatus === 'HUTANG') newDebt = Math.max(0, newDebt - (Number(selectedItem.subtotal) - Number(selectedItem.returnUsed || 0)));
-                        if (Number(selectedItem.returnUsed) > 0) newDeposit += Number(selectedItem.returnUsed);
+                        
+                        if (selectedItem.paymentStatus === 'HUTANG') {
+                           const addedDebt = Number(selectedItem.subtotal) - Number(selectedItem.returnUsed || 0);
+                           newDebt = Math.max(0, newDebt - addedDebt);
+                        }
+                        if (Number(selectedItem.returnUsed) > 0) {
+                           newDeposit += Number(selectedItem.returnUsed);
+                        }
+                        if (Number(selectedItem.debtPaid) > 0) {
+                           newDebt += Number(selectedItem.debtPaid);
+                        }
+                        
                         await updateDocument('customers', customer.id, { remainingDebt: newDebt, returnAmount: newDeposit });
                       }
                     }
                     await deleteDocument('transactions', selectedItem.id); 
-                    onShowToast('Transaksi dibatalkan', 'success');
+                    onShowToast('Transaksi dibatalkan & Stok dikembalikan', 'success');
 
                   } else if (selectedItem.isCustomerDebt) {
                     await updateDocument('customers', selectedItem.id, { remainingDebt: 0 });
