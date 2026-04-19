@@ -279,9 +279,11 @@ const Dashboard = ({ onShowToast }) => {
   const filteredDepositHistory = useMemo(() => applyFilters(depositLogs, ['customerName', 'note', 'reason']), [depositLogs, searchTerm, startDate, endDate]);
   const filteredNetBalance = useMemo(() => applyFilters(netLogs, ['customerName', 'note', 'title', 'subjName', 'detailNote']), [netLogs, searchTerm, startDate, endDate]);
 
+  // === RUMUS FIX: TANGKAP RETUR WALAUPUN PENJUALAN NOL ===
   const getProfitData = () => {
     const salesMap = {};
     
+    // 1. Loop semua PENJUALAN
     activeStoreTransactions.forEach(t => {
       const date = getSafeDate(t.createdAt);
       let matchesDate = true;
@@ -291,7 +293,7 @@ const Dashboard = ({ onShowToast }) => {
       }
       if (matchesDate && t.items) {
         t.items.forEach(item => {
-          let realId = item.productId;
+          let realId = item.productId || item.id;
           if (typeof realId === 'string' && realId.endsWith('_PCS')) realId = realId.replace('_PCS', '');
 
           const currentProduct = products.find(p => p.id === realId);
@@ -300,15 +302,21 @@ const Dashboard = ({ onShowToast }) => {
 
           if (!salesMap[realId]) {
             salesMap[realId] = { 
-              name: currentProduct ? currentProduct.name : item.name.replace(' (Eceran)', ''), 
-              unitType: realUnit, pcsPerCarton: pcsPerCarton, qtySoldPcs: 0, qtyReturnedPcs: 0, 
+              name: currentProduct ? currentProduct.name : (item.name || '').replace(' (Eceran)', ''), 
+              unitType: realUnit, 
+              pcsPerCarton: pcsPerCarton, 
+              qtySoldPcs: 0, 
+              qtyReturnedPcs: 0, 
               hppPerPcs: currentProduct ? ((currentProduct.hpp || 0) / pcsPerCarton) : ((item.capitalPrice || 0) / (item.unitType === 'PCS' ? 1 : pcsPerCarton)), 
-              totalSalesValue: 0, totalReturnValue: 0 
+              totalSalesValue: 0, 
+              totalReturnValue: 0 
             };
           }
 
           let itemPcs = Number(item.qty);
-          if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType)) itemPcs = Number(item.qty) * pcsPerCarton;
+          if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType?.toUpperCase())) {
+             itemPcs = Number(item.qty) * pcsPerCarton;
+          }
 
           salesMap[realId].qtySoldPcs += itemPcs;
           salesMap[realId].totalSalesValue += Number(item.subtotal || (item.qty * item.price));
@@ -316,6 +324,7 @@ const Dashboard = ({ onShowToast }) => {
       }
     });
 
+    // 2. Loop semua RETUR (Bahkan untuk barang yang tidak laku hari ini)
     activeStoreReturns.forEach(r => {
       const date = getSafeDate(r.createdAt);
       let matchesDate = true;
@@ -325,29 +334,51 @@ const Dashboard = ({ onShowToast }) => {
       }
       if (matchesDate && r.items) {
         r.items.forEach(item => {
-          let realId = item.productId;
+          let realId = item.productId || item.id;
           if (typeof realId === 'string' && realId.endsWith('_PCS')) realId = realId.replace('_PCS', '');
 
-          if (salesMap[realId]) {
-            const pcsPerCarton = salesMap[realId].pcsPerCarton;
-            let itemPcs = Number(item.qty);
-            if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType) && item.returnUnit !== 'pcs') itemPcs = Number(item.qty) * pcsPerCarton;
+          // FIX: JIKA BARANG BELUM ADA DI DAFTAR (TIDAK LAKU HARI INI), BUATKAN BARISNYA DULU!
+          if (!salesMap[realId]) {
+            const currentProduct = products.find(p => p.id === realId);
+            const realUnit = currentProduct ? currentProduct.unitType : (item.unitType === 'PCS' ? 'KARTON' : item.unitType);
+            const pcsPerCarton = currentProduct ? (currentProduct.pcsPerCarton || 1) : (item.pcsPerCarton || 1);
 
-            salesMap[realId].qtyReturnedPcs += itemPcs;
-            salesMap[realId].totalReturnValue += Number(item.qty * (item.finalPrice || item.price));
+            salesMap[realId] = { 
+              name: currentProduct ? currentProduct.name : (item.name || '').replace(' (Eceran)', ''), 
+              unitType: realUnit, 
+              pcsPerCarton: pcsPerCarton, 
+              qtySoldPcs: 0, // KARENA MEMANG TIDAK ADA YANG LAKU
+              qtyReturnedPcs: 0, 
+              hppPerPcs: currentProduct ? ((currentProduct.hpp || 0) / pcsPerCarton) : ((item.hpp || item.capitalPrice || 0) / (item.unitType === 'PCS' ? 1 : pcsPerCarton)), 
+              totalSalesValue: 0, 
+              totalReturnValue: 0 
+            };
           }
+
+          // Setelah dipastikan barisnya ada, tambahkan nilai returnya
+          const pcsPerCarton = salesMap[realId].pcsPerCarton;
+          let itemPcs = Number(item.qty);
+          if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType?.toUpperCase()) && item.returnUnit !== 'pcs') {
+             itemPcs = Number(item.qty) * pcsPerCarton;
+          }
+
+          salesMap[realId].qtyReturnedPcs += itemPcs;
+          salesMap[realId].totalReturnValue += Number(item.qty * (item.finalPrice || item.price));
         });
       }
     });
 
     const formatUnitText = (totalPcs, pcsPerCarton, unitType) => {
        if (totalPcs === 0) return '-';
-       if (pcsPerCarton <= 1 || ['PCS', 'KG'].includes(unitType)) return `${totalPcs} ${unitType}`;
+       if (pcsPerCarton <= 1 || ['PCS', 'KG'].includes(unitType?.toUpperCase())) return `${totalPcs} ${unitType}`;
+       
        const utuh = Math.floor(totalPcs / pcsPerCarton);
        const ecer = totalPcs % pcsPerCarton;
+       
        let textParts = [];
        if (utuh > 0) textParts.push(`${utuh} ${unitType}`);
        if (ecer > 0) textParts.push(`${ecer} PCS`);
+       
        return textParts.join(' + ');
     };
 
@@ -355,12 +386,20 @@ const Dashboard = ({ onShowToast }) => {
       const netPcsSold = data.qtySoldPcs - data.qtyReturnedPcs;
       const totalHpp = Math.round(data.hppPerPcs * netPcsSold);
       const netSales = data.totalSalesValue - data.totalReturnValue; 
+      
       return { 
-         ...data, netSales, totalHpp, profit: netSales - totalHpp,
+         ...data, 
+         netSales, 
+         totalHpp, 
+         profit: netSales - totalHpp,
          displaySold: formatUnitText(data.qtySoldPcs, data.pcsPerCarton, data.unitType),
          displayReturned: formatUnitText(data.qtyReturnedPcs, data.pcsPerCarton, data.unitType)
       };
-    }).sort((a, b) => b.qtySoldPcs - a.qtySoldPcs); 
+    }).sort((a, b) => {
+       // Sortir berdasarkan yang laku dulu, baru yang minus (retur doang)
+       if (b.qtySoldPcs !== a.qtySoldPcs) return b.qtySoldPcs - a.qtySoldPcs;
+       return b.qtyReturnedPcs - a.qtyReturnedPcs;
+    }); 
   };
 
   const dynamicChartData = useMemo(() => {
@@ -741,7 +780,7 @@ const Dashboard = ({ onShowToast }) => {
                 <div className="flex gap-2 w-full md:w-auto">
                     <button onClick={() => setShowDownloadModal(true)} className="flex-1 justify-center p-3 bg-blue-50 text-blue-700 rounded-xl border border-blue-200 hover:bg-blue-100 flex items-center gap-2 text-xs font-black shadow-sm"><Download className="w-4 h-4" /> Download</button>
                     <button onClick={() => setShowSyncModal(true)} className="flex-1 justify-center p-3 bg-purple-50 text-purple-700 rounded-xl border border-purple-200 hover:bg-purple-100 flex items-center gap-2 text-xs font-black shadow-sm"><RotateCcw className="w-4 h-4" /> Sinkron</button>
-                    {/* <button onClick={() => setShowResetModal(true)} className="flex-1 justify-center p-3 bg-red-50 text-red-700 rounded-xl border border-red-200 hover:bg-red-100 flex items-center gap-2 text-xs font-black shadow-sm"><AlertTriangle className="w-4 h-4" /> Reset</button> */}
+                    <button onClick={() => setShowResetModal(true)} className="flex-1 justify-center p-3 bg-red-50 text-red-700 rounded-xl border border-red-200 hover:bg-red-100 flex items-center gap-2 text-xs font-black shadow-sm"><AlertTriangle className="w-4 h-4" /> Reset</button>
                 </div>
              </div>
           </div>
@@ -1208,31 +1247,23 @@ const Dashboard = ({ onShowToast }) => {
               <button onClick={async () => { 
                 try {
                   if (selectedItem.isSale) {
-                    // 1. RESTORE STOK (SUPER AMAN: BEBAS BENTROK)
+                    // 1. RESTORE STOK
                     if (selectedItem.items) {
                       const stockToRestore = {};
-                      
                       for (const item of selectedItem.items) {
                         let realId = item.productId || item.id;
-                        if (typeof realId === 'string' && realId.endsWith('_PCS')) {
-                           realId = realId.replace('_PCS', '');
-                        }
+                        if (typeof realId === 'string' && realId.endsWith('_PCS')) realId = realId.replace('_PCS', '');
                         
                         let pcs = Number(item.qty);
                         if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType?.toUpperCase()) && item.returnUnit !== 'pcs') {
                           pcs = pcs * (Number(item.pcsPerCarton) || 1);
                         }
-                        
                         if (!stockToRestore[realId]) stockToRestore[realId] = 0;
                         stockToRestore[realId] += pcs;
                       }
-
-                      // Update stok ke database satu per satu
                       for (const [id, pcsToRestore] of Object.entries(stockToRestore)) {
                         const product = products.find(p => p.id === id);
-                        if (product) {
-                          await updateDocument('products', id, { stockPcs: Number(product.stockPcs) + pcsToRestore });
-                        }
+                        if (product) await updateDocument('products', id, { stockPcs: Number(product.stockPcs) + pcsToRestore });
                       }
                     }
 
@@ -1242,18 +1273,12 @@ const Dashboard = ({ onShowToast }) => {
                       if (customer) {
                         let newDebt = Number(customer.remainingDebt) || 0;
                         let newDeposit = Number(customer.returnAmount) || 0;
-                        
                         if (selectedItem.paymentStatus === 'HUTANG') {
                            const addedDebt = Number(selectedItem.subtotal) - Number(selectedItem.returnUsed || 0);
                            newDebt = Math.max(0, newDebt - addedDebt);
                         }
-                        if (Number(selectedItem.returnUsed) > 0) {
-                           newDeposit += Number(selectedItem.returnUsed);
-                        }
-                        if (Number(selectedItem.debtPaid) > 0) {
-                           newDebt += Number(selectedItem.debtPaid);
-                        }
-                        
+                        if (Number(selectedItem.returnUsed) > 0) newDeposit += Number(selectedItem.returnUsed);
+                        if (Number(selectedItem.debtPaid) > 0) newDebt += Number(selectedItem.debtPaid);
                         await updateDocument('customers', customer.id, { remainingDebt: newDebt, returnAmount: newDeposit });
                       }
                     }
@@ -1270,7 +1295,6 @@ const Dashboard = ({ onShowToast }) => {
 
                   } else {
                     const colName = selectedItem.sourceCollection || (activeTab === 'expenses' ? 'expenses' : activeTab === 'returns' ? 'returns' : 'transactions');
-                    
                     if (colName === 'returns') {
                        if (selectedItem.customerId) {
                           const customer = customers.find(c => c.id === selectedItem.customerId);
@@ -1285,11 +1309,8 @@ const Dashboard = ({ onShowToast }) => {
                           ['Barang Rusak', 'Retur', 'Retur Tukar Pabrik'].includes(e.category) &&
                           Math.abs(getSafeDate(e.createdAt).getTime() - getSafeDate(selectedItem.createdAt).getTime()) <= 5000
                        );
-                       if (relatedExpense) {
-                          await deleteDocument('expenses', relatedExpense.id);
-                       }
+                       if (relatedExpense) await deleteDocument('expenses', relatedExpense.id);
                     }
-
                     await deleteDocument(colName, selectedItem.id); 
                     onShowToast('Data dihapus dan dikembalikan', 'success');
                   }
