@@ -32,7 +32,6 @@ const StockOpname = ({ onShowToast }) => {
   const [showExportModal, setShowExportModal] = useState(false); 
   const [showDeleteHistoryModal, setShowDeleteHistoryModal] = useState(false);
   
-  // === MODAL BARU UNTUK BULK ACTION ===
   const [showResetStockModal, setShowResetStockModal] = useState(false); 
   const [showBulkDeleteHistoryModal, setShowBulkDeleteHistoryModal] = useState(false);
   
@@ -94,8 +93,11 @@ const StockOpname = ({ onShowToast }) => {
     return returnsData.filter(r => r.storeId === selectedStoreFilter || (!r.storeId && selectedStoreFilter === 'pusat'));
   }, [returnsData, selectedStoreFilter]);
 
+  // === FIX: MENGGABUNGKAN DATA RETUR KE DALAM HISTORI PERGERAKAN ===
   const allStockHistory = useMemo(() => {
     let combinedLogs = [];
+    
+    // 1. Histori Stok Manual (Masuk / Keluar / Rusak)
     activeStockLogs.forEach(log => {
       combinedLogs.push({
         id: log.id, uniqueKey: log.id, sourceCollection: 'stock_logs', createdAt: log.createdAt,
@@ -104,20 +106,47 @@ const StockOpname = ({ onShowToast }) => {
         storeName: 'Pusat (Gudang)' 
       });
     });
+
+    // 2. Histori Penjualan (Terjual)
     activeTransactions.forEach(t => {
       t.items?.forEach(item => {
+        let realId = item.productId || item.id;
+        if (typeof realId === 'string' && realId.endsWith('_PCS')) realId = realId.replace('_PCS', '');
+
         combinedLogs.push({
           id: t.id, uniqueKey: `${t.id}-${item.productId}-${item.unitType}`, sourceCollection: 'transactions', createdAt: t.createdAt,
-          productId: item.productId, productName: item.name, type: 'TERJUAL', amount: item.qty,
+          productId: realId, productName: item.name.replace(' (Eceran)', ''), type: 'TERJUAL', amount: item.qty,
           unitType: item.unitType, totalPcs: item.qty * (item.pcsPerCarton || 1), 
           note: `Nota: #${t.id?.substring(0,6)} - Pembeli: ${t.customerName}`,
           storeName: t.storeName || 'Pusat' 
         });
       });
     });
-    return combinedLogs.sort((a, b) => getSafeDate(b.createdAt) - getSafeDate(a.createdAt));
-  }, [activeStockLogs, activeTransactions]);
 
+    // 3. Histori Retur (BARU DITAMBAHKAN)
+    activeReturns.forEach(r => {
+      r.items?.forEach(item => {
+        let realId = item.productId || item.id;
+        if (typeof realId === 'string' && realId.endsWith('_PCS')) realId = realId.replace('_PCS', '');
+
+        const isEceran = item.returnUnit === 'pcs';
+        const displayUnit = isEceran ? 'PCS' : item.unitType;
+        const totalPcs = isEceran ? Number(item.qty) : Number(item.qty) * (item.pcsPerCarton || 1);
+
+        combinedLogs.push({
+          id: r.id, uniqueKey: `${r.id}-${item.productId}-${item.returnUnit}-RETUR`, sourceCollection: 'returns', createdAt: r.createdAt,
+          productId: realId, productName: item.name.replace(' (Eceran)', ''), type: 'RETUR', amount: item.qty,
+          unitType: displayUnit, totalPcs: totalPcs, 
+          note: `Dari: ${r.customerName} - ${r.reason}`,
+          storeName: r.storeName || 'Pusat' 
+        });
+      });
+    });
+
+    return combinedLogs.sort((a, b) => getSafeDate(b.createdAt) - getSafeDate(a.createdAt));
+  }, [activeStockLogs, activeTransactions, activeReturns]);
+
+  // === FIX: GRAFIK STOK TIDAK DOBEL HITUNG RETUR ===
   const stockChartData = useMemo(() => {
     const dataMap = {};
     allStockHistory.forEach(log => {
@@ -127,8 +156,13 @@ const StockOpname = ({ onShowToast }) => {
                 chartPeriod === 'monthly' ? date.toLocaleDateString('id-ID', { month: 'short' }) : date.getFullYear().toString();
 
       if (!dataMap[key]) dataMap[key] = { label: key, masuk: 0, keluar: 0 };
-      if (log.type === 'MASUK') dataMap[key].masuk += (Number(log.totalPcs) || 0);
-      else dataMap[key].keluar += (Number(log.totalPcs) || 0);
+      
+      if (log.type === 'MASUK') {
+        dataMap[key].masuk += (Number(log.totalPcs) || 0);
+      } else if (log.type === 'KELUAR' || log.type === 'TERJUAL') {
+        dataMap[key].keluar += (Number(log.totalPcs) || 0);
+      }
+      // 'RETUR' diabaikan di grafik agar tidak merusak keseimbangan statistik Jual & Masuk Barang
     });
     return Object.values(dataMap).slice(-12);
   }, [allStockHistory, chartPeriod]);
@@ -169,11 +203,9 @@ const StockOpname = ({ onShowToast }) => {
     });
   }, [allStockHistory, searchHistory, startDate, endDate]);
 
-  // === RUMUS FIX: TANGKAP RETUR WALAUPUN PENJUALAN NOL (SINKRON DENGAN DASHBOARD) ===
   const getProfitData = () => {
     const salesMap = {};
     
-    // 1. Loop semua PENJUALAN
     activeTransactions.forEach(t => {
       const date = getSafeDate(t.createdAt);
       let matchesDate = true;
@@ -192,7 +224,7 @@ const StockOpname = ({ onShowToast }) => {
 
           if (!salesMap[realId]) {
             salesMap[realId] = { 
-              name: currentProduct ? currentProduct.name : (item.name || '').replace(' (Eceran)', ''), 
+              name: currentProduct ? currentProduct.name : item.name.replace(' (Eceran)', ''), 
               unitType: realUnit, 
               pcsPerCarton: pcsPerCarton, 
               qtySoldPcs: 0, 
@@ -204,7 +236,7 @@ const StockOpname = ({ onShowToast }) => {
           }
 
           let itemPcs = Number(item.qty);
-          if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType?.toUpperCase())) {
+          if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType)) {
              itemPcs = Number(item.qty) * pcsPerCarton;
           }
 
@@ -214,7 +246,6 @@ const StockOpname = ({ onShowToast }) => {
       }
     });
 
-    // 2. Loop semua RETUR (Bahkan untuk barang yang tidak laku hari ini)
     activeReturns.forEach(r => {
       const date = getSafeDate(r.createdAt);
       let matchesDate = true;
@@ -224,10 +255,9 @@ const StockOpname = ({ onShowToast }) => {
       }
       if (matchesDate && r.items) {
         r.items.forEach(item => {
-          let realId = item.productId || item.id;
+          let realId = item.productId;
           if (typeof realId === 'string' && realId.endsWith('_PCS')) realId = realId.replace('_PCS', '');
 
-          // FIX: JIKA BARANG BELUM ADA DI DAFTAR (TIDAK LAKU HARI INI), BUATKAN BARISNYA DULU!
           if (!salesMap[realId]) {
             const currentProduct = products.find(p => p.id === realId);
             const realUnit = currentProduct ? currentProduct.unitType : (item.unitType === 'PCS' ? 'KARTON' : item.unitType);
@@ -237,7 +267,7 @@ const StockOpname = ({ onShowToast }) => {
               name: currentProduct ? currentProduct.name : (item.name || '').replace(' (Eceran)', ''), 
               unitType: realUnit, 
               pcsPerCarton: pcsPerCarton, 
-              qtySoldPcs: 0, // KARENA MEMANG TIDAK ADA YANG LAKU
+              qtySoldPcs: 0, 
               qtyReturnedPcs: 0, 
               hppPerPcs: currentProduct ? ((currentProduct.hpp || 0) / pcsPerCarton) : ((item.hpp || item.capitalPrice || 0) / (item.unitType === 'PCS' ? 1 : pcsPerCarton)), 
               totalSalesValue: 0, 
@@ -245,22 +275,23 @@ const StockOpname = ({ onShowToast }) => {
             };
           }
 
-          // Setelah dipastikan barisnya ada, tambahkan nilai returnya
-          const pcsPerCarton = salesMap[realId].pcsPerCarton;
-          let itemPcs = Number(item.qty);
-          if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType?.toUpperCase()) && item.returnUnit !== 'pcs') {
-             itemPcs = Number(item.qty) * pcsPerCarton;
-          }
+          if (salesMap[realId]) {
+            const pcsPerCarton = salesMap[realId].pcsPerCarton;
+            let itemPcs = Number(item.qty);
+            if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType) && item.returnUnit !== 'pcs') {
+               itemPcs = Number(item.qty) * pcsPerCarton;
+            }
 
-          salesMap[realId].qtyReturnedPcs += itemPcs;
-          salesMap[realId].totalReturnValue += Number(item.qty * (item.finalPrice || item.price));
+            salesMap[realId].qtyReturnedPcs += itemPcs;
+            salesMap[realId].totalReturnValue += Number(item.qty * (item.finalPrice || item.price));
+          }
         });
       }
     });
 
     const formatUnitText = (totalPcs, pcsPerCarton, unitType) => {
        if (totalPcs === 0) return '-';
-       if (pcsPerCarton <= 1 || ['PCS', 'KG'].includes(unitType?.toUpperCase())) return `${totalPcs} ${unitType}`;
+       if (pcsPerCarton <= 1 || ['PCS', 'KG'].includes(unitType)) return `${totalPcs} ${unitType}`;
        
        const utuh = Math.floor(totalPcs / pcsPerCarton);
        const ecer = totalPcs % pcsPerCarton;
@@ -286,7 +317,6 @@ const StockOpname = ({ onShowToast }) => {
          displayReturned: formatUnitText(data.qtyReturnedPcs, data.pcsPerCarton, data.unitType)
       };
     }).sort((a, b) => {
-       // Sortir berdasarkan yang laku dulu, baru yang minus (retur doang)
        if (b.qtySoldPcs !== a.qtySoldPcs) return b.qtySoldPcs - a.qtySoldPcs;
        return b.qtyReturnedPcs - a.qtyReturnedPcs;
     }); 
@@ -359,17 +389,12 @@ const StockOpname = ({ onShowToast }) => {
     if (result.success) { onShowToast('Produk dihapus', 'success'); setShowDeleteModal(false); }
   };
 
-  // === FUNGSI RESET SEMUA stock MENJADI 0 ===
   const handleResetAllStock = async () => {
     let count = 0;
     try {
       for (const p of products) {
         if (p.stockPcs > 0) {
-          // Hanya mengubah stock jadi 0 TANPA mengurangi Laba Rugi
           await updateDocument('products', p.id, { stockPcs: 0 });
-          
-          // Opsi log: Tidak perlu menulis log keluar jika tidak ingin mengurangi apapun,
-          // tapi kita tulis catatan ringan saja agar histori tetap bisa dilacak
           await addDocument('stock_logs', { 
             productId: p.id, 
             productName: p.name, 
@@ -377,29 +402,29 @@ const StockOpname = ({ onShowToast }) => {
             amount: p.stockPcs, 
             unitType: 'PCS', 
             totalPcs: p.stockPcs, 
-            note: 'Pembersihan stock / Reset Awal', 
+            note: 'Pembersihan Stok / Reset Awal', 
             createdAt: new Date() 
           });
           count++;
         }
       }
-      onShowToast(`${count} Barang berhasil di-nol-kan stocknya`, 'success');
+      onShowToast(`${count} Barang berhasil di-nol-kan stoknya`, 'success');
       setShowResetStockModal(false);
     } catch (err) {
-      onShowToast('Gagal mereset sebagian stock', 'error');
+      onShowToast('Gagal mereset sebagian stok', 'error');
     }
   };
 
-  // === FUNGSI HAPUS MASSAL HISTORI LOG ===
   const handleBulkDeleteHistory = async () => {
     let count = 0;
     try {
-      // Menghapus hanya data yang saat ini TAMPIL (sesuai filter tanggal/cabang)
+      exportHistoristockExcel(filteredHistory, startDate, endDate, selectedStoreName, formatDisplayDate, onShowToast);
+      
       for (const item of filteredHistory) {
         await deleteDocument(item.sourceCollection, item.id);
         count++;
       }
-      onShowToast(`${count} log histori berhasil dihapus permanen`, 'success');
+      onShowToast(`${count} log histori dihapus (Backup Excel Otomatis Diunduh)`, 'success');
       setShowBulkDeleteHistoryModal(false);
     } catch (error) {
       onShowToast('Gagal menghapus histori massal', 'error');
@@ -425,7 +450,7 @@ const StockOpname = ({ onShowToast }) => {
       const lossAmount = totalPcs * hppPerPcs;
 
       newStockPcs -= totalPcs;
-      if (newStockPcs < 0) return onShowToast('stock tidak mencukupi untuk dikurangi', 'error');
+      if (newStockPcs < 0) return onShowToast('Stok tidak mencukupi untuk dikurangi', 'error');
 
       const result = await updateDocument('products', selectedProduct.id, { stockPcs: newStockPcs });
       if (result.success) {
@@ -447,12 +472,12 @@ const StockOpname = ({ onShowToast }) => {
     }
 
     if (stockMode === 'in') newStockPcs += totalPcs; else newStockPcs -= totalPcs;
-    if (newStockPcs < 0) return onShowToast('stock tidak mencukupi', 'error');
+    if (newStockPcs < 0) return onShowToast('Stok tidak mencukupi', 'error');
 
     const result = await updateDocument('products', selectedProduct.id, { stockPcs: newStockPcs });
     if (result.success) {
-      await addDocument('stock_logs', { productId: selectedProduct.id, productName: selectedProduct.name, type: stockMode, amount, unitType: stockUnit, totalPcs, note: `stock Manual ${stockMode==='in'?'Ditambah':'Dikurangi'}`, createdAt: new Date() });
-      onShowToast(`stock ${stockMode === 'in' ? 'ditambah' : 'dikurangi'}`, 'success');
+      await addDocument('stock_logs', { productId: selectedProduct.id, productName: selectedProduct.name, type: stockMode, amount, unitType: stockUnit, totalPcs, note: `Stok Manual ${stockMode==='in'?'Ditambah':'Dikurangi'}`, createdAt: new Date() });
+      onShowToast(`Stok ${stockMode === 'in' ? 'ditambah' : 'dikurangi'}`, 'success');
       setShowStockModal(false); setStockAmount('');
     }
   };
@@ -476,7 +501,7 @@ const StockOpname = ({ onShowToast }) => {
           const unit = (row["Satuan (Karton/Ball/Pcs/dll)"] || row.TipeSatuan || 'PCS').toUpperCase();
           const isWholesale = WHOLESALE_TYPES.includes(unit);
           const isiPerSatuan = Number(row["Isi per Satuan (Pcs)"] || row.IsiPerUnit) || 1;
-          const stockSatuan = Number(row["stock Saat Ini (Satuan)"] || row.stockPcs) || 0;
+          const stockSatuan = Number(row["Stok Saat Ini (Satuan)"] || row.stockPcs) || 0;
           
           const defaultPrice = parseFloat(row["Harga Jual Default (Satuan)"] || row["Harga Jual (Satuan)"] || row.HargaJual || row.Harga) || 0;
 
@@ -541,7 +566,7 @@ const StockOpname = ({ onShowToast }) => {
     <div className="pb-10 min-h-screen">
       
       <div className="flex gap-2 mb-4 md:mb-6 bg-white p-2 rounded-xl shadow-sm border overflow-x-auto custom-scrollbar whitespace-nowrap">
-        {[ { id: 'products', label: 'Daftar Produk & stock', icon: Package }, { id: 'history', label: 'Laporan & Histori', icon: History } ].map(tab => (
+        {[ { id: 'products', label: 'Daftar Produk & Stok', icon: Package }, { id: 'history', label: 'Laporan & Histori', icon: History } ].map(tab => (
           <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex items-center gap-2 px-4 md:px-6 py-2.5 md:py-3 rounded-lg text-xs md:text-sm font-bold whitespace-nowrap ${activeTab === tab.id ? 'bg-teal-600 text-white shadow-md' : 'text-gray-500 hover:bg-gray-100'}`}><tab.icon className="w-4 h-4" /> {tab.label}</button>
         ))}
       </div>
@@ -551,9 +576,7 @@ const StockOpname = ({ onShowToast }) => {
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-white p-4 md:p-6 rounded-2xl md:rounded-3xl border shadow-sm gap-4">
             <div><h3 className="text-base md:text-lg font-black text-gray-800 uppercase flex items-center gap-2"><Package className="w-5 h-5 text-teal-600"/> Manajemen Produk</h3></div>
             <div className="grid grid-cols-2 md:flex gap-2 w-full md:w-auto">
-              {/* TOMBOL RESET stock */}
-              <button onClick={() => setShowResetStockModal(true)} className="flex items-center justify-center gap-1.5 bg-red-50 text-red-700 border border-red-200 px-3 py-2 rounded-xl text-xs font-black shadow-sm hover:bg-red-100 transition-colors"><RotateCcw className="w-3.5 h-3.5" /> Nol-kan stock</button>
-              
+              <button onClick={() => setShowResetStockModal(true)} className="flex items-center justify-center gap-1.5 bg-red-50 text-red-700 border border-red-200 px-3 py-2 rounded-xl text-xs font-black shadow-sm hover:bg-red-100 transition-colors"><RotateCcw className="w-3.5 h-3.5" /> Nol-kan Stok</button>
               <button onClick={() => exportTemplateProduk(stores, onShowToast)} className="flex items-center gap-1.5 bg-gray-50 text-gray-700 border px-3 py-2 rounded-xl text-xs font-black shadow-sm"><Download className="w-3.5 h-3.5" /> Template</button>
               <button onClick={() => exportDataProduk(products, stores, onShowToast)} className="flex items-center gap-1.5 bg-purple-50 text-purple-700 border border-purple-200 px-3 py-2 rounded-xl text-xs font-black shadow-sm"><Upload className="w-3.5 h-3.5 rotate-180" /> Export</button>
               <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".xlsx, .xls" className="hidden" />
@@ -581,7 +604,7 @@ const StockOpname = ({ onShowToast }) => {
                         <div className="flex justify-between items-center"><span className="text-[10px] font-black text-gray-400 uppercase">Satuan</span><span className="text-xs font-black text-gray-800 bg-gray-100 px-2 rounded">{product.unitType}</span></div>
                         <div className="flex justify-between items-center"><span className="text-[10px] font-black text-gray-400 uppercase">Modal</span><span className="text-sm font-black text-orange-600">Rp {(product.hpp||0).toLocaleString('id-ID')}</span></div>
                         <div className="flex justify-between items-center"><span className="text-[10px] font-black text-gray-400 uppercase">Jual Default</span><span className="text-sm font-black text-blue-600">Rp {(product.defaultPrice||product.price||0).toLocaleString('id-ID')}</span></div>
-                        <div className="flex justify-between items-center pt-2 border-t border-dashed"><span className="text-[10px] font-black text-gray-400 uppercase">stock Pusat</span><span className={`text-lg font-black ${product.stockPcs < 10 ? 'text-red-600' : 'text-green-700'}`}>{product.stockPcs} {product.unitType !== 'PCS' && product.unitType !== 'KG' ? 'Pcs' : product.unitType}</span></div>
+                        <div className="flex justify-between items-center pt-2 border-t border-dashed"><span className="text-[10px] font-black text-gray-400 uppercase">Stok Pusat</span><span className={`text-lg font-black ${product.stockPcs < 10 ? 'text-red-600' : 'text-green-700'}`}>{product.stockPcs} {product.unitType !== 'PCS' && product.unitType !== 'KG' ? 'Pcs' : product.unitType}</span></div>
                       </div>
                       
                       <div className="grid grid-cols-4 gap-2 mt-auto">
@@ -605,7 +628,7 @@ const StockOpname = ({ onShowToast }) => {
         <div className="space-y-6">
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
             <div className="bg-white p-6 rounded-[32px] border shadow-sm">
-              <h3 className="font-black mb-4 flex items-center gap-2"><TrendingUp className="w-5 h-5 text-teal-600"/> Grafik stock (Pcs)</h3>
+              <h3 className="font-black mb-4 flex items-center gap-2"><TrendingUp className="w-5 h-5 text-teal-600"/> Grafik Stok (Pcs)</h3>
               <div className="h-[250px]"><ResponsiveContainer width="100%" height="100%"><BarChart data={stockChartData}><CartesianGrid strokeDasharray="3 3" vertical={false}/><XAxis dataKey="label" style={{fontSize: '9px'}}/><YAxis style={{fontSize: '9px'}} width={35}/><Tooltip/><Bar name="Masuk" dataKey="masuk" fill="#10b981" radius={[4, 4, 0, 0]}/><Bar name="Keluar" dataKey="keluar" fill="#f59e0b" radius={[4, 4, 0, 0]}/></BarChart></ResponsiveContainer></div>
             </div>
             <div className="bg-white p-6 rounded-[32px] border shadow-sm">
@@ -629,7 +652,6 @@ const StockOpname = ({ onShowToast }) => {
                   <span className="mx-2">-</span>
                   <input type="date" className="bg-transparent text-sm font-black outline-none w-full" value={endDate} onChange={e => {setEndDate(e.target.value); setHistoryPage(1);}} />
                 </div>
-                {/* TOMBOL KOSONGKAN HISTORI - MENGHAPUS BERDASARKAN FILTER YANG DIPILIH */}
                 <button onClick={() => setShowBulkDeleteHistoryModal(true)} className="px-5 py-3 md:py-0 bg-red-50 text-red-600 border border-red-200 rounded-xl font-black text-sm uppercase flex items-center justify-center gap-2 w-full md:w-auto hover:bg-red-100 transition-colors"><Trash2 className="w-4 h-4" /> Kosongkan</button>
                 <button onClick={() => setShowExportModal(true)} className="px-5 py-3 md:py-0 bg-teal-600 text-white rounded-xl font-black text-sm uppercase flex items-center justify-center gap-2 w-full md:w-auto"><Download className="w-4 h-4" /> Download</button>
              </div>
@@ -646,7 +668,15 @@ const StockOpname = ({ onShowToast }) => {
                       <td className="p-5 font-bold text-gray-500 whitespace-nowrap">{formatDisplayDate(log.createdAt)}</td>
                       <td className="p-5 font-black text-gray-600 uppercase text-[10px]">{log.storeName || 'Pusat'}</td>
                       <td className="p-5 font-black text-gray-800 uppercase">{log.productName}</td>
-                      <td className="p-5"><span className="px-3 py-1 rounded-lg text-[9px] font-black uppercase border">{log.type}</span></td>
+                      <td className="p-5">
+                        <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase border ${
+                            log.type === 'MASUK' ? 'bg-green-50 text-green-700 border-green-200' :
+                            log.type === 'RETUR' ? 'bg-purple-50 text-purple-700 border-purple-200' :
+                            'bg-orange-50 text-orange-700 border-orange-200'
+                        }`}>
+                           {log.type}
+                        </span>
+                      </td>
                       <td className="p-5 text-center font-black whitespace-nowrap">{log.amount} <span className="text-[10px] text-gray-400 font-bold">{log.unitType}</span></td>
                       <td className="p-5 text-right"><button onClick={() => { setSelectedHistoryItem(log); setShowDeleteHistoryModal(true); }} className="p-2 text-red-500 hover:bg-red-50 rounded-lg"><Trash2 className="w-4 h-4" /></button></td>
                     </tr>
@@ -659,13 +689,13 @@ const StockOpname = ({ onShowToast }) => {
         </div>
       )}
 
-      {/* MODAL RESET SEMUA stock KE 0 */}
+      {/* MODAL RESET SEMUA STOK KE 0 */}
       {showResetStockModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[120] p-4">
           <div className="bg-white rounded-[24px] md:rounded-[32px] p-6 md:p-8 w-full max-w-sm shadow-2xl text-center border-t-8 border-red-600 animate-in zoom-in-95 duration-200">
             <div className="bg-red-50 w-16 h-16 md:w-20 md:h-20 rounded-full flex items-center justify-center mx-auto mb-4 md:mb-5"><RotateCcw className="w-8 h-8 md:w-10 md:h-10 text-red-600" /></div>
-            <h3 className="text-lg md:text-xl font-black text-gray-800 mb-2 uppercase tracking-tight">KOSONGKAN SELURUH stock?</h3>
-            <p className="text-xs md:text-sm text-gray-500 mb-6 md:mb-8 font-bold leading-relaxed">Peringatan! Semua stock barang di database akan berubah menjadi 0. Gunakan fitur ini hanya jika Anda ingin melakukan penghitungan fisik dari awal.</p>
+            <h3 className="text-lg md:text-xl font-black text-gray-800 mb-2 uppercase tracking-tight">KOSONGKAN SELURUH STOK?</h3>
+            <p className="text-xs md:text-sm text-gray-500 mb-6 md:mb-8 font-bold leading-relaxed">Peringatan! Semua stok barang di database akan berubah menjadi 0. Gunakan fitur ini hanya jika Anda ingin melakukan penghitungan fisik dari awal.</p>
             <div className="flex gap-3">
               <button onClick={() => setShowResetStockModal(false)} className="flex-1 py-3 rounded-xl font-black text-gray-500 bg-gray-100 hover:bg-gray-200 transition-colors text-xs md:text-sm">Batal</button>
               <button onClick={handleResetAllStock} className="flex-1 py-3 rounded-xl font-black text-white bg-red-600 hover:bg-red-700 shadow-lg shadow-red-200 transition-colors text-xs md:text-sm active:scale-95">Ya, Nol-kan</button>
@@ -698,10 +728,10 @@ const StockOpname = ({ onShowToast }) => {
               <button onClick={() => setShowExportModal(false)}><X/></button>
             </div>
             <div className="p-6 space-y-3">
-              <button onClick={() => { exportHistoristockExcel(filteredHistory, startDate, endDate, selectedStoreName, formatDisplayDate, onShowToast); setShowExportModal(false); }} className="w-full text-left p-4 bg-green-50 border border-green-200 rounded-2xl flex items-center gap-4"><TableIcon className="w-6 h-6 text-green-600"/><span className="font-black text-green-800">Excel Laporan stock</span></button>
+              <button onClick={() => { exportHistoristockExcel(filteredHistory, startDate, endDate, selectedStoreName, formatDisplayDate, onShowToast); setShowExportModal(false); }} className="w-full text-left p-4 bg-green-50 border border-green-200 rounded-2xl flex items-center gap-4"><TableIcon className="w-6 h-6 text-green-600"/><span className="font-black text-green-800">Excel Laporan Stok</span></button>
               <button onClick={() => { exportKeuntunganExcel(getProfitData(), startDate, endDate, selectedStoreName, onShowToast); setShowExportModal(false); }} className="w-full text-left p-4 bg-green-50 border border-green-200 rounded-2xl flex items-center gap-4"><TableIcon className="w-6 h-6 text-green-600"/><span className="font-black text-green-800">Excel Laba Penjualan</span></button>
               <div className="h-px w-full bg-gray-100 my-2"></div>
-              <button onClick={() => { exportHistoristockPDF(filteredHistory, startDate, endDate, selectedStoreName, formatDisplayDate, onShowToast); setShowExportModal(false); }} className="w-full text-left p-4 bg-blue-50 border border-blue-200 rounded-2xl flex items-center gap-4"><FileText className="w-6 h-6 text-blue-600"/><span className="font-black text-blue-800">PDF Laporan stock</span></button>
+              <button onClick={() => { exportHistoristockPDF(filteredHistory, startDate, endDate, selectedStoreName, formatDisplayDate, onShowToast); setShowExportModal(false); }} className="w-full text-left p-4 bg-blue-50 border border-blue-200 rounded-2xl flex items-center gap-4"><FileText className="w-6 h-6 text-blue-600"/><span className="font-black text-blue-800">PDF Laporan Stok</span></button>
               <button onClick={() => { exportKeuntunganPDF(getProfitData(), startDate, endDate, selectedStoreName, onShowToast); setShowExportModal(false); }} className="w-full text-left p-4 bg-blue-50 border border-blue-200 rounded-2xl flex items-center gap-4"><FileText className="w-6 h-6 text-blue-600"/><span className="font-black text-blue-800">PDF Laba Penjualan</span></button>
             </div>
           </div>
@@ -757,11 +787,11 @@ const StockOpname = ({ onShowToast }) => {
               )}
 
               {!WHOLESALE_TYPES.includes(formData.unitType) && (
-                 <div className="pt-2"><label className="text-[10px] font-black uppercase text-green-600 ml-1">stock Gudang Pusat ({formData.unitType})</label><input type="number" step="any" required min="0" value={formData.stockPcs} onChange={(e) => setFormData({ ...formData, stockPcs: e.target.value === '' ? '' : Number(e.target.value) || 0 })} className="w-full p-3 bg-green-50 border border-green-200 text-green-800 rounded-xl font-black mt-1" /></div>
+                 <div className="pt-2"><label className="text-[10px] font-black uppercase text-green-600 ml-1">Stok Gudang Pusat ({formData.unitType})</label><input type="number" step="any" required min="0" value={formData.stockPcs} onChange={(e) => setFormData({ ...formData, stockPcs: e.target.value === '' ? '' : Number(e.target.value) || 0 })} className="w-full p-3 bg-green-50 border border-green-200 text-green-800 rounded-xl font-black mt-1" /></div>
               )}
               {WHOLESALE_TYPES.includes(formData.unitType) && (
                  <div className="grid grid-cols-2 gap-3 pt-2">
-                   <div><label className="text-[10px] font-black uppercase text-purple-600 ml-1">stock Pusat ({formData.unitType})</label><input type="number" min="0" step="any" value={formData.stockPcs === '' ? '' : (formData.stockPcs / (formData.pcsPerCarton || 1))} onChange={(e) => { if (e.target.value === '') setFormData({ ...formData, stockPcs: '' }); else setFormData({ ...formData, stockPcs: Number(parseFloat(e.target.value) * (formData.pcsPerCarton || 1)) || 0 }); }} className="w-full p-3 bg-purple-50 border border-purple-200 text-purple-800 rounded-xl font-black mt-1" /></div>
+                   <div><label className="text-[10px] font-black uppercase text-purple-600 ml-1">Stok Pusat ({formData.unitType})</label><input type="number" min="0" step="any" value={formData.stockPcs === '' ? '' : (formData.stockPcs / (formData.pcsPerCarton || 1))} onChange={(e) => { if (e.target.value === '') setFormData({ ...formData, stockPcs: '' }); else setFormData({ ...formData, stockPcs: Number(parseFloat(e.target.value) * (formData.pcsPerCarton || 1)) || 0 }); }} className="w-full p-3 bg-purple-50 border border-purple-200 text-purple-800 rounded-xl font-black mt-1" /></div>
                    <div><label className="text-[10px] font-black uppercase text-green-600 ml-1">Total Pcs</label><input type="number" step="any" required min="0" value={formData.stockPcs} onChange={(e) => setFormData({ ...formData, stockPcs: e.target.value === '' ? '' : Number(e.target.value) || 0 })} className="w-full p-3 bg-green-50 border border-green-200 text-green-800 rounded-xl font-black mt-1" /></div>
                  </div>
               )}
@@ -775,7 +805,7 @@ const StockOpname = ({ onShowToast }) => {
         </div>
       )}
       
-      {/* MODAL UPDATE stock SATUAN */}
+      {/* MODAL UPDATE STOK SATUAN */}
       {showStockModal && selectedProduct && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4">
           <div className={`bg-white rounded-[32px] w-full max-w-sm p-6 md:p-8 border-t-8 ${stockMode === 'rusak' ? 'border-red-600' : 'border-teal-500'}`}>
