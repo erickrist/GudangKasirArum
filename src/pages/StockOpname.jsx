@@ -169,9 +169,11 @@ const StockOpname = ({ onShowToast }) => {
     });
   }, [allStockHistory, searchHistory, startDate, endDate]);
 
+  // === RUMUS FIX: TANGKAP RETUR WALAUPUN PENJUALAN NOL (SINKRON DENGAN DASHBOARD) ===
   const getProfitData = () => {
     const salesMap = {};
     
+    // 1. Loop semua PENJUALAN
     activeTransactions.forEach(t => {
       const date = getSafeDate(t.createdAt);
       let matchesDate = true;
@@ -190,7 +192,7 @@ const StockOpname = ({ onShowToast }) => {
 
           if (!salesMap[realId]) {
             salesMap[realId] = { 
-              name: currentProduct ? currentProduct.name : item.name.replace(' (Eceran)', ''), 
+              name: currentProduct ? currentProduct.name : (item.name || '').replace(' (Eceran)', ''), 
               unitType: realUnit, 
               pcsPerCarton: pcsPerCarton, 
               qtySoldPcs: 0, 
@@ -202,7 +204,7 @@ const StockOpname = ({ onShowToast }) => {
           }
 
           let itemPcs = Number(item.qty);
-          if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType)) {
+          if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType?.toUpperCase())) {
              itemPcs = Number(item.qty) * pcsPerCarton;
           }
 
@@ -212,6 +214,7 @@ const StockOpname = ({ onShowToast }) => {
       }
     });
 
+    // 2. Loop semua RETUR (Bahkan untuk barang yang tidak laku hari ini)
     activeReturns.forEach(r => {
       const date = getSafeDate(r.createdAt);
       let matchesDate = true;
@@ -221,26 +224,43 @@ const StockOpname = ({ onShowToast }) => {
       }
       if (matchesDate && r.items) {
         r.items.forEach(item => {
-          let realId = item.productId;
+          let realId = item.productId || item.id;
           if (typeof realId === 'string' && realId.endsWith('_PCS')) realId = realId.replace('_PCS', '');
 
-          if (salesMap[realId]) {
-            const pcsPerCarton = salesMap[realId].pcsPerCarton;
-            let itemPcs = Number(item.qty);
-            if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType) && item.returnUnit !== 'pcs') {
-               itemPcs = Number(item.qty) * pcsPerCarton;
-            }
+          // FIX: JIKA BARANG BELUM ADA DI DAFTAR (TIDAK LAKU HARI INI), BUATKAN BARISNYA DULU!
+          if (!salesMap[realId]) {
+            const currentProduct = products.find(p => p.id === realId);
+            const realUnit = currentProduct ? currentProduct.unitType : (item.unitType === 'PCS' ? 'KARTON' : item.unitType);
+            const pcsPerCarton = currentProduct ? (currentProduct.pcsPerCarton || 1) : (item.pcsPerCarton || 1);
 
-            salesMap[realId].qtyReturnedPcs += itemPcs;
-            salesMap[realId].totalReturnValue += Number(item.qty * (item.finalPrice || item.price));
+            salesMap[realId] = { 
+              name: currentProduct ? currentProduct.name : (item.name || '').replace(' (Eceran)', ''), 
+              unitType: realUnit, 
+              pcsPerCarton: pcsPerCarton, 
+              qtySoldPcs: 0, // KARENA MEMANG TIDAK ADA YANG LAKU
+              qtyReturnedPcs: 0, 
+              hppPerPcs: currentProduct ? ((currentProduct.hpp || 0) / pcsPerCarton) : ((item.hpp || item.capitalPrice || 0) / (item.unitType === 'PCS' ? 1 : pcsPerCarton)), 
+              totalSalesValue: 0, 
+              totalReturnValue: 0 
+            };
           }
+
+          // Setelah dipastikan barisnya ada, tambahkan nilai returnya
+          const pcsPerCarton = salesMap[realId].pcsPerCarton;
+          let itemPcs = Number(item.qty);
+          if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType?.toUpperCase()) && item.returnUnit !== 'pcs') {
+             itemPcs = Number(item.qty) * pcsPerCarton;
+          }
+
+          salesMap[realId].qtyReturnedPcs += itemPcs;
+          salesMap[realId].totalReturnValue += Number(item.qty * (item.finalPrice || item.price));
         });
       }
     });
 
     const formatUnitText = (totalPcs, pcsPerCarton, unitType) => {
        if (totalPcs === 0) return '-';
-       if (pcsPerCarton <= 1 || ['PCS', 'KG'].includes(unitType)) return `${totalPcs} ${unitType}`;
+       if (pcsPerCarton <= 1 || ['PCS', 'KG'].includes(unitType?.toUpperCase())) return `${totalPcs} ${unitType}`;
        
        const utuh = Math.floor(totalPcs / pcsPerCarton);
        const ecer = totalPcs % pcsPerCarton;
@@ -265,7 +285,11 @@ const StockOpname = ({ onShowToast }) => {
          displaySold: formatUnitText(data.qtySoldPcs, data.pcsPerCarton, data.unitType),
          displayReturned: formatUnitText(data.qtyReturnedPcs, data.pcsPerCarton, data.unitType)
       };
-    }).sort((a, b) => b.qtySoldPcs - a.qtySoldPcs); 
+    }).sort((a, b) => {
+       // Sortir berdasarkan yang laku dulu, baru yang minus (retur doang)
+       if (b.qtySoldPcs !== a.qtySoldPcs) return b.qtySoldPcs - a.qtySoldPcs;
+       return b.qtyReturnedPcs - a.qtyReturnedPcs;
+    }); 
   };
 
   const resetForm = () => {
