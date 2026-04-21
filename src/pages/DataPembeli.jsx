@@ -1,11 +1,12 @@
 import { useState, useMemo } from 'react';
-import { Plus, CreditCard as Edit2, Trash2, Users, Phone, MapPin, Search, ChevronLeft, ChevronRight, Info } from 'lucide-react';
+import { Plus, CreditCard as Edit2, Trash2, Users, Phone, MapPin, Search, ChevronLeft, ChevronRight, Info, Store } from 'lucide-react';
 import { useCollection, addDocument, updateDocument, deleteDocument } from '../hooks/useFirestore';
 import Loading from '../components/common/Loading';
 import EmptyState from '../components/common/EmptyState';
 
 const DataPembeli = ({ onShowToast }) => {
   const { data: customers, loading } = useCollection('customers', 'name'); 
+  const { data: stores } = useCollection('stores'); // FIX: Panggil data toko
   
   // --- UI & FORM STATES ---
   const [showModal, setShowModal] = useState(false);
@@ -16,7 +17,8 @@ const DataPembeli = ({ onShowToast }) => {
   const [formData, setFormData] = useState({
     name: '',
     phone: '',
-    address: ''
+    address: '',
+    storeId: '' // FIX: Tambah state cabang toko
   });
 
   // --- FILTER & PAGINATION STATES ---
@@ -25,7 +27,7 @@ const DataPembeli = ({ onShowToast }) => {
   const [itemsPerPage, setItemsPerPage] = useState(10);
 
   const resetForm = () => {
-    setFormData({ name: '', phone: '', address: '' });
+    setFormData({ name: '', phone: '', address: '', storeId: '' });
   };
 
   const handleOpenModal = (mode, customer = null) => {
@@ -34,7 +36,8 @@ const DataPembeli = ({ onShowToast }) => {
       setFormData({
         name: customer.name || '',
         phone: customer.phone || '',
-        address: customer.address || ''
+        address: customer.address || '',
+        storeId: customer.storeId || '' // Set toko saat edit
       });
       setSelectedCustomer(customer);
     } else {
@@ -50,6 +53,7 @@ const DataPembeli = ({ onShowToast }) => {
       name: formData.name,
       phone: formData.phone,
       address: formData.address,
+      storeId: formData.storeId || 'ALL', // Simpan data toko (Default ALL kalau kosong)
     };
 
     let result;
@@ -194,56 +198,67 @@ const DataPembeli = ({ onShowToast }) => {
               <thead>
                 <tr className="bg-gray-50/50 border-b">
                   <th className="p-4 md:p-5 font-black text-gray-400 uppercase text-[10px] whitespace-nowrap">Nama & Kontak</th>
-                  <th className="p-4 md:p-5 font-black text-gray-400 uppercase text-[10px]">Alamat</th>
+                  <th className="p-4 md:p-5 font-black text-gray-400 uppercase text-[10px]">Alamat & Cabang</th>
                   <th className="p-4 md:p-5 font-black text-orange-400 uppercase text-[10px]">Hutang Aktif</th>
                   <th className="p-4 md:p-5 font-black text-purple-400 uppercase text-[10px]">Saldo Deposit</th>
                   <th className="p-4 md:p-5 font-black text-gray-400 uppercase text-[10px] text-right">Aksi</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {paginatedCustomers.map((customer) => (
-                  <tr key={customer.id} className="hover:bg-gray-50 transition-colors group">
-                    <td className="p-4 md:p-5">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 md:w-10 md:h-10 bg-teal-50 rounded-full flex items-center justify-center flex-shrink-0">
-                          <Users className="w-4 h-4 md:w-5 md:h-5 text-teal-600" />
+                {paginatedCustomers.map((customer) => {
+                  const storeName = customer.storeId === 'pusat' ? 'Pusat' : 
+                                    customer.storeId === 'ALL' ? 'Semua Cabang' : 
+                                    (stores.find(s => s.id === customer.storeId)?.name || 'Semua Cabang');
+                  return (
+                    <tr key={customer.id} className="hover:bg-gray-50 transition-colors group">
+                      <td className="p-4 md:p-5">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 md:w-10 md:h-10 bg-teal-50 rounded-full flex items-center justify-center flex-shrink-0">
+                            <Users className="w-4 h-4 md:w-5 md:h-5 text-teal-600" />
+                          </div>
+                          <div>
+                            <span className="font-black text-gray-800 uppercase block">{customer.name}</span>
+                            <span className="text-[9px] md:text-[10px] font-bold text-gray-500 flex items-center gap-1 mt-0.5">
+                              <Phone className="w-3 h-3" /> {customer.phone || 'Tidak ada nomor'}
+                            </span>
+                          </div>
                         </div>
-                        <div>
-                          <span className="font-black text-gray-800 uppercase block">{customer.name}</span>
-                          <span className="text-[9px] md:text-[10px] font-bold text-gray-500 flex items-center gap-1 mt-0.5">
-                            <Phone className="w-3 h-3" /> {customer.phone || 'Tidak ada nomor'}
-                          </span>
+                      </td>
+                      <td className="p-4 md:p-5">
+                        <div className="flex flex-col gap-1 text-[10px] md:text-xs font-bold text-gray-600 max-w-[150px] md:max-w-xs">
+                          <div className="flex items-start gap-2">
+                            <MapPin className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-gray-400" />
+                            <span className="line-clamp-2">{customer.address || '-'}</span>
+                          </div>
+                          {/* Menampilkan label Cabang asal pembeli */}
+                          <div className="flex items-center gap-1 mt-1 text-[9px] uppercase tracking-widest text-teal-600 bg-teal-50 border border-teal-100 px-2 py-0.5 rounded w-max">
+                            <Store className="w-2.5 h-2.5" /> {storeName}
+                          </div>
                         </div>
-                      </div>
-                    </td>
-                    <td className="p-4 md:p-5">
-                      <div className="flex items-start gap-2 text-[10px] md:text-xs font-bold text-gray-600 max-w-[150px] md:max-w-xs">
-                        <MapPin className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-gray-400" />
-                        <span className="line-clamp-2">{customer.address || '-'}</span>
-                      </div>
-                    </td>
-                    <td className="p-4 md:p-5">
-                      <span className={`px-2 py-1 md:px-3 md:py-1.5 rounded-lg text-[10px] md:text-xs font-black whitespace-nowrap ${customer.remainingDebt > 0 ? 'bg-orange-50 text-orange-600 border border-orange-100' : 'text-gray-400'}`}>
-                        Rp {(customer.remainingDebt || 0).toLocaleString('id-ID')}
-                      </span>
-                    </td>
-                    <td className="p-4 md:p-5">
-                      <span className={`px-2 py-1 md:px-3 md:py-1.5 rounded-lg text-[10px] md:text-xs font-black whitespace-nowrap ${customer.returnAmount > 0 ? 'bg-purple-50 text-purple-600 border border-purple-100' : 'text-gray-400'}`}>
-                        Rp {(customer.returnAmount || 0).toLocaleString('id-ID')}
-                      </span>
-                    </td>
-                    <td className="p-4 md:p-5 text-right">
-                      <div className="flex justify-end gap-1 md:gap-2">
-                        <button onClick={() => handleOpenModal('edit', customer)} className="p-2 text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg md:rounded-xl transition-all">
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                        <button onClick={() => { setSelectedCustomer(customer); setShowDeleteModal(true); }} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg md:rounded-xl transition-all">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="p-4 md:p-5">
+                        <span className={`px-2 py-1 md:px-3 md:py-1.5 rounded-lg text-[10px] md:text-xs font-black whitespace-nowrap ${customer.remainingDebt > 0 ? 'bg-orange-50 text-orange-600 border border-orange-100' : 'text-gray-400'}`}>
+                          Rp {(customer.remainingDebt || 0).toLocaleString('id-ID')}
+                        </span>
+                      </td>
+                      <td className="p-4 md:p-5">
+                        <span className={`px-2 py-1 md:px-3 md:py-1.5 rounded-lg text-[10px] md:text-xs font-black whitespace-nowrap ${customer.returnAmount > 0 ? 'bg-purple-50 text-purple-600 border border-purple-100' : 'text-gray-400'}`}>
+                          Rp {(customer.returnAmount || 0).toLocaleString('id-ID')}
+                        </span>
+                      </td>
+                      <td className="p-4 md:p-5 text-right">
+                        <div className="flex justify-end gap-1 md:gap-2">
+                          <button onClick={() => handleOpenModal('edit', customer)} className="p-2 text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg md:rounded-xl transition-all">
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button onClick={() => { setSelectedCustomer(customer); setShowDeleteModal(true); }} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg md:rounded-xl transition-all">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -270,9 +285,26 @@ const DataPembeli = ({ onShowToast }) => {
                 <input type="tel" value={formData.phone} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} className="w-full px-3 md:px-4 py-2.5 md:py-3 bg-gray-50 border-none rounded-xl font-bold text-xs md:text-sm outline-none focus:ring-2 focus:ring-teal-500" placeholder="08..." />
               </div>
 
+              {/* FIX: Input Pilihan Cabang Asal Pembeli */}
+              <div>
+                <label className="block text-[9px] md:text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 ml-2">Cabang Asal (Opsional)</label>
+                <div className="relative">
+                  <Store className="absolute left-3 md:left-4 top-3 md:top-3.5 w-4 h-4 text-gray-400" />
+                  <select 
+                    value={formData.storeId} 
+                    onChange={(e) => setFormData({ ...formData, storeId: e.target.value })} 
+                    className="w-full pl-10 md:pl-11 pr-3 md:pr-4 py-2.5 md:py-3 bg-gray-50 border-none rounded-xl font-bold text-xs md:text-sm outline-none focus:ring-2 focus:ring-teal-500 appearance-none cursor-pointer"
+                  >
+                    <option value="">-- Bebas (Semua Cabang) --</option>
+                    <option value="pusat">🏢 Pusat / Utama</option>
+                    {stores.map(s => <option key={s.id} value={s.id}>🏪 {s.name}</option>)}
+                  </select>
+                </div>
+              </div>
+
               <div>
                 <label className="block text-[9px] md:text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 ml-2">Alamat (Opsional)</label>
-                <textarea value={formData.address} onChange={(e) => setFormData({ ...formData, address: e.target.value })} rows="3" className="w-full px-3 md:px-4 py-2.5 md:py-3 bg-gray-50 border-none rounded-xl font-bold text-xs md:text-sm outline-none focus:ring-2 focus:ring-teal-500 resize-none custom-scrollbar" placeholder="Alamat lengkap pengiriman..." />
+                <textarea value={formData.address} onChange={(e) => setFormData({ ...formData, address: e.target.value })} rows="2" className="w-full px-3 md:px-4 py-2.5 md:py-3 bg-gray-50 border-none rounded-xl font-bold text-xs md:text-sm outline-none focus:ring-2 focus:ring-teal-500 resize-none custom-scrollbar" placeholder="Alamat lengkap pengiriman..." />
               </div>
 
               {/* KETERANGAN READ-ONLY JIKA EDIT */}
@@ -285,7 +317,7 @@ const DataPembeli = ({ onShowToast }) => {
                 </div>
               )}
 
-              <div className="flex gap-2 md:gap-3 pt-4">
+              <div className="flex gap-2 md:gap-3 pt-4 border-t border-gray-100">
                 <button type="button" onClick={() => { setShowModal(false); resetForm(); }} className="flex-1 px-4 py-3 md:py-4 rounded-xl md:rounded-2xl font-black text-gray-400 hover:bg-gray-100 transition-colors text-xs md:text-sm uppercase tracking-widest">
                   Batal
                 </button>

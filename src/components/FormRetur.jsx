@@ -98,11 +98,28 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
     p.category.toLowerCase().includes(searchProduct.toLowerCase())
   );
 
+  // === FITUR AUTO SELECT TOKO SAAT PILIH PEMBELI DI FORM RETUR ===
+  const handleCustomerSelect = (id) => {
+    setSelectedCustomer(id);
+    const cust = customers.find(c => c.id === id);
+    if (cust && cust.storeId && cust.storeId !== activeStoreId && cust.storeId !== 'ALL') {
+       handleStoreChange(cust.storeId, () => {
+          if (cart.length > 0) {
+             setCart([]);
+             onShowToast('Daftar retur dikosongkan karena ganti cabang sesuai pembeli', 'error');
+          } else {
+             onShowToast('Cabang otomatis menyesuaikan dengan pembeli', 'success');
+          }
+       });
+    }
+  };
+
   const addToCartAuto = (product, isEceran = false) => {
     const resolvedPrice = getProductPrice(product);
     const cartItemId = isEceran ? `${product.id}_PCS` : product.id;
 
     const existing = cart.find(item => item.cartItemId === cartItemId);
+    const baseUnitStr = product.baseUnit || 'PCS'; // FIX: Tampilkan Kg atau Pcs
     
     if (existing) {
       setCart(cart.map(item => item.cartItemId === cartItemId ? { ...item, qty: Number(item.qty) + 1 } : item));
@@ -112,6 +129,7 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
         productId: product.id,      
         name: product.name,
         unitType: product.unitType,
+        baseUnit: baseUnitStr, 
         pcsPerCarton: product.pcsPerCarton || 1,
         price: resolvedPrice, 
         hpp: product.hpp || 0,
@@ -132,6 +150,7 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
       productId: newItemId,
       name: manualItem.name,
       unitType: 'Item',
+      baseUnit: 'PCS',
       pcsPerCarton: 1,
       price: Number(manualItem.price),
       hpp: Number(manualItem.price), 
@@ -189,7 +208,8 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
     if (!cust) return;
 
     const itemDetails = cart.map(item => {
-      const unitLabel = item.returnUnit === 'pcs' ? 'Pcs' : item.unitType;
+      const displayBase = item.baseUnit || 'PCS';
+      const unitLabel = item.returnUnit === 'pcs' ? displayBase : item.unitType;
       return `${item.qty} ${unitLabel} ${item.name}`;
     }).join(', ');
     
@@ -320,12 +340,13 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
                     filteredProducts.length === 0 ? <p className="text-center text-gray-400 font-bold text-xs py-10">Barang tidak ditemukan</p> :
                     filteredProducts.map(p => {
                       const dynamicPrice = getProductPrice(p);
+                      const baseUnitStr = p.baseUnit || 'PCS';
                       return (
                         <div key={p.id} className="w-full flex flex-col p-3 md:p-4 bg-white border border-gray-200 rounded-xl hover:border-purple-500 hover:shadow-md transition-all text-left">
                           <div className="flex justify-between items-start mb-2">
                             <div className="flex-1 pr-2">
                               <p className="font-black text-gray-800 text-xs md:text-sm uppercase truncate">{p.name}</p>
-                              <p className="text-[10px] md:text-xs text-gray-500 font-bold">Rp {dynamicPrice.toLocaleString()} {p.pcsPerCarton > 1 && <span className="text-purple-400"> (Isi {p.pcsPerCarton} Pcs / {p.unitType})</span>}</p>
+                              <p className="text-[10px] md:text-xs text-gray-500 font-bold">Rp {dynamicPrice.toLocaleString()} {p.pcsPerCarton > 1 && <span className="text-purple-400"> (Isi {p.pcsPerCarton} {baseUnitStr} / {p.unitType})</span>}</p>
                             </div>
                             <span className="bg-purple-100 text-purple-700 text-[9px] md:text-[10px] font-black px-2 py-1 rounded-lg">{p.unitType}</span>
                           </div>
@@ -336,7 +357,7 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
                             </button>
                             {p.pcsPerCarton > 1 && !['PCS', 'KG'].includes(p.unitType) && (
                               <button onClick={() => addToCartAuto(p, true)} className="flex-1 bg-orange-50 text-orange-700 py-2 rounded-lg text-[9px] md:text-[10px] font-black uppercase hover:bg-orange-100 transition-colors shadow-sm active:scale-95">
-                                + 1 PCS
+                                + 1 {baseUnitStr}
                               </button>
                             )}
                           </div>
@@ -375,7 +396,7 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
 
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-gray-400 uppercase ml-1 md:ml-2">Pembeli yang Meretur</label>
-                <div className="relative"><User className="absolute left-3 md:left-4 top-3 md:top-3.5 w-4 h-4 text-gray-400 z-10 pointer-events-none" /><CustomerSearchSelect customers={customers} value={selectedCustomer} onChange={(id) => setSelectedCustomer(id)} placeholder="-- Ketik Cari Pembeli --" /></div>
+                <div className="relative"><User className="absolute left-3 md:left-4 top-3 md:top-3.5 w-4 h-4 text-gray-400 z-10 pointer-events-none" /><CustomerSearchSelect customers={customers} value={selectedCustomer} onChange={handleCustomerSelect} placeholder="-- Ketik Cari Pembeli --" /></div>
               </div>
 
               <div className="space-y-1">
@@ -387,18 +408,18 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
                     cart.map(item => {
                       const finalPrice = getItemPrice(item);
                       const isPcsMode = item.returnUnit === 'pcs';
+                      const displayBase = item.baseUnit || 'PCS'; // Tampilkan KG atau PCS
 
                       return (
                         <div key={item.cartItemId} className={`flex flex-col gap-2.5 p-3 md:p-4 bg-white border-2 rounded-xl transition-colors ${isPcsMode ? 'border-orange-200 bg-orange-50/50' : 'border-gray-100'}`}>
                           <div className="flex justify-between items-start">
-                            <div className="pr-2 flex-1"><p className="font-black text-xs md:text-sm text-gray-800 uppercase line-clamp-1">{item.name} {item.isManual && <span className="text-[8px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded ml-1">Manual</span>}</p><p className="text-[9px] md:text-[10px] text-gray-500 font-bold mt-0.5 whitespace-nowrap">{isPcsMode ? 'Eceran (Pcs)' : `Utuh (${item.unitType})`}: Rp {finalPrice.toLocaleString()} / {isPcsMode ? 'Pcs' : item.unitType}</p></div>
+                            <div className="pr-2 flex-1"><p className="font-black text-xs md:text-sm text-gray-800 uppercase line-clamp-1">{item.name} {item.isManual && <span className="text-[8px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded ml-1">Manual</span>}</p><p className="text-[9px] md:text-[10px] text-gray-500 font-bold mt-0.5 whitespace-nowrap">{isPcsMode ? `Eceran (${displayBase})` : `Utuh (${item.unitType})`}: Rp {finalPrice.toLocaleString()} / {isPcsMode ? displayBase : item.unitType}</p></div>
                             <button type="button" onClick={() => updateQty(item.cartItemId, 0)} className="text-gray-400 p-1 hover:bg-red-50 hover:text-red-500 rounded-lg"><Trash2 className="w-4 h-4"/></button>
                           </div>
                           
                           <div className="flex flex-wrap items-center gap-3">
                             <div className="flex items-center gap-1.5 bg-gray-100/70 p-1 rounded-lg border border-gray-200/50">
                                 <button type="button" onClick={() => updateQty(item.cartItemId, (Number(item.qty) || 1) - 1)} className="w-6 h-6 bg-white border border-gray-300 rounded flex items-center justify-center hover:bg-gray-100 text-gray-600 shadow-sm"><Minus className="w-3.5 h-3.5" /></button>
-                                {/* INPUT MANUAL NOMINAL: Tinggal klik dan ketik angka bebas di sini */}
                                 <input type="number" min="0.01" step="any" value={item.qty} onChange={(e) => updateQty(item.cartItemId, e.target.value)} className="w-12 h-7 text-center font-black text-sm text-purple-700 bg-white border-2 border-purple-200 rounded-lg focus:ring-2 focus:ring-purple-400 focus:border-purple-500 outline-none p-0" />
                                 <button type="button" onClick={() => updateQty(item.cartItemId, (Number(item.qty) || 0) + 1)} className="w-6 h-6 bg-purple-600 text-white rounded flex items-center justify-center hover:bg-purple-700 shadow-md shadow-purple-100"><Plus className="w-3.5 h-3.5" /></button>
                             </div>
@@ -414,7 +435,6 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
 
               <div className="space-y-1"><label className="text-[10px] font-black text-gray-400 uppercase ml-1 md:ml-2">Alasan Retur</label><input type="text" required placeholder="Contoh: Kemasan Rusak, Bisa Ditukar, dll" value={reason} onChange={e => setReason(e.target.value)} className="w-full px-3 md:px-4 py-2.5 md:py-3 bg-gray-50 rounded-xl text-xs md:text-sm font-bold border-none outline-none focus:ring-2 focus:ring-purple-500" /></div>
               
-              {/* 4 OPSI KEPUTUSAN RETUR CERDAS */}
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-gray-400 uppercase ml-1 md:ml-2">Tujuan Pengembalian Dana & Kondisi Barang</label>
                 <div className="relative">

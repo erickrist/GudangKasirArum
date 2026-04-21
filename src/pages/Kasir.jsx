@@ -49,6 +49,25 @@ const Kasir = ({ onShowToast }) => {
     (c.phone && c.phone.includes(searchCustomer))
   );
 
+  // === FITUR AUTO SELECT TOKO SAAT PILIH PEMBELI ===
+  const handleCustomerSelect = (customer) => {
+    setSelectedCustomer(customer);
+    setShowCustomerModal(false);
+    setSearchCustomer('');
+    
+    // Jika pembeli punya asal toko, otomatis ganti cabang
+    if (customer.storeId && customer.storeId !== activeStoreId && customer.storeId !== 'ALL') {
+       handleStoreChange(customer.storeId, () => {
+          if (cart.length > 0) {
+             clearCart();
+             onShowToast(`Toko diubah ke cabang pembeli (${stores.find(s => s.id === customer.storeId)?.name || 'Pusat'}). Keranjang dikosongkan.`, 'error');
+          } else {
+             onShowToast(`Toko otomatis menyesuaikan cabang pembeli.`, 'success');
+          }
+       });
+    }
+  };
+
   const handleAddToCartClick = (product, type = 'WHOLESALE') => {
     if (!activeStoreId && stores.length > 0) {
        return onShowToast('Silakan pilih Cabang Toko di atas terlebih dahulu!', 'error');
@@ -61,13 +80,16 @@ const Kasir = ({ onShowToast }) => {
        const pcsPrice = Math.round(resolvedPrice / product.pcsPerCarton);
        const pcsHpp = Math.round(hppPrice / product.pcsPerCarton);
        
+       // FIX: Ambil satuan dasar (Pcs/Kg) untuk disimpan ke database
+       const baseUnitStr = product.baseUnit || 'PCS';
+
        addToCart({
           ...product,
           id: `${product.id}_PCS`, 
           productId: `${product.id}_PCS`, 
           originalId: product.id, 
           name: `${product.name} (Eceran)`,
-          unitType: 'PCS',
+          unitType: baseUnitStr, // OTOMATIS MENJADI 'KG' ATAU 'PCS'
           price: pcsPrice,
           capitalPrice: pcsHpp,
           pcsPerCarton: 1, 
@@ -87,13 +109,14 @@ const Kasir = ({ onShowToast }) => {
     setAddingCustomer(true);
     const result = await addDocument('customers', {
       ...formData,
+      storeId: activeStoreId || 'pusat', // FIX: Simpan asal toko pembeli
       remainingDebt: 0,
       returnAmount: 0,
     });
 
     if (result.success) {
       onShowToast('Pembeli berhasil ditambahkan', 'success');
-      const newCustomer = { id: result.id, ...formData, remainingDebt: 0, returnAmount: 0 };
+      const newCustomer = { id: result.id, ...formData, storeId: activeStoreId || 'pusat', remainingDebt: 0, returnAmount: 0 };
       setSelectedCustomer(newCustomer);
       setShowAddCustomerModal(false);
       setShowCustomerModal(false);
@@ -107,21 +130,16 @@ const Kasir = ({ onShowToast }) => {
   const handlePaymentConfirm = async (paymentData) => {
     if (!selectedCustomer) return onShowToast('Pilih pembeli terlebih dahulu', 'error');
 
-    // MEREKAP PENGGABUNGAN STOK KARTON DAN PCS (DENGAN PEMBERSIH ID)
     const stockDeductions = {};
-    
     for (const item of cart) {
-      // FIX ABSOLUT: Apapun yang terjadi, bersihkan _PCS dari ID
       let realId = item.originalId || item.productId || item.id;
       if (typeof realId === 'string' && realId.endsWith('_PCS')) {
           realId = realId.replace('_PCS', '');
       }
-      
       let pcsToReduce = Number(item.qty) || 0;
       if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType)) {
          pcsToReduce = (Number(item.qty) || 0) * (Number(item.pcsPerCarton) || 1);
       }   
-
       if (!stockDeductions[realId]) {
           const dbProduct = products.find(p => p.id === realId);
           stockDeductions[realId] = {
@@ -133,12 +151,11 @@ const Kasir = ({ onShowToast }) => {
       stockDeductions[realId].reduceAmount += pcsToReduce;
     }
 
-    // CEK STOK SEBELUM PROSES
     const stockUpdates = [];
     for (const [id, data] of Object.entries(stockDeductions)) {
         const newStock = data.stockPcs - data.reduceAmount;
         if (newStock < 0) {
-            return onShowToast(`Stok ${data.name} di pusat tidak mencukupi. (Sisa: ${data.stockPcs} Pcs, Diminta: ${data.reduceAmount} Pcs)`, 'error');
+            return onShowToast(`Stok ${data.name} di pusat tidak mencukupi. (Sisa: ${data.stockPcs}, Diminta: ${data.reduceAmount})`, 'error');
         }
         stockUpdates.push({ productId: id, newStock: newStock });
     }
@@ -166,7 +183,6 @@ const Kasir = ({ onShowToast }) => {
       customerPhone: selectedCustomer.phone || '',
       customerAddress: selectedCustomer.address || '',
       items: cart.map(item => {
-        // Bersihkan ID juga untuk disimpan di Laporan Penjualan (Dashboard)
         let cleanId = item.originalId || item.productId || item.id;
         if (typeof cleanId === 'string' && cleanId.endsWith('_PCS')) {
             cleanId = cleanId.replace('_PCS', '');
@@ -195,7 +211,6 @@ const Kasir = ({ onShowToast }) => {
     const result = await addDocument('transactions', transactionData);
 
     if (result.success) {
-      // MEMOTONG STOK SATU-PERSATU
       let allStockUpdated = true;
       for (const update of stockUpdates) {
          const updateRes = await updateDocument('products', update.productId, { stockPcs: update.newStock });
@@ -340,7 +355,7 @@ const Kasir = ({ onShowToast }) => {
                           <div className="flex justify-between items-end">
                               <div>
                                 <span className="text-xs md:text-sm font-black text-teal-600 block">Rp {resolvedPrice.toLocaleString('id-ID')}</span>
-                                <span className={`text-[9px] md:text-[10px] font-bold uppercase tracking-widest block mt-0.5 md:mt-1 ${product.stockPcs < 10 ? 'text-red-500' : 'text-gray-400'}`}>Stok: {product.stockPcs} Pcs</span>
+                                <span className={`text-[9px] md:text-[10px] font-bold uppercase tracking-widest block mt-0.5 md:mt-1 ${product.stockPcs < 10 ? 'text-red-500' : 'text-gray-400'}`}>Sisa: {product.stockPcs}</span>
                               </div>
                           </div>
                           
@@ -352,13 +367,14 @@ const Kasir = ({ onShowToast }) => {
                              >
                                + 1 {product.unitType}
                              </button>
+                             {/* FIX: Tombol eceran berubah dinamis mengikuti baseUnit Pcs/Kg */}
                              {product.pcsPerCarton > 1 && !['PCS', 'KG'].includes(product.unitType) ? (
                                <button 
                                  disabled={product.stockPcs < 1} 
                                  onClick={(e) => { e.stopPropagation(); handleAddToCartClick(product, 'PCS'); }} 
                                  className="bg-purple-50 text-purple-700 py-2 rounded-lg text-[9px] md:text-[10px] font-black uppercase hover:bg-purple-100 transition-colors shadow-sm disabled:opacity-50 active:scale-95"
                                >
-                                 + 1 PCS
+                                 + 1 {product.baseUnit || 'PCS'}
                                </button>
                              ) : (
                                <div className="col-span-1"></div>
@@ -479,7 +495,7 @@ const Kasir = ({ onShowToast }) => {
                   return (
                     <button 
                       key={customer.id} 
-                      onClick={() => { setSelectedCustomer(customer); setShowCustomerModal(false); setSearchCustomer(''); }} 
+                      onClick={() => handleCustomerSelect(customer)} 
                       className={`w-full text-left p-3 md:p-4 border rounded-xl md:rounded-2xl transition-all duration-300 ${ selectedCustomer?.id === customer.id ? 'border-teal-500 bg-teal-50 shadow-sm' : 'border-gray-200 hover:border-teal-300 bg-white hover:shadow-md' }`}
                     >
                       <div className="flex justify-between items-start gap-2">
