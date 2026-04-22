@@ -63,7 +63,6 @@ const Nota = ({ transaction, onClose }) => {
           {/* KOP SURAT */}
           <div className="text-center mb-6 border-b-2 border-gray-800 pb-4">
             <h1 className="text-2xl font-bold text-teal-600 mb-1">ARSEN FROZEN FOOD</h1>
-            {/* Bagian Cabang di sini SUDAH DIHAPUS agar kop surat lebih rapi */}
             <p className="text-sm text-gray-600 mt-2">Ciampea, Bogor 16620</p>
             <p className="text-sm text-gray-600">081410503012</p>
           </div>
@@ -78,7 +77,6 @@ const Nota = ({ transaction, onClose }) => {
                 <span className="inline-block w-20 font-semibold">Tanggal</span>
                 <span>: {formatDate(transaction.createdAt)}</span>
               </p>
-              {/* POSISI BARU NAMA CABANG TOKO (DI BAWAH TANGGAL) */}
               <p>
                 <span className="inline-block w-20 font-semibold">Cabang</span>
                 <span className="font-bold uppercase">: {transaction.storeName || 'CABANG PUSAT / UTAMA'}</span>
@@ -113,29 +111,34 @@ const Nota = ({ transaction, onClose }) => {
                 </tr>
               </thead>
               <tbody>
-                {transaction.items.map((item, index) => (
-                  <tr key={index} className="border-b border-gray-200">
-                    <td className="py-1 px-1">{item.name}</td>
-                    <td className="text-center py-1 px-1">{item.qty}</td>
-                    <td className="text-center py-1 px-1">{item.unitType}</td>
-                    
-                    <td className="text-center py-1 px-1 text-gray-600">
-                      {['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType) 
-                        ? `(${item.pcsPerCarton} pcs)` 
-                        : '-'}
-                    </td>
-                    
-                    <td className="text-right py-1 px-1">
-                      {item.price.toLocaleString('id-ID')}
-                    </td>
-                    <td className="text-right py-1 px-1">
-                      {(item.discount || 0).toLocaleString('id-ID')}
-                    </td>
-                    <td className="text-right py-1 px-1 font-semibold">
-                      {item.subtotal.toLocaleString('id-ID')}
-                    </td>
-                  </tr>
-                ))}
+                {transaction.items.map((item, index) => {
+                  // FIX: Menangkap Satuan Dasar KG atau PCS dari Database
+                  const displayBaseUnit = item.baseUnit || 'PCS';
+                  
+                  return (
+                    <tr key={index} className="border-b border-gray-200">
+                      <td className="py-1 px-1">{item.name}</td>
+                      <td className="text-center py-1 px-1">{item.qty}</td>
+                      <td className="text-center py-1 px-1">{item.unitType}</td>
+                      
+                      <td className="text-center py-1 px-1 text-gray-600 uppercase">
+                        {['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType?.toUpperCase()) 
+                          ? `(${item.pcsPerCarton} ${displayBaseUnit})` 
+                          : '-'}
+                      </td>
+                      
+                      <td className="text-right py-1 px-1">
+                        {item.price.toLocaleString('id-ID')}
+                      </td>
+                      <td className="text-right py-1 px-1">
+                        {(item.discount || 0).toLocaleString('id-ID')}
+                      </td>
+                      <td className="text-right py-1 px-1 font-semibold">
+                        {item.subtotal.toLocaleString('id-ID')}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>

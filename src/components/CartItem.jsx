@@ -5,10 +5,8 @@ const CartItem = ({ item, onUpdateQty, onRemove, onUpdateDiscount }) => {
   const [showDiscount, setShowDiscount] = useState(false);
   const [discountValue, setDiscountValue] = useState(item.discount || 0);
   
-  // State lokal untuk menampung ketikan Qty sementara
   const [inputValue, setInputValue] = useState(item.qty.toString());
 
-  // Sinkronisasi inputValue dengan item.qty dari parent (Kasir.jsx)
   useEffect(() => {
     setInputValue(item.qty.toString());
   }, [item.qty]);
@@ -20,21 +18,19 @@ const CartItem = ({ item, onUpdateQty, onRemove, onUpdateDiscount }) => {
     setShowDiscount(false);
   };
 
-  // Fungsi untuk menangani perubahan saat pengguna mengetik di input
   const handleInputChange = (e) => {
-    // Hanya perbolehkan angka. Membiarkan input kosong ('') agar pengguna bisa menghapus angka 1 dan mengetik angka 20
     const val = e.target.value;
-    if (val === '' || /^\d+$/.test(val)) {
+    // FIX: Ubah Regex agar mengizinkan angka desimal (koma/titik) untuk barang Kiloan
+    if (val === '' || /^\d*\.?\d*$/.test(val)) {
       setInputValue(val);
     }
   };
 
-  // Fungsi untuk mengirim nilai Qty ke parent (Kasir.jsx) setelah selesai mengetik
   const handleInputBlur = () => {
-    let newQty = parseInt(inputValue, 10);
+    // FIX: Gunakan parseFloat agar nilai desimal (contoh: 1.5) tidak dibulatkan paksa
+    let newQty = parseFloat(inputValue);
     
-    // Jika input kosong atau 0 saat blur, kembalikan ke 1 (Atau Anda bisa set onRemove jika ingin dihapus)
-    if (isNaN(newQty) || newQty < 1) {
+    if (isNaN(newQty) || newQty <= 0) {
       newQty = 1;
       setInputValue('1');
     }
@@ -42,22 +38,24 @@ const CartItem = ({ item, onUpdateQty, onRemove, onUpdateDiscount }) => {
     onUpdateQty(item.productId, newQty);
   };
 
-  // Menangani penekanan tombol Enter pada input Qty
   const handleInputKeyDown = (e) => {
     if (e.key === 'Enter') {
       handleInputBlur();
-      e.target.blur(); // Hilangkan fokus dari input
+      e.target.blur(); 
     }
   };
+
+  // FIX: Tentukan base unit untuk tampilan (Pcs atau Kg)
+  const displayBaseUnit = item.baseUnit || 'pcs';
 
   return (
     <div className="border border-gray-200 rounded-lg p-3">
       <div className="flex justify-between items-start mb-2">
         <div className="flex-1">
           <h4 className="font-semibold text-sm text-gray-800">{item.name}</h4>
-          <p className="text-xs text-gray-500">
-            {['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType) && 
-              `(${item.pcsPerCarton} pcs/${item.unitType.toLowerCase()})`
+          <p className="text-xs text-gray-500 uppercase">
+            {['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType?.toUpperCase()) && 
+              `(${item.pcsPerCarton} ${displayBaseUnit}/${item.unitType.toLowerCase()})`
             }
           </p>
         </div>
@@ -70,15 +68,14 @@ const CartItem = ({ item, onUpdateQty, onRemove, onUpdateDiscount }) => {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <button
-              onClick={() => onUpdateQty(item.productId, item.qty - 1)}
+              onClick={() => onUpdateQty(item.productId, (parseFloat(item.qty) || 1) - 1)}
               className="w-6 h-6 bg-gray-200 rounded flex items-center justify-center hover:bg-gray-300"
             >
               <Minus className="w-3 h-3" />
             </button>
             
-            {/* Input Qty yang sudah diperbaiki */}
             <input
-              type="text" // Menggunakan text agar lebih mudah mengontrol regex dan input kosong
+              type="text" 
               value={inputValue}
               onChange={handleInputChange}
               onBlur={handleInputBlur}
@@ -87,12 +84,12 @@ const CartItem = ({ item, onUpdateQty, onRemove, onUpdateDiscount }) => {
             />
 
             <button
-              onClick={() => onUpdateQty(item.productId, item.qty + 1)}
+              onClick={() => onUpdateQty(item.productId, (parseFloat(item.qty) || 0) + 1)}
               className="w-6 h-6 bg-teal-600 text-white rounded flex items-center justify-center hover:bg-teal-700"
             >
               <Plus className="w-3 h-3" />
             </button>
-            <span className="text-xs text-gray-500">{item.unitType}</span>
+            <span className="text-xs text-gray-500 uppercase">{item.unitType}</span>
           </div>
           <span className="text-sm font-semibold text-teal-600">
             Rp {(item.price * item.qty).toLocaleString('id-ID')}

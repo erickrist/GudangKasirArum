@@ -49,13 +49,11 @@ const Kasir = ({ onShowToast }) => {
     (c.phone && c.phone.includes(searchCustomer))
   );
 
-  // === FITUR AUTO SELECT TOKO SAAT PILIH PEMBELI ===
   const handleCustomerSelect = (customer) => {
     setSelectedCustomer(customer);
     setShowCustomerModal(false);
     setSearchCustomer('');
     
-    // Jika pembeli punya asal toko, otomatis ganti cabang
     if (customer.storeId && customer.storeId !== activeStoreId && customer.storeId !== 'ALL') {
        handleStoreChange(customer.storeId, () => {
           if (cart.length > 0) {
@@ -75,21 +73,20 @@ const Kasir = ({ onShowToast }) => {
     
     const resolvedPrice = getProductPrice(product);
     const hppPrice = product.hpp || 0;
+    const baseUnitStr = product.baseUnit || 'PCS';
 
     if (type === 'PCS' && product.pcsPerCarton > 1) {
        const pcsPrice = Math.round(resolvedPrice / product.pcsPerCarton);
        const pcsHpp = Math.round(hppPrice / product.pcsPerCarton);
        
-       // FIX: Ambil satuan dasar (Pcs/Kg) untuk disimpan ke database
-       const baseUnitStr = product.baseUnit || 'PCS';
-
        addToCart({
           ...product,
           id: `${product.id}_PCS`, 
           productId: `${product.id}_PCS`, 
           originalId: product.id, 
           name: `${product.name} (Eceran)`,
-          unitType: baseUnitStr, // OTOMATIS MENJADI 'KG' ATAU 'PCS'
+          unitType: baseUnitStr, 
+          baseUnit: baseUnitStr, 
           price: pcsPrice,
           capitalPrice: pcsHpp,
           pcsPerCarton: 1, 
@@ -99,6 +96,7 @@ const Kasir = ({ onShowToast }) => {
        addToCart({
           ...product,
           originalId: product.id,
+          baseUnit: baseUnitStr, 
           price: resolvedPrice,
           capitalPrice: hppPrice
        });
@@ -109,7 +107,7 @@ const Kasir = ({ onShowToast }) => {
     setAddingCustomer(true);
     const result = await addDocument('customers', {
       ...formData,
-      storeId: activeStoreId || 'pusat', // FIX: Simpan asal toko pembeli
+      storeId: activeStoreId || 'pusat', 
       remainingDebt: 0,
       returnAmount: 0,
     });
@@ -136,10 +134,12 @@ const Kasir = ({ onShowToast }) => {
       if (typeof realId === 'string' && realId.endsWith('_PCS')) {
           realId = realId.replace('_PCS', '');
       }
+      
       let pcsToReduce = Number(item.qty) || 0;
       if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType)) {
          pcsToReduce = (Number(item.qty) || 0) * (Number(item.pcsPerCarton) || 1);
       }   
+
       if (!stockDeductions[realId]) {
           const dbProduct = products.find(p => p.id === realId);
           stockDeductions[realId] = {
@@ -187,11 +187,20 @@ const Kasir = ({ onShowToast }) => {
         if (typeof cleanId === 'string' && cleanId.endsWith('_PCS')) {
             cleanId = cleanId.replace('_PCS', '');
         }
+
+        // =================================================================
+        // VITAL FIX: Ambil ulang KTP barang langsung dari database!
+        // Ini untuk mengakali `useCart.js` yang sering menghapus data KG
+        // =================================================================
+        const dbProduct = products.find(p => p.id === cleanId);
+        const trueBaseUnit = (dbProduct && dbProduct.baseUnit) ? dbProduct.baseUnit : 'PCS';
+
         return {
           productId: cleanId, 
           name: item.name,
           qty: item.qty,
           unitType: item.unitType,
+          baseUnit: item.baseUnit || trueBaseUnit, // PAKSA MENGGUNAKAN DATA DATABASE
           pcsPerCarton: item.pcsPerCarton,
           price: item.price, 
           capitalPrice: item.capitalPrice || 0, 
@@ -262,7 +271,6 @@ const Kasir = ({ onShowToast }) => {
   return (
     <div className="pb-24 lg:pb-10">
       
-      {/* HEADER PILIH CABANG TOKO */}
       {stores.length > 0 && (
          <div className="bg-white p-4 md:p-5 rounded-2xl md:rounded-3xl border flex flex-col md:flex-row items-start md:items-center justify-between mb-6 shadow-sm gap-3">
             <div className="flex items-center gap-3">
@@ -298,7 +306,6 @@ const Kasir = ({ onShowToast }) => {
 
       <div className="flex flex-col-reverse lg:grid lg:grid-cols-3 gap-6">
         
-        {/* BAGIAN KIRI: DAFTAR PRODUK */}
         <div className="lg:col-span-2 space-y-4 md:space-y-6">
           <div className="bg-white p-3 md:p-4 rounded-xl md:rounded-2xl border flex items-center shadow-sm">
             <div className="relative flex-1">
@@ -335,12 +342,13 @@ const Kasir = ({ onShowToast }) => {
                   const resolvedPrice = getProductPrice(product);
 
                   return (
-                    <button
+                    <div
                       key={product.id}
-                      onClick={() => handleAddToCartClick(product, 'WHOLESALE')}
-                      disabled={product.stockPcs < 1}
+                      onClick={() => {
+                        if(product.stockPcs >= 1) handleAddToCartClick(product, 'WHOLESALE')
+                      }}
                       className={`text-left border rounded-xl md:rounded-2xl overflow-hidden hover:shadow-lg transition-all duration-300 flex flex-col active:scale-95 ${
-                        product.stockPcs < 1 ? 'opacity-50 cursor-not-allowed border-gray-200 grayscale' : 'hover:border-teal-400 border-gray-200 bg-white'
+                        product.stockPcs < 1 ? 'opacity-50 cursor-not-allowed border-gray-200 grayscale' : 'hover:border-teal-400 border-gray-200 bg-white cursor-pointer'
                       }`}
                     >
                       {product.image && (
@@ -367,7 +375,6 @@ const Kasir = ({ onShowToast }) => {
                              >
                                + 1 {product.unitType}
                              </button>
-                             {/* FIX: Tombol eceran berubah dinamis mengikuti baseUnit Pcs/Kg */}
                              {product.pcsPerCarton > 1 && !['PCS', 'KG'].includes(product.unitType) ? (
                                <button 
                                  disabled={product.stockPcs < 1} 
@@ -383,7 +390,7 @@ const Kasir = ({ onShowToast }) => {
 
                         </div>
                       </div>
-                    </button>
+                    </div>
                   );
                 })}
               </div>
@@ -391,7 +398,6 @@ const Kasir = ({ onShowToast }) => {
           </div>
         </div>
 
-        {/* BAGIAN KANAN: KERANJANG */}
         <div className="lg:col-span-1">
           <div className="bg-white rounded-[24px] md:rounded-[32px] shadow-sm border p-4 md:p-6 lg:sticky lg:top-4 z-10">
             <div className="flex items-center justify-between mb-4 md:mb-6 border-b border-gray-100 pb-3 md:pb-4">

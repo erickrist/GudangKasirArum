@@ -243,7 +243,7 @@ export const exportLabaRugiPDF = ({ totalIncome, totalHPP, totalPureOperational,
   onShowToast('File PDF Laba Rugi berhasil diunduh', 'success');
 };
 
-// FIX: PDF LAPORAN stock DIPISAH KARTON & PCS
+// FIX NAMA: exportHistoristockPDF
 export const exportHistoristockPDF = (filteredHistory, startDate, endDate, storeName, formatDisplayDate, onShowToast) => {
   if (filteredHistory.length === 0) return onShowToast('Tidak ada data untuk diexport', 'error');
 
@@ -259,28 +259,30 @@ export const exportHistoristockPDF = (filteredHistory, startDate, endDate, store
       pcsPerCarton = Math.round(log.totalPcs / log.amount) || 1;
     }
     const utuh = Math.floor(log.totalPcs / pcsPerCarton);
-    const ecer = log.totalPcs % pcsPerCarton;
+    const ecer = Number((log.totalPcs % pcsPerCarton).toFixed(2)); // Fix: Support desimal untuk KG
 
     return [
       formatDisplayDate(log.createdAt), log.storeName || 'Pusat', log.productName, log.type, 
-      `${utuh} ${log.unitType}`, `${ecer} Pcs`, `${log.totalPcs} Pcs`, log.note
+      `${utuh} ${log.unitType}`, `${ecer} Eceran`, `${log.totalPcs}`, log.note
     ];
   });
 
   autoTable(doc, { 
-    head: [['Tanggal & Jam', 'Cabang', 'Nama Barang', 'Status', 'Jml Utuh', 'Jml Ecer', 'Total Pcs', 'Keterangan']], 
+    head: [['Tanggal & Jam', 'Cabang', 'Nama Barang', 'Status', 'Jml Utuh', 'Jml Ecer', 'Total Pcs/Kg', 'Keterangan']], 
     body, startY: 32, styles: { fontSize: 8 },
     didParseCell: function(data) {
       if (data.section === 'body' && data.column.index === 3) {
         if (data.cell.raw === 'MASUK') data.cell.styles.textColor = [0, 128, 0];
         if (data.cell.raw === 'KELUAR') data.cell.styles.textColor = [200, 100, 0];
         if (data.cell.raw === 'TERJUAL') data.cell.styles.textColor = [200, 0, 0];
+        if (data.cell.raw === 'RETUR') data.cell.styles.textColor = [128, 0, 128]; // Warna Ungu untuk Retur
       }
     }
   });
   doc.save(`Histori_stock_${storeName}_${Date.now()}.pdf`);
   onShowToast('Laporan PDF berhasil diunduh', 'success');
 };
+
 export const exportKeuntunganPDF = (profitData, startDate, endDate, storeName, onShowToast) => {
   if (profitData.length === 0) return onShowToast('Tidak ada data penjualan di periode ini', 'error');
 

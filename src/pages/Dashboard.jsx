@@ -99,53 +99,82 @@ const Dashboard = ({ onShowToast }) => {
     return returnsData.filter(r => r.storeId === selectedStoreFilter || (!r.storeId && selectedStoreFilter === 'pusat'));
   }, [returnsData, selectedStoreFilter]);
 
-  const totalIncome = useMemo(() => activeStoreTransactions.reduce((sum, t) => sum + (Number(t.total) || 0), 0), [activeStoreTransactions]);
+  // === FITUR BARU: SARINGAN TANGGAL KHUSUS UNTUK CETAK DAN DASHBOARD ===
+  const dateFilteredTransactions = useMemo(() => {
+    return activeStoreTransactions.filter(t => {
+      if (!startDate || !endDate) return true;
+      const d = getSafeDate(t.createdAt);
+      const startD = new Date(startDate); const endD = new Date(endDate); endD.setHours(23, 59, 59);
+      return d >= startD && d <= endD;
+    });
+  }, [activeStoreTransactions, startDate, endDate]);
+
+  const dateFilteredExpenses = useMemo(() => {
+    return activeStoreExpenses.filter(e => {
+      if (!startDate || !endDate) return true;
+      const d = getSafeDate(e.createdAt);
+      const startD = new Date(startDate); const endD = new Date(endDate); endD.setHours(23, 59, 59);
+      return d >= startD && d <= endD;
+    });
+  }, [activeStoreExpenses, startDate, endDate]);
+
+  const dateFilteredReturns = useMemo(() => {
+    return activeStoreReturns.filter(r => {
+      if (!startDate || !endDate) return true;
+      const d = getSafeDate(r.createdAt);
+      const startD = new Date(startDate); const endD = new Date(endDate); endD.setHours(23, 59, 59);
+      return d >= startD && d <= endD;
+    });
+  }, [activeStoreReturns, startDate, endDate]);
+
+  // === MENGGUNAKAN DATA YANG SUDAH DISARING TANGGAL ===
+  const totalIncome = useMemo(() => dateFilteredTransactions.reduce((sum, t) => sum + (Number(t.total) || 0), 0), [dateFilteredTransactions]);
   
-  const totalCashExpenses = useMemo(() => activeStoreExpenses
+  const totalCashExpenses = useMemo(() => dateFilteredExpenses
     .filter(e => e.category !== 'Barang Rusak') 
-    .reduce((sum, e) => sum + (Number(e.amount) || 0), 0), [activeStoreExpenses]);
+    .reduce((sum, e) => sum + (Number(e.amount) || 0), 0), [dateFilteredExpenses]);
 
   const balance = totalIncome - totalCashExpenses;
 
-  const totalHPP = useMemo(() => activeStoreTransactions.reduce((sum, t) => {
+  const totalHPP = useMemo(() => dateFilteredTransactions.reduce((sum, t) => {
     if (!t.items) return sum;
     const itemHpp = t.items.reduce((iSum, i) => iSum + (Number(i.capitalPrice || 0) * Number(i.qty || 0)), 0);
     return sum + itemHpp;
-  }, 0), [activeStoreTransactions]);
+  }, 0), [dateFilteredTransactions]);
 
   const totalOperationalExpenses = useMemo(() => 
-    activeStoreExpenses
+    dateFilteredExpenses
       .filter(e => e.category !== 'Kulakan' && e.category !== 'Retur Tukar Pabrik') 
       .reduce((sum, e) => sum + (Number(e.amount) || 0), 0), 
-    [activeStoreExpenses]
+    [dateFilteredExpenses]
   );
 
   const totalKulakan = useMemo(() => 
-    activeStoreExpenses
+    dateFilteredExpenses
       .filter(e => e.category === 'Kulakan') 
       .reduce((sum, e) => sum + (Number(e.amount) || 0), 0), 
-    [activeStoreExpenses]
+    [dateFilteredExpenses]
   );
 
   const totalDamagedGoods = useMemo(() => 
-    activeStoreExpenses
+    dateFilteredExpenses
       .filter(e => e.category === 'Barang Rusak') 
       .reduce((sum, e) => sum + (Number(e.amount) || 0), 0), 
-    [activeStoreExpenses]
+    [dateFilteredExpenses]
   );
 
   const totalReturnExpenses = useMemo(() => 
-    activeStoreExpenses
+    dateFilteredExpenses
       .filter(e => e.category === 'Retur') 
       .reduce((sum, e) => sum + (Number(e.amount) || 0), 0), 
-    [activeStoreExpenses]
+    [dateFilteredExpenses]
   );
 
   const totalReturnCashSupplierLabaBatal = useMemo(() => {
     let total = 0;
-    activeStoreExpenses.filter(e => e.category === 'Retur Tukar Pabrik').forEach(exp => {
+    dateFilteredExpenses.filter(e => e.category === 'Retur Tukar Pabrik').forEach(exp => {
         const expTime = getSafeDate(exp.createdAt).getTime();
-        const matchedReturn = activeStoreReturns.find(r => r.refundType === 'cash' && Math.abs(getSafeDate(r.createdAt).getTime() - expTime) <= 5000);
+        const matchedReturn = dateFilteredReturns.find(r => r.refundType === 'cash' && Math.abs(getSafeDate(r.createdAt).getTime() - expTime) <= 5000);
         if (matchedReturn && matchedReturn.items) {
             const totalHpp = matchedReturn.items.reduce((sum, item) => {
                 const hppPerUnit = item.returnUnit === 'pcs' && item.pcsPerCarton > 1 ? (item.hpp / item.pcsPerCarton) : item.hpp;
@@ -156,13 +185,14 @@ const Dashboard = ({ onShowToast }) => {
         }
     });
     return total;
-  }, [activeStoreExpenses, activeStoreReturns]);
+  }, [dateFilteredExpenses, dateFilteredReturns]);
 
   const totalLossValue = totalDamagedGoods + totalReturnExpenses + totalReturnCashSupplierLabaBatal;
   const totalPureOperational = totalOperationalExpenses - totalDamagedGoods - totalReturnExpenses;
   const netProfit = totalIncome - totalHPP - totalPureOperational - totalLossValue;
   const isProfit = netProfit >= 0;
 
+  // LOGS HISTORI DIBIARKAN UTUH KARENA PUNYA SARINGAN PENCARIAN SENDIRI
   const debtLogs = useMemo(() => {
     let logs = [];
     activeStoreTransactions.forEach(t => {
@@ -279,11 +309,9 @@ const Dashboard = ({ onShowToast }) => {
   const filteredDepositHistory = useMemo(() => applyFilters(depositLogs, ['customerName', 'note', 'reason']), [depositLogs, searchTerm, startDate, endDate]);
   const filteredNetBalance = useMemo(() => applyFilters(netLogs, ['customerName', 'note', 'title', 'subjName', 'detailNote']), [netLogs, searchTerm, startDate, endDate]);
 
-  // === RUMUS FIX: TANGKAP RETUR WALAUPUN PENJUALAN NOL ===
   const getProfitData = () => {
     const salesMap = {};
     
-    // 1. Loop semua PENJUALAN
     activeStoreTransactions.forEach(t => {
       const date = getSafeDate(t.createdAt);
       let matchesDate = true;
@@ -324,7 +352,6 @@ const Dashboard = ({ onShowToast }) => {
       }
     });
 
-    // 2. Loop semua RETUR (Bahkan untuk barang yang tidak laku hari ini)
     activeStoreReturns.forEach(r => {
       const date = getSafeDate(r.createdAt);
       let matchesDate = true;
@@ -337,7 +364,6 @@ const Dashboard = ({ onShowToast }) => {
           let realId = item.productId || item.id;
           if (typeof realId === 'string' && realId.endsWith('_PCS')) realId = realId.replace('_PCS', '');
 
-          // FIX: JIKA BARANG BELUM ADA DI DAFTAR (TIDAK LAKU HARI INI), BUATKAN BARISNYA DULU!
           if (!salesMap[realId]) {
             const currentProduct = products.find(p => p.id === realId);
             const realUnit = currentProduct ? currentProduct.unitType : (item.unitType === 'PCS' ? 'KARTON' : item.unitType);
@@ -347,7 +373,7 @@ const Dashboard = ({ onShowToast }) => {
               name: currentProduct ? currentProduct.name : (item.name || '').replace(' (Eceran)', ''), 
               unitType: realUnit, 
               pcsPerCarton: pcsPerCarton, 
-              qtySoldPcs: 0, // KARENA MEMANG TIDAK ADA YANG LAKU
+              qtySoldPcs: 0, 
               qtyReturnedPcs: 0, 
               hppPerPcs: currentProduct ? ((currentProduct.hpp || 0) / pcsPerCarton) : ((item.hpp || item.capitalPrice || 0) / (item.unitType === 'PCS' ? 1 : pcsPerCarton)), 
               totalSalesValue: 0, 
@@ -355,7 +381,6 @@ const Dashboard = ({ onShowToast }) => {
             };
           }
 
-          // Setelah dipastikan barisnya ada, tambahkan nilai returnya
           const pcsPerCarton = salesMap[realId].pcsPerCarton;
           let itemPcs = Number(item.qty);
           if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType?.toUpperCase()) && item.returnUnit !== 'pcs') {
@@ -396,7 +421,6 @@ const Dashboard = ({ onShowToast }) => {
          displayReturned: formatUnitText(data.qtyReturnedPcs, data.pcsPerCarton, data.unitType)
       };
     }).sort((a, b) => {
-       // Sortir berdasarkan yang laku dulu, baru yang minus (retur doang)
        if (b.qtySoldPcs !== a.qtySoldPcs) return b.qtySoldPcs - a.qtySoldPcs;
        return b.qtyReturnedPcs - a.qtyReturnedPcs;
     }); 
@@ -780,7 +804,7 @@ const Dashboard = ({ onShowToast }) => {
                 <div className="flex gap-2 w-full md:w-auto">
                     <button onClick={() => setShowDownloadModal(true)} className="flex-1 justify-center p-3 bg-blue-50 text-blue-700 rounded-xl border border-blue-200 hover:bg-blue-100 flex items-center gap-2 text-xs font-black shadow-sm"><Download className="w-4 h-4" /> Download</button>
                     <button onClick={() => setShowSyncModal(true)} className="flex-1 justify-center p-3 bg-purple-50 text-purple-700 rounded-xl border border-purple-200 hover:bg-purple-100 flex items-center gap-2 text-xs font-black shadow-sm"><RotateCcw className="w-4 h-4" /> Sinkron</button>
-                    {/* <button onClick={() => setShowResetModal(true)} className="flex-1 justify-center p-3 bg-red-50 text-red-700 rounded-xl border border-red-200 hover:bg-red-100 flex items-center gap-2 text-xs font-black shadow-sm"><AlertTriangle className="w-4 h-4" /> Reset</button> */}
+                    <button onClick={() => setShowResetModal(true)} className="flex-1 justify-center p-3 bg-red-50 text-red-700 rounded-xl border border-red-200 hover:bg-red-100 flex items-center gap-2 text-xs font-black shadow-sm"><AlertTriangle className="w-4 h-4" /> Reset</button>
                 </div>
              </div>
           </div>
@@ -1150,14 +1174,17 @@ const Dashboard = ({ onShowToast }) => {
             <h3 className="text-lg md:text-xl font-black text-gray-800 mb-2 uppercase">Jenis Laporan</h3>
             <p className="text-xs text-gray-500 mb-6 font-bold">Pilih format laporan yang ingin diunduh.</p>
             <div className="flex flex-col gap-2 max-h-[60vh] overflow-y-auto">
-              <button onClick={() => { exportMasterExcel({transactions: activeStoreTransactions, filteredExpenses: activeStoreExpenses, filteredDebtHistory, activeStoreCustomersDebt, activeStoreCustomersDeposit, filteredDepositHistory, filteredNetBalance, startDate, endDate, storeName: selectedStoreName, formatDisplayDate, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 border border-green-200"><TableIcon className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">Excel Lengkap</p></div></button>
+              {/* TOMBOL EXCEL LENGKAP */}
+              <button onClick={() => { exportMasterExcel({transactions: dateFilteredTransactions, filteredExpenses: dateFilteredExpenses, filteredDebtHistory, activeStoreCustomersDebt, activeStoreCustomersDeposit, filteredDepositHistory, filteredNetBalance, startDate, endDate, storeName: selectedStoreName, formatDisplayDate, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 border border-green-200"><TableIcon className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">Excel Lengkap</p></div></button>
               <button onClick={() => { exportNeracaExcel({balance, totalUnpaidDebt: totalUnpaidDebtDisplay, totalExpenses: totalCashExpenses, totalDeposit: totalDepositDisplay, totalIncome, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 border border-green-200"><TableIcon className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">Excel Neraca</p></div></button>
-              <button onClick={() => { exportLabaRugiExcel({totalIncome, totalHPP, totalPureOperational, totalKulakan, totalLossValue, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 border border-green-200"><TableIcon className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">Excel Laba Rugi</p></div></button>
+              <button onClick={() => { exportLabaRugiExcel({totalIncome, totalHPP, totalPureOperational, totalKulakan, totalDamagedGoods: totalLossValue, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 border border-green-200"><TableIcon className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">Excel Laba Rugi</p></div></button>
               
               <div className="h-px w-full bg-gray-200 my-2"></div>
-              <button onClick={() => { exportMasterPDF({transactions: activeStoreTransactions, filteredExpenses: activeStoreExpenses, filteredDebtHistory, activeStoreCustomersDebt, activeStoreCustomersDeposit, filteredDepositHistory, filteredNetBalance, startDate, endDate, storeName: selectedStoreName, formatDisplayDate, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-blue-50 text-blue-700 rounded-2xl hover:bg-blue-100 border border-blue-200"><FileText className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">PDF Lengkap</p></div></button>
+              {/* TOMBOL PDF LENGKAP */}
+              <button onClick={() => { exportMasterPDF({transactions: dateFilteredTransactions, filteredExpenses: dateFilteredExpenses, filteredDebtHistory, activeStoreCustomersDebt, activeStoreCustomersDeposit, filteredDepositHistory, filteredNetBalance, startDate, endDate, storeName: selectedStoreName, formatDisplayDate, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-blue-50 text-blue-700 rounded-2xl hover:bg-blue-100 border border-blue-200"><FileText className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">PDF Lengkap</p></div></button>
               <button onClick={() => { exportNeracaPDF({balance, totalUnpaidDebt: totalUnpaidDebtDisplay, totalExpenses: totalCashExpenses, totalDeposit: totalDepositDisplay, totalIncome, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-purple-50 text-purple-700 rounded-2xl hover:bg-purple-100 border border-purple-200"><FileText className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">PDF Neraca</p></div></button>
-              <button onClick={() => { exportLabaRugiPDF({totalIncome, totalHPP, totalPureOperational, totalKulakan, totalLossValue, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-purple-50 text-purple-700 rounded-2xl hover:bg-purple-100 border border-purple-200"><FileText className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">PDF Laba Rugi</p></div></button>
+              {/* TOMBOL PDF LABA RUGI (FIXED) */}
+              <button onClick={() => { exportLabaRugiPDF({totalIncome, totalHPP, totalPureOperational, totalDamagedGoods: totalLossValue, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-purple-50 text-purple-700 rounded-2xl hover:bg-purple-100 border border-purple-200"><FileText className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">PDF Laba Rugi</p></div></button>
 
               <div className="h-px w-full bg-gray-200 my-2"></div>
               <button onClick={() => { exportKeuntunganExcel(getProfitData(), startDate, endDate, selectedStoreName, onShowToast); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 border border-green-200"><TableIcon className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">Excel Laba per Barang</p></div></button>

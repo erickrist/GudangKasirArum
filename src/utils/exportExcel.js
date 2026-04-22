@@ -234,7 +234,7 @@ export const exportDataProduk = (products, stores, onShowToast) => {
   onShowToast('Data produk berhasil diexport', 'success');
 };
 
-// FIX: EXCEL LAPORAN stock DIPISAH KARTON & PCS
+// FIX NAMA: Ubah menjadi exportHistoristockExcel agar cocok dengan StockOpname
 export const exportHistoristockExcel = (filteredHistory, startDate, endDate, storeName, formatDisplayDate, onShowToast) => {
   if (filteredHistory.length === 0) return onShowToast('Tidak ada data untuk diexport', 'error');
   
@@ -267,7 +267,6 @@ export const exportHistoristockExcel = (filteredHistory, startDate, endDate, sto
   onShowToast('Histori stock Excel berhasil diunduh', 'success');
 };
 
-// FIX: EXCEL KEUNTUNGAN DIPISAH KARTON & PCS
 export const exportKeuntunganExcel = (profitData, startDate, endDate, storeName, onShowToast) => {
   if (profitData.length === 0) return onShowToast('Tidak ada data penjualan kasir di periode/cabang ini', 'error');
 
