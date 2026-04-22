@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { LayoutDashboard, Package, Users, ShoppingCart, Store } from 'lucide-react';
+import logo from '../../assets/logo_arsen_frozenfood.png'
 
 const Sidebar = ({ currentPath }) => {
   // Mapping menu dengan path URL yang sesuai di App.jsx
@@ -17,8 +18,8 @@ const Sidebar = ({ currentPath }) => {
       <aside className="hidden md:flex w-64 bg-white border-r border-gray-100 h-screen fixed left-0 top-0 z-50 flex-col">
         <div className="p-8 mb-4">
           <Link to="/" className="flex items-center gap-3 mb-2 group cursor-pointer">
-            <div className="p-2.5 bg-teal-600 rounded-2xl shadow-lg shadow-teal-100 group-hover:scale-110 transition-transform duration-300">
-              <Store className="w-6 h-6 text-white" />
+            <div className="p-2.5 bg-teal-600 rounded-xl shadow-lg shadow-teal-100 group-hover:scale-110 transition-transform duration-300">
+              <img src={logo} alt="Logo Arsen POS" className="w-12 h-12 object-cover" />
             </div>
             <div>
               <h1 className="text-xl font-black text-gray-800 leading-tight tracking-tighter">

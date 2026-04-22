@@ -5,8 +5,10 @@ const CartItem = ({ item, onUpdateQty, onRemove, onUpdateDiscount }) => {
   const [showDiscount, setShowDiscount] = useState(false);
   const [discountValue, setDiscountValue] = useState(item.discount || 0);
   
+  // State lokal untuk menampung ketikan Qty sementara
   const [inputValue, setInputValue] = useState(item.qty.toString());
 
+  // Sinkronisasi inputValue dengan item.qty dari parent (Kasir.jsx)
   useEffect(() => {
     setInputValue(item.qty.toString());
   }, [item.qty]);
@@ -18,16 +20,17 @@ const CartItem = ({ item, onUpdateQty, onRemove, onUpdateDiscount }) => {
     setShowDiscount(false);
   };
 
+  // Fungsi untuk menangani perubahan saat pengguna mengetik di input
   const handleInputChange = (e) => {
     const val = e.target.value;
-    // FIX: Ubah Regex agar mengizinkan angka desimal (koma/titik) untuk barang Kiloan
+    // FIX: Mengizinkan angka desimal (koma/titik) untuk barang Kiloan!
     if (val === '' || /^\d*\.?\d*$/.test(val)) {
       setInputValue(val);
     }
   };
 
   const handleInputBlur = () => {
-    // FIX: Gunakan parseFloat agar nilai desimal (contoh: 1.5) tidak dibulatkan paksa
+    // FIX: Menggunakan parseFloat agar angka koma tidak dibulatkan
     let newQty = parseFloat(inputValue);
     
     if (isNaN(newQty) || newQty <= 0) {
@@ -45,17 +48,17 @@ const CartItem = ({ item, onUpdateQty, onRemove, onUpdateDiscount }) => {
     }
   };
 
-  // FIX: Tentukan base unit untuk tampilan (Pcs atau Kg)
-  const displayBaseUnit = item.baseUnit || 'pcs';
+  // FIX: Tentukan base unit secara dinamis (PCS atau KG)
+  const displayBaseUnit = (item.baseUnit || 'PCS').toUpperCase();
 
   return (
     <div className="border border-gray-200 rounded-lg p-3">
       <div className="flex justify-between items-start mb-2">
         <div className="flex-1">
           <h4 className="font-semibold text-sm text-gray-800">{item.name}</h4>
-          <p className="text-xs text-gray-500 uppercase">
+          <p className="text-xs text-gray-500 font-bold uppercase tracking-widest mt-0.5">
             {['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType?.toUpperCase()) && 
-              `(${item.pcsPerCarton} ${displayBaseUnit}/${item.unitType.toLowerCase()})`
+              `(${item.pcsPerCarton} ${displayBaseUnit} / ${item.unitType})`
             }
           </p>
         </div>

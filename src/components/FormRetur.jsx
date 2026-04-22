@@ -98,7 +98,6 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
     p.category.toLowerCase().includes(searchProduct.toLowerCase())
   );
 
-  // === FITUR AUTO SELECT TOKO SAAT PILIH PEMBELI DI FORM RETUR ===
   const handleCustomerSelect = (id) => {
     setSelectedCustomer(id);
     const cust = customers.find(c => c.id === id);
@@ -119,7 +118,7 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
     const cartItemId = isEceran ? `${product.id}_PCS` : product.id;
 
     const existing = cart.find(item => item.cartItemId === cartItemId);
-    const baseUnitStr = product.baseUnit || 'PCS'; // FIX: Tampilkan Kg atau Pcs
+    const baseUnitStr = product.baseUnit || 'PCS'; 
     
     if (existing) {
       setCart(cart.map(item => item.cartItemId === cartItemId ? { ...item, qty: Number(item.qty) + 1 } : item));
@@ -134,7 +133,7 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
         price: resolvedPrice, 
         hpp: product.hpp || 0,
         qty: 1,
-        returnUnit: isEceran ? 'pcs' : 'pack', 
+        returnUnit: isEceran ? 'pcs' : 'pack', // Membiarkan sebagai tanda (internal logic)
         isManual: false
       }]);
     }
@@ -208,6 +207,7 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
     if (!cust) return;
 
     const itemDetails = cart.map(item => {
+      // FIX PENTING: Gunakan displayBase untuk menampilkan unit dengan benar!
       const displayBase = item.baseUnit || 'PCS';
       const unitLabel = item.returnUnit === 'pcs' ? displayBase : item.unitType;
       return `${item.qty} ${unitLabel} ${item.name}`;
@@ -284,6 +284,7 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
             name: i.name,
             qty: i.qty,
             unitType: i.unitType,
+            baseUnit: i.baseUnit || 'PCS', // Simpan baseUnit di log retur
             pcsPerCarton: i.pcsPerCarton,
             price: i.price,
             hpp: i.hpp,
@@ -408,7 +409,7 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
                     cart.map(item => {
                       const finalPrice = getItemPrice(item);
                       const isPcsMode = item.returnUnit === 'pcs';
-                      const displayBase = item.baseUnit || 'PCS'; // Tampilkan KG atau PCS
+                      const displayBase = item.baseUnit || 'PCS';
 
                       return (
                         <div key={item.cartItemId} className={`flex flex-col gap-2.5 p-3 md:p-4 bg-white border-2 rounded-xl transition-colors ${isPcsMode ? 'border-orange-200 bg-orange-50/50' : 'border-gray-100'}`}>
@@ -439,10 +440,10 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
                 <label className="text-[10px] font-black text-gray-400 uppercase ml-1 md:ml-2">Tujuan Pengembalian Dana & Kondisi Barang</label>
                 <div className="relative">
                   <select value={refundAction} onChange={e => setRefundAction(e.target.value)} className="w-full bg-purple-50 text-purple-800 rounded-xl px-3 md:px-4 py-2.5 md:py-3 text-[10px] md:text-xs font-black border border-purple-100 outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer appearance-none">
-                    <option value="deposit_rusak">📦 DEPOSIT & Barang Dibuang (Toko Rugi Modal)</option>
-                    <option value="deposit_supplier">📦 DEPOSIT & Tukar Pabrik (Toko Batal Untung - IMPAS)</option>
-                    <option value="cash_rusak">💸 TUNAI & Barang Dibuang (Toko Rugi Modal)</option>
-                    <option value="cash_supplier">💸 TUNAI & Tukar Pabrik (Toko Batal Untung - IMPAS)</option>
+                    <option value="deposit_rusak">💰 DEPOSIT & Barang Dibuang (Toko Rugi Modal)</option>
+                    <option value="deposit_supplier">💰 DEPOSIT & Tukar Pabrik (Toko Batal Untung - IMPAS)</option>
+                    <option value="cash_rusak">💵 TUNAI & Barang Dibuang (Toko Rugi Modal)</option>
+                    <option value="cash_supplier">💵 TUNAI & Tukar Pabrik (Toko Batal Untung - IMPAS)</option>
                   </select>
                   <ChevronDown className="absolute right-4 top-3 w-4 h-4 text-purple-600 pointer-events-none" />
                 </div>

@@ -99,7 +99,6 @@ const Dashboard = ({ onShowToast }) => {
     return returnsData.filter(r => r.storeId === selectedStoreFilter || (!r.storeId && selectedStoreFilter === 'pusat'));
   }, [returnsData, selectedStoreFilter]);
 
-  // === FITUR BARU: SARINGAN TANGGAL KHUSUS UNTUK CETAK DAN DASHBOARD ===
   const dateFilteredTransactions = useMemo(() => {
     return activeStoreTransactions.filter(t => {
       if (!startDate || !endDate) return true;
@@ -127,7 +126,6 @@ const Dashboard = ({ onShowToast }) => {
     });
   }, [activeStoreReturns, startDate, endDate]);
 
-  // === MENGGUNAKAN DATA YANG SUDAH DISARING TANGGAL ===
   const totalIncome = useMemo(() => dateFilteredTransactions.reduce((sum, t) => sum + (Number(t.total) || 0), 0), [dateFilteredTransactions]);
   
   const totalCashExpenses = useMemo(() => dateFilteredExpenses
@@ -192,7 +190,6 @@ const Dashboard = ({ onShowToast }) => {
   const netProfit = totalIncome - totalHPP - totalPureOperational - totalLossValue;
   const isProfit = netProfit >= 0;
 
-  // LOGS HISTORI DIBIARKAN UTUH KARENA PUNYA SARINGAN PENCARIAN SENDIRI
   const debtLogs = useMemo(() => {
     let logs = [];
     activeStoreTransactions.forEach(t => {
@@ -309,6 +306,9 @@ const Dashboard = ({ onShowToast }) => {
   const filteredDepositHistory = useMemo(() => applyFilters(depositLogs, ['customerName', 'note', 'reason']), [depositLogs, searchTerm, startDate, endDate]);
   const filteredNetBalance = useMemo(() => applyFilters(netLogs, ['customerName', 'note', 'title', 'subjName', 'detailNote']), [netLogs, searchTerm, startDate, endDate]);
 
+  // =========================================================================================
+  // FIX: FUNGSI PENGHITUNG LABA RUGI & KONVERSI SATUAN YANG SUDAH MENDUKUNG "KG" DAN DESIMAL
+  // =========================================================================================
   const getProfitData = () => {
     const salesMap = {};
     
@@ -321,17 +321,19 @@ const Dashboard = ({ onShowToast }) => {
       }
       if (matchesDate && t.items) {
         t.items.forEach(item => {
-          let realId = item.productId || item.id;
+          let realId = item.originalId || item.productId || item.id;
           if (typeof realId === 'string' && realId.endsWith('_PCS')) realId = realId.replace('_PCS', '');
 
           const currentProduct = products.find(p => p.id === realId);
           const realUnit = currentProduct ? currentProduct.unitType : (item.unitType === 'PCS' ? 'KARTON' : item.unitType);
           const pcsPerCarton = currentProduct ? (currentProduct.pcsPerCarton || 1) : (item.pcsPerCarton || 1);
+          const trueBaseUnit = currentProduct ? (currentProduct.baseUnit || 'PCS') : (item.baseUnit || 'PCS');
 
           if (!salesMap[realId]) {
             salesMap[realId] = { 
               name: currentProduct ? currentProduct.name : (item.name || '').replace(' (Eceran)', ''), 
               unitType: realUnit, 
+              baseUnit: trueBaseUnit, 
               pcsPerCarton: pcsPerCarton, 
               qtySoldPcs: 0, 
               qtyReturnedPcs: 0, 
@@ -361,17 +363,19 @@ const Dashboard = ({ onShowToast }) => {
       }
       if (matchesDate && r.items) {
         r.items.forEach(item => {
-          let realId = item.productId || item.id;
+          let realId = item.originalId || item.productId || item.id;
           if (typeof realId === 'string' && realId.endsWith('_PCS')) realId = realId.replace('_PCS', '');
 
           if (!salesMap[realId]) {
             const currentProduct = products.find(p => p.id === realId);
             const realUnit = currentProduct ? currentProduct.unitType : (item.unitType === 'PCS' ? 'KARTON' : item.unitType);
             const pcsPerCarton = currentProduct ? (currentProduct.pcsPerCarton || 1) : (item.pcsPerCarton || 1);
+            const trueBaseUnit = currentProduct ? (currentProduct.baseUnit || 'PCS') : (item.baseUnit || 'PCS');
 
             salesMap[realId] = { 
               name: currentProduct ? currentProduct.name : (item.name || '').replace(' (Eceran)', ''), 
               unitType: realUnit, 
+              baseUnit: trueBaseUnit, 
               pcsPerCarton: pcsPerCarton, 
               qtySoldPcs: 0, 
               qtyReturnedPcs: 0, 
@@ -393,16 +397,24 @@ const Dashboard = ({ onShowToast }) => {
       }
     });
 
-    const formatUnitText = (totalPcs, pcsPerCarton, unitType) => {
+    // ===================================================================
+    // INILAH FUNGSI AJAIB YANG MERAKIT STRING "1 KARTON + 1 KG"
+    // ===================================================================
+    const formatUnitText = (totalPcs, pcsPerCarton, unitType, baseUnit) => {
        if (totalPcs === 0) return '-';
-       if (pcsPerCarton <= 1 || ['PCS', 'KG'].includes(unitType?.toUpperCase())) return `${totalPcs} ${unitType}`;
+       
+       const safeUnitType = (unitType || 'PCS').toUpperCase();
+       const safeBaseUnit = (baseUnit || 'PCS').toUpperCase();
+
+       // Jika produk ini adalah barang eceran murni (tanpa isi/grosir)
+       if (pcsPerCarton <= 1 || ['PCS', 'KG'].includes(safeUnitType)) return `${totalPcs} ${safeBaseUnit}`;
        
        const utuh = Math.floor(totalPcs / pcsPerCarton);
-       const ecer = totalPcs % pcsPerCarton;
+       const ecer = Number((totalPcs % pcsPerCarton).toFixed(2)); // Mengizinkan sisa desimal
        
        let textParts = [];
-       if (utuh > 0) textParts.push(`${utuh} ${unitType}`);
-       if (ecer > 0) textParts.push(`${ecer} PCS`);
+       if (utuh > 0) textParts.push(`${utuh} ${safeUnitType}`);
+       if (ecer > 0) textParts.push(`${ecer} ${safeBaseUnit}`); 
        
        return textParts.join(' + ');
     };
@@ -417,8 +429,8 @@ const Dashboard = ({ onShowToast }) => {
          netSales, 
          totalHpp, 
          profit: netSales - totalHpp,
-         displaySold: formatUnitText(data.qtySoldPcs, data.pcsPerCarton, data.unitType),
-         displayReturned: formatUnitText(data.qtyReturnedPcs, data.pcsPerCarton, data.unitType)
+         displaySold: formatUnitText(data.qtySoldPcs, data.pcsPerCarton, data.unitType, data.baseUnit),
+         displayReturned: formatUnitText(data.qtyReturnedPcs, data.pcsPerCarton, data.unitType, data.baseUnit)
       };
     }).sort((a, b) => {
        if (b.qtySoldPcs !== a.qtySoldPcs) return b.qtySoldPcs - a.qtySoldPcs;
@@ -1174,16 +1186,13 @@ const Dashboard = ({ onShowToast }) => {
             <h3 className="text-lg md:text-xl font-black text-gray-800 mb-2 uppercase">Jenis Laporan</h3>
             <p className="text-xs text-gray-500 mb-6 font-bold">Pilih format laporan yang ingin diunduh.</p>
             <div className="flex flex-col gap-2 max-h-[60vh] overflow-y-auto">
-              {/* TOMBOL EXCEL LENGKAP */}
               <button onClick={() => { exportMasterExcel({transactions: dateFilteredTransactions, filteredExpenses: dateFilteredExpenses, filteredDebtHistory, activeStoreCustomersDebt, activeStoreCustomersDeposit, filteredDepositHistory, filteredNetBalance, startDate, endDate, storeName: selectedStoreName, formatDisplayDate, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 border border-green-200"><TableIcon className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">Excel Lengkap</p></div></button>
               <button onClick={() => { exportNeracaExcel({balance, totalUnpaidDebt: totalUnpaidDebtDisplay, totalExpenses: totalCashExpenses, totalDeposit: totalDepositDisplay, totalIncome, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 border border-green-200"><TableIcon className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">Excel Neraca</p></div></button>
               <button onClick={() => { exportLabaRugiExcel({totalIncome, totalHPP, totalPureOperational, totalKulakan, totalDamagedGoods: totalLossValue, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 border border-green-200"><TableIcon className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">Excel Laba Rugi</p></div></button>
               
               <div className="h-px w-full bg-gray-200 my-2"></div>
-              {/* TOMBOL PDF LENGKAP */}
               <button onClick={() => { exportMasterPDF({transactions: dateFilteredTransactions, filteredExpenses: dateFilteredExpenses, filteredDebtHistory, activeStoreCustomersDebt, activeStoreCustomersDeposit, filteredDepositHistory, filteredNetBalance, startDate, endDate, storeName: selectedStoreName, formatDisplayDate, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-blue-50 text-blue-700 rounded-2xl hover:bg-blue-100 border border-blue-200"><FileText className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">PDF Lengkap</p></div></button>
               <button onClick={() => { exportNeracaPDF({balance, totalUnpaidDebt: totalUnpaidDebtDisplay, totalExpenses: totalCashExpenses, totalDeposit: totalDepositDisplay, totalIncome, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-purple-50 text-purple-700 rounded-2xl hover:bg-purple-100 border border-purple-200"><FileText className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">PDF Neraca</p></div></button>
-              {/* TOMBOL PDF LABA RUGI (FIXED) */}
               <button onClick={() => { exportLabaRugiPDF({totalIncome, totalHPP, totalPureOperational, totalDamagedGoods: totalLossValue, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-purple-50 text-purple-700 rounded-2xl hover:bg-purple-100 border border-purple-200"><FileText className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">PDF Laba Rugi</p></div></button>
 
               <div className="h-px w-full bg-gray-200 my-2"></div>

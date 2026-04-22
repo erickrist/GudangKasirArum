@@ -52,7 +52,6 @@ const StockOpname = ({ onShowToast }) => {
 
   const fileInputRef = useRef(null);
 
-  // FIX: Tambahkan baseUnit (Satuan Dasar) di form
   const [formData, setFormData] = useState({
     name: '', category: '', unitType: 'PCS', baseUnit: 'PCS', hpp: '', 
     defaultPrice: '', storePrices: {}, pcsPerCarton: '', stockPcs: '', image: '',
@@ -198,6 +197,9 @@ const StockOpname = ({ onShowToast }) => {
     });
   }, [allStockHistory, searchHistory, startDate, endDate]);
 
+  // =========================================================================
+  // FIX: KALKULATOR LABA (SAMA PERSIS DENGAN DASHBOARD: BISA KG & DESIMAL)
+  // =========================================================================
   const getProfitData = () => {
     const salesMap = {};
     
@@ -210,19 +212,19 @@ const StockOpname = ({ onShowToast }) => {
       }
       if (matchesDate && t.items) {
         t.items.forEach(item => {
-          let realId = item.productId || item.id;
+          let realId = item.originalId || item.productId || item.id;
           if (typeof realId === 'string' && realId.endsWith('_PCS')) realId = realId.replace('_PCS', '');
 
           const currentProduct = products.find(p => p.id === realId);
           const realUnit = currentProduct ? currentProduct.unitType : (item.unitType === 'PCS' ? 'KARTON' : item.unitType);
           const pcsPerCarton = currentProduct ? (currentProduct.pcsPerCarton || 1) : (item.pcsPerCarton || 1);
-          const baseUnit = currentProduct ? (currentProduct.baseUnit || 'PCS') : 'PCS'; // Support KG
+          const trueBaseUnit = currentProduct ? (currentProduct.baseUnit || 'PCS') : (item.baseUnit || 'PCS');
 
           if (!salesMap[realId]) {
             salesMap[realId] = { 
-              name: currentProduct ? currentProduct.name : item.name.replace(' (Eceran)', ''), 
+              name: currentProduct ? currentProduct.name : (item.name || '').replace(' (Eceran)', ''), 
               unitType: realUnit, 
-              baseUnit: baseUnit,
+              baseUnit: trueBaseUnit,
               pcsPerCarton: pcsPerCarton, 
               qtySoldPcs: 0, 
               qtyReturnedPcs: 0, 
@@ -233,7 +235,7 @@ const StockOpname = ({ onShowToast }) => {
           }
 
           let itemPcs = Number(item.qty);
-          if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType)) {
+          if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType?.toUpperCase())) {
              itemPcs = Number(item.qty) * pcsPerCarton;
           }
 
@@ -252,19 +254,19 @@ const StockOpname = ({ onShowToast }) => {
       }
       if (matchesDate && r.items) {
         r.items.forEach(item => {
-          let realId = item.productId;
+          let realId = item.originalId || item.productId || item.id;
           if (typeof realId === 'string' && realId.endsWith('_PCS')) realId = realId.replace('_PCS', '');
 
           if (!salesMap[realId]) {
             const currentProduct = products.find(p => p.id === realId);
             const realUnit = currentProduct ? currentProduct.unitType : (item.unitType === 'PCS' ? 'KARTON' : item.unitType);
             const pcsPerCarton = currentProduct ? (currentProduct.pcsPerCarton || 1) : (item.pcsPerCarton || 1);
-            const baseUnit = currentProduct ? (currentProduct.baseUnit || 'PCS') : 'PCS'; 
+            const trueBaseUnit = currentProduct ? (currentProduct.baseUnit || 'PCS') : (item.baseUnit || 'PCS');
 
             salesMap[realId] = { 
               name: currentProduct ? currentProduct.name : (item.name || '').replace(' (Eceran)', ''), 
               unitType: realUnit, 
-              baseUnit: baseUnit,
+              baseUnit: trueBaseUnit,
               pcsPerCarton: pcsPerCarton, 
               qtySoldPcs: 0, 
               qtyReturnedPcs: 0, 
@@ -274,30 +276,32 @@ const StockOpname = ({ onShowToast }) => {
             };
           }
 
-          if (salesMap[realId]) {
-            const pcsPerCarton = salesMap[realId].pcsPerCarton;
-            let itemPcs = Number(item.qty);
-            if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType) && item.returnUnit !== 'pcs') {
-               itemPcs = Number(item.qty) * pcsPerCarton;
-            }
-
-            salesMap[realId].qtyReturnedPcs += itemPcs;
-            salesMap[realId].totalReturnValue += Number(item.qty * (item.finalPrice || item.price));
+          const pcsPerCarton = salesMap[realId].pcsPerCarton;
+          let itemPcs = Number(item.qty);
+          if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType?.toUpperCase()) && item.returnUnit !== 'pcs') {
+             itemPcs = Number(item.qty) * pcsPerCarton;
           }
+
+          salesMap[realId].qtyReturnedPcs += itemPcs;
+          salesMap[realId].totalReturnValue += Number(item.qty * (item.finalPrice || item.price));
         });
       }
     });
 
     const formatUnitText = (totalPcs, pcsPerCarton, unitType, baseUnit) => {
        if (totalPcs === 0) return '-';
-       if (pcsPerCarton <= 1 || ['PCS', 'KG'].includes(unitType)) return `${totalPcs} ${baseUnit || unitType}`;
+       
+       const safeUnitType = (unitType || 'PCS').toUpperCase();
+       const safeBaseUnit = (baseUnit || 'PCS').toUpperCase();
+
+       if (pcsPerCarton <= 1 || ['PCS', 'KG'].includes(safeUnitType)) return `${totalPcs} ${safeBaseUnit}`;
        
        const utuh = Math.floor(totalPcs / pcsPerCarton);
-       const ecer = Number((totalPcs % pcsPerCarton).toFixed(2)); // Support desimal Kg
+       const ecer = Number((totalPcs % pcsPerCarton).toFixed(2));
        
        let textParts = [];
-       if (utuh > 0) textParts.push(`${utuh} ${unitType}`);
-       if (ecer > 0) textParts.push(`${ecer} ${baseUnit}`);
+       if (utuh > 0) textParts.push(`${utuh} ${safeUnitType}`);
+       if (ecer > 0) textParts.push(`${ecer} ${safeBaseUnit}`);
        
        return textParts.join(' + ');
     };
@@ -342,7 +346,7 @@ const StockOpname = ({ onShowToast }) => {
       const newStorePrices = {};
       stores.forEach(store => { newStorePrices[store.id] = currentStorePrices[store.id] || ''; });
       productData.storePrices = newStorePrices;
-      productData.baseUnit = productData.baseUnit || 'PCS'; // Pastikan baseUnit lama ada fallback
+      productData.baseUnit = productData.baseUnit || 'PCS';
       
       setFormData(productData); 
       setSelectedProduct(productData); 
@@ -364,13 +368,13 @@ const StockOpname = ({ onShowToast }) => {
       name: formData.name, 
       category: formData.category, 
       unitType: formData.unitType,
-      baseUnit: isWholesale ? formData.baseUnit : formData.unitType, // FIX: Simpan Satuan Dasar (Pcs/Kg)
+      baseUnit: isWholesale ? formData.baseUnit : formData.unitType, 
       hpp: parseFloat(formData.hpp) || 0, 
       price: parseFloat(formData.defaultPrice) || 0, 
       defaultPrice: parseFloat(formData.defaultPrice) || 0, 
       storePrices: cleanedStorePrices,
       stockPcs: Number(formData.stockPcs) || 0, 
-      pcsPerCarton: isWholesale ? parseFloat(formData.pcsPerCarton) || 1 : 1, // Support isi desimal (cth: 1.5 Kg)
+      pcsPerCarton: isWholesale ? parseFloat(formData.pcsPerCarton) || 1 : 1,
       image: formData.image || ''
     };
 
@@ -524,7 +528,7 @@ const StockOpname = ({ onShowToast }) => {
 
           const productData = {
             name: rawName, category: row["Kategori"] || row.Kategori || 'Umum', unitType: unit,
-            baseUnit: 'PCS', // Excel import default
+            baseUnit: 'PCS', 
             hpp: parseFloat(row["Harga Beli Modal (Satuan)"] || row.HargaBeli) || 0,
             price: defaultPrice, defaultPrice: defaultPrice, storePrices: dynamicStorePrices,
             pcsPerCarton: isWholesale ? isiPerSatuan : 1, stockPcs: stockSatuan * (isWholesale ? isiPerSatuan : 1),

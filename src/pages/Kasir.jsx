@@ -136,7 +136,7 @@ const Kasir = ({ onShowToast }) => {
       }
       
       let pcsToReduce = Number(item.qty) || 0;
-      if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType)) {
+      if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType?.toUpperCase())) {
          pcsToReduce = (Number(item.qty) || 0) * (Number(item.pcsPerCarton) || 1);
       }   
 
@@ -188,20 +188,25 @@ const Kasir = ({ onShowToast }) => {
             cleanId = cleanId.replace('_PCS', '');
         }
 
-        // =================================================================
-        // VITAL FIX: Ambil ulang KTP barang langsung dari database!
-        // Ini untuk mengakali `useCart.js` yang sering menghapus data KG
-        // =================================================================
         const dbProduct = products.find(p => p.id === cleanId);
-        const trueBaseUnit = (dbProduct && dbProduct.baseUnit) ? dbProduct.baseUnit : 'PCS';
+        const trueBaseUnit = dbProduct?.baseUnit || 'PCS';
+        
+        // =================================================================
+        // FIX: Cek apakah item di keranjang ini adalah Eceran!
+        // Jika eceran, unitType HARUS pakai KG. Jika utuh, pakai KARTON.
+        // =================================================================
+        const isEceranCart = (item.id && item.id.includes('_PCS')) || (item.productId && item.productId.includes('_PCS'));
+        const trueUnitType = isEceranCart ? trueBaseUnit : (dbProduct?.unitType || item.unitType);
+        
+        const truePcsPerCarton = dbProduct?.pcsPerCarton || item.pcsPerCarton;
 
         return {
           productId: cleanId, 
           name: item.name,
           qty: item.qty,
-          unitType: item.unitType,
-          baseUnit: item.baseUnit || trueBaseUnit, // PAKSA MENGGUNAKAN DATA DATABASE
-          pcsPerCarton: item.pcsPerCarton,
+          unitType: trueUnitType, 
+          baseUnit: trueBaseUnit, 
+          pcsPerCarton: truePcsPerCarton, 
           price: item.price, 
           capitalPrice: item.capitalPrice || 0, 
           discount: item.discount || 0,
@@ -455,11 +460,26 @@ const Kasir = ({ onShowToast }) => {
                   <p className="text-[10px] md:text-xs font-bold text-gray-400 uppercase tracking-widest">Keranjang Kosong</p>
                 </div>
               ) : (
-                cart.map((item) => (
-                  <div key={item.productId} id={`cart-item-${item.productId}`}>
-                    <CartItem item={item} onUpdateQty={updateQty} onRemove={removeFromCart} onUpdateDiscount={updateDiscount} />
-                  </div>
-                ))
+                cart.map((item) => {
+                  let cleanId = item.originalId || item.productId || item.id;
+                  if (typeof cleanId === 'string' && cleanId.endsWith('_PCS')) {
+                      cleanId = cleanId.replace('_PCS', '');
+                  }
+                  const liveProduct = products.find(p => p.id === cleanId);
+                  
+                  const displayItem = {
+                    ...item,
+                    baseUnit: liveProduct?.baseUnit || 'PCS',
+                    unitType: liveProduct?.unitType || item.unitType,
+                    pcsPerCarton: liveProduct?.pcsPerCarton || item.pcsPerCarton
+                  };
+
+                  return (
+                    <div key={item.productId} id={`cart-item-${item.productId}`}>
+                      <CartItem item={displayItem} onUpdateQty={updateQty} onRemove={removeFromCart} onUpdateDiscount={updateDiscount} />
+                    </div>
+                  )
+                })
               )}
             </div>
 
