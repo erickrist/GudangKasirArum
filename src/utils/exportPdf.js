@@ -209,7 +209,10 @@ export const exportNeracaPDF = ({ balance, totalUnpaidDebt, totalExpenses, total
   onShowToast('File PDF Neraca Saldo berhasil diunduh', 'success');
 };
 
-export const exportLabaRugiPDF = ({ totalIncome, totalHPP, totalPureOperational, totalDamagedGoods, startDate, endDate, storeName, onShowToast }) => {
+// ==========================================
+// 3. EXPORT PDF LABA RUGI (DITAMBAH INFO KULAKAN)
+// ==========================================
+export const exportLabaRugiPDF = ({ totalIncome, totalHPP, totalPureOperational, totalKulakan = 0, totalDamagedGoods, startDate, endDate, storeName, onShowToast }) => {
   const labaKotor = totalIncome - totalHPP;
   const totalExpenses = totalPureOperational + totalDamagedGoods;
   const labaBersih = labaKotor - totalExpenses;
@@ -233,7 +236,13 @@ export const exportLabaRugiPDF = ({ totalIncome, totalHPP, totalPureOperational,
     [{ content: 'BEBAN / PENGELUARAN', colSpan: 2, styles: { fontStyle: 'bold', fillColor: [240, 240, 240] } }],
     ['Total Pengeluaran Kas Operasional', `- Rp ${totalPureOperational.toLocaleString('id-ID')}`],
     ['Kerugian (Retur/Barang Rusak/Batal Laba)', `- Rp ${totalDamagedGoods.toLocaleString('id-ID')}`],
-    [{ content: 'LABA / (RUGI) BERSIH', styles: { fontStyle: 'bold' } }, { content: `Rp ${labaBersih.toLocaleString('id-ID')}`, styles: { fontStyle: 'bold', textColor: labaBersih >= 0 ? [0, 128, 0] : [220, 38, 38] } }]
+    [{ content: 'LABA / (RUGI) BERSIH', styles: { fontStyle: 'bold' } }, { content: `Rp ${labaBersih.toLocaleString('id-ID')}`, styles: { fontStyle: 'bold', textColor: labaBersih >= 0 ? [0, 128, 0] : [220, 38, 38] } }],
+    ['', ''], 
+    
+    // === SEKAT INFO KULAKAN ===
+    [{ content: 'INFO ARUS KAS PENGELUARAN LAINNYA', colSpan: 2, styles: { fontStyle: 'bold', fillColor: [255, 243, 205] } }],
+    ['Belanja Kulakan / Restock Barang', `Rp ${totalKulakan.toLocaleString('id-ID')}`],
+    [{ content: '*Catatan: Belanja Kulakan tidak memotong laba karena uang berubah menjadi aset stok barang di gudang.', colSpan: 2, styles: { fontSize: 8, fontStyle: 'italic', textColor: [100, 100, 100] } }]
   ];
 
   autoTable(doc, { startY: 45, body: body, theme: 'grid', columnStyles: { 0: { cellWidth: 120 }, 1: { halign: 'right', cellWidth: 50 } } });
@@ -243,7 +252,6 @@ export const exportLabaRugiPDF = ({ totalIncome, totalHPP, totalPureOperational,
   onShowToast('File PDF Laba Rugi berhasil diunduh', 'success');
 };
 
-// FIX NAMA: exportHistoristockPDF
 export const exportHistoristockPDF = (filteredHistory, startDate, endDate, storeName, formatDisplayDate, onShowToast) => {
   if (filteredHistory.length === 0) return onShowToast('Tidak ada data untuk diexport', 'error');
 
@@ -259,7 +267,7 @@ export const exportHistoristockPDF = (filteredHistory, startDate, endDate, store
       pcsPerCarton = Math.round(log.totalPcs / log.amount) || 1;
     }
     const utuh = Math.floor(log.totalPcs / pcsPerCarton);
-    const ecer = Number((log.totalPcs % pcsPerCarton).toFixed(2)); // Fix: Support desimal untuk KG
+    const ecer = Number((log.totalPcs % pcsPerCarton).toFixed(2)); 
 
     return [
       formatDisplayDate(log.createdAt), log.storeName || 'Pusat', log.productName, log.type, 
@@ -275,7 +283,7 @@ export const exportHistoristockPDF = (filteredHistory, startDate, endDate, store
         if (data.cell.raw === 'MASUK') data.cell.styles.textColor = [0, 128, 0];
         if (data.cell.raw === 'KELUAR') data.cell.styles.textColor = [200, 100, 0];
         if (data.cell.raw === 'TERJUAL') data.cell.styles.textColor = [200, 0, 0];
-        if (data.cell.raw === 'RETUR') data.cell.styles.textColor = [128, 0, 128]; // Warna Ungu untuk Retur
+        if (data.cell.raw === 'RETUR') data.cell.styles.textColor = [128, 0, 128]; 
       }
     }
   });

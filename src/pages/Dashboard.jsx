@@ -126,19 +126,47 @@ const Dashboard = ({ onShowToast }) => {
     });
   }, [activeStoreReturns, startDate, endDate]);
 
-  const totalIncome = useMemo(() => dateFilteredTransactions.reduce((sum, t) => sum + (Number(t.total) || 0), 0), [dateFilteredTransactions]);
+  // KAS MASUK FISIK LACI (Untuk Ditampilkan di Kotak Pemasukan)
+  const totalCashIn = useMemo(() => dateFilteredTransactions.reduce((sum, t) => sum + (Number(t.total) || 0), 0), [dateFilteredTransactions]);
   
+  // OMSET KOTOR (Untuk Perhitungan Laba agar tidak minus)
+  const totalOmset = useMemo(() => dateFilteredTransactions.reduce((sum, t) => {
+    const systemNotes = ['Pelunasan Hutang Manual', 'Penambahan Hutang Manual', 'Koreksi Hutang (Bertambah)', 'Koreksi Hutang (Berkurang)'];
+    if (systemNotes.includes(t.note)) return sum;
+    
+    if (t.items && t.items.length > 0) {
+      const itemsTotal = t.items.reduce((iSum, i) => iSum + (Number(i.subtotal) || ((Number(i.qty) || 0) * (Number(i.price) || 0) - (Number(i.discount) || 0))), 0);
+      return sum + itemsTotal;
+    }
+    return sum + (Number(t.subtotal) || 0);
+  }, 0), [dateFilteredTransactions]);
+
   const totalCashExpenses = useMemo(() => dateFilteredExpenses
     .filter(e => e.category !== 'Barang Rusak') 
     .reduce((sum, e) => sum + (Number(e.amount) || 0), 0), [dateFilteredExpenses]);
 
-  const balance = totalIncome - totalCashExpenses;
+  const balance = totalCashIn - totalCashExpenses;
 
+  // HPP MENGGUNAKAN HARGA MASTER LIVE
   const totalHPP = useMemo(() => dateFilteredTransactions.reduce((sum, t) => {
     if (!t.items) return sum;
-    const itemHpp = t.items.reduce((iSum, i) => iSum + (Number(i.capitalPrice || 0) * Number(i.qty || 0)), 0);
+    const itemHpp = t.items.reduce((iSum, i) => {
+        let realId = i.originalId || i.productId || i.id;
+        if (typeof realId === 'string' && realId.endsWith('_PCS')) realId = realId.replace('_PCS', '');
+        
+        const p = products.find(prod => prod.id === realId);
+        const pcsPerCarton = p ? (p.pcsPerCarton || 1) : (i.pcsPerCarton || 1);
+        
+        const hppPerPcs = p ? ((p.hpp || 0) / pcsPerCarton) : ((i.capitalPrice || 0) / (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(i.unitType?.toUpperCase()) ? 1 : pcsPerCarton));
+        
+        let qtyPcs = Number(i.qty);
+        if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(i.unitType?.toUpperCase())) {
+            qtyPcs = qtyPcs * pcsPerCarton;
+        }
+        return iSum + (hppPerPcs * qtyPcs);
+    }, 0);
     return sum + itemHpp;
-  }, 0), [dateFilteredTransactions]);
+  }, 0), [dateFilteredTransactions, products]);
 
   const totalOperationalExpenses = useMemo(() => 
     dateFilteredExpenses
@@ -149,7 +177,7 @@ const Dashboard = ({ onShowToast }) => {
 
   const totalKulakan = useMemo(() => 
     dateFilteredExpenses
-      .filter(e => e.category === 'Kulakan') 
+      .filter(e => e.category === 'Kulakan' || e.category === 'Restock') 
       .reduce((sum, e) => sum + (Number(e.amount) || 0), 0), 
     [dateFilteredExpenses]
   );
@@ -175,19 +203,30 @@ const Dashboard = ({ onShowToast }) => {
         const matchedReturn = dateFilteredReturns.find(r => r.refundType === 'cash' && Math.abs(getSafeDate(r.createdAt).getTime() - expTime) <= 5000);
         if (matchedReturn && matchedReturn.items) {
             const totalHpp = matchedReturn.items.reduce((sum, item) => {
-                const hppPerUnit = item.returnUnit === 'pcs' && item.pcsPerCarton > 1 ? (item.hpp / item.pcsPerCarton) : item.hpp;
-                return sum + (hppPerUnit * item.qty);
+                let realId = item.originalId || item.productId || item.id;
+                if (typeof realId === 'string' && realId.endsWith('_PCS')) realId = realId.replace('_PCS', '');
+                
+                const p = products.find(prod => prod.id === realId);
+                const pcsPerCarton = p ? (p.pcsPerCarton || 1) : (item.pcsPerCarton || 1);
+                const hppPerPcs = p ? ((p.hpp || 0) / pcsPerCarton) : ((item.hpp || item.capitalPrice || 0) / (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType?.toUpperCase()) ? 1 : pcsPerCarton));
+                
+                let qtyPcs = Number(item.qty);
+                if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType?.toUpperCase()) && item.returnUnit !== 'pcs') {
+                   qtyPcs = qtyPcs * pcsPerCarton;
+                }
+                return sum + (hppPerPcs * qtyPcs);
             }, 0);
             const labaBatal = Math.max(0, exp.amount - totalHpp);
             total += labaBatal;
         }
     });
     return total;
-  }, [dateFilteredExpenses, dateFilteredReturns]);
+  }, [dateFilteredExpenses, dateFilteredReturns, products]);
 
   const totalLossValue = totalDamagedGoods + totalReturnExpenses + totalReturnCashSupplierLabaBatal;
   const totalPureOperational = totalOperationalExpenses - totalDamagedGoods - totalReturnExpenses;
-  const netProfit = totalIncome - totalHPP - totalPureOperational - totalLossValue;
+  
+  const netProfit = totalOmset - totalHPP - totalPureOperational - totalLossValue;
   const isProfit = netProfit >= 0;
 
   const debtLogs = useMemo(() => {
@@ -306,9 +345,6 @@ const Dashboard = ({ onShowToast }) => {
   const filteredDepositHistory = useMemo(() => applyFilters(depositLogs, ['customerName', 'note', 'reason']), [depositLogs, searchTerm, startDate, endDate]);
   const filteredNetBalance = useMemo(() => applyFilters(netLogs, ['customerName', 'note', 'title', 'subjName', 'detailNote']), [netLogs, searchTerm, startDate, endDate]);
 
-  // =========================================================================================
-  // FIX: FUNGSI PENGHITUNG LABA RUGI & KONVERSI SATUAN YANG SUDAH MENDUKUNG "KG" DAN DESIMAL
-  // =========================================================================================
   const getProfitData = () => {
     const salesMap = {};
     
@@ -339,7 +375,7 @@ const Dashboard = ({ onShowToast }) => {
               qtyReturnedPcs: 0, 
               hppPerPcs: currentProduct ? ((currentProduct.hpp || 0) / pcsPerCarton) : ((item.capitalPrice || 0) / (item.unitType === 'PCS' ? 1 : pcsPerCarton)), 
               totalSalesValue: 0, 
-              totalReturnValue: 0 
+              totalReturnValue: 0
             };
           }
 
@@ -349,7 +385,7 @@ const Dashboard = ({ onShowToast }) => {
           }
 
           salesMap[realId].qtySoldPcs += itemPcs;
-          salesMap[realId].totalSalesValue += Number(item.subtotal || (item.qty * item.price));
+          salesMap[realId].totalSalesValue += Number(item.subtotal || ((item.qty || 0) * (item.price || 0) - (item.discount || 0)));
         });
       }
     });
@@ -381,7 +417,7 @@ const Dashboard = ({ onShowToast }) => {
               qtyReturnedPcs: 0, 
               hppPerPcs: currentProduct ? ((currentProduct.hpp || 0) / pcsPerCarton) : ((item.hpp || item.capitalPrice || 0) / (item.unitType === 'PCS' ? 1 : pcsPerCarton)), 
               totalSalesValue: 0, 
-              totalReturnValue: 0 
+              totalReturnValue: 0
             };
           }
 
@@ -397,20 +433,16 @@ const Dashboard = ({ onShowToast }) => {
       }
     });
 
-    // ===================================================================
-    // INILAH FUNGSI AJAIB YANG MERAKIT STRING "1 KARTON + 1 KG"
-    // ===================================================================
     const formatUnitText = (totalPcs, pcsPerCarton, unitType, baseUnit) => {
        if (totalPcs === 0) return '-';
        
        const safeUnitType = (unitType || 'PCS').toUpperCase();
        const safeBaseUnit = (baseUnit || 'PCS').toUpperCase();
 
-       // Jika produk ini adalah barang eceran murni (tanpa isi/grosir)
        if (pcsPerCarton <= 1 || ['PCS', 'KG'].includes(safeUnitType)) return `${totalPcs} ${safeBaseUnit}`;
        
        const utuh = Math.floor(totalPcs / pcsPerCarton);
-       const ecer = Number((totalPcs % pcsPerCarton).toFixed(2)); // Mengizinkan sisa desimal
+       const ecer = Number((totalPcs % pcsPerCarton).toFixed(2));
        
        let textParts = [];
        if (utuh > 0) textParts.push(`${utuh} ${safeUnitType}`);
@@ -420,14 +452,14 @@ const Dashboard = ({ onShowToast }) => {
     };
 
     return Object.values(salesMap).map(data => {
+      const netSales = data.totalSalesValue - data.totalReturnValue;
       const netPcsSold = data.qtySoldPcs - data.qtyReturnedPcs;
-      const totalHpp = Math.round(data.hppPerPcs * netPcsSold);
-      const netSales = data.totalSalesValue - data.totalReturnValue; 
+      const totalHpp = Math.round(data.hppPerPcs * netPcsSold); 
       
       return { 
          ...data, 
          netSales, 
-         totalHpp, 
+         totalHpp: totalHpp, 
          profit: netSales - totalHpp,
          displaySold: formatUnitText(data.qtySoldPcs, data.pcsPerCarton, data.unitType, data.baseUnit),
          displayReturned: formatUnitText(data.qtyReturnedPcs, data.pcsPerCarton, data.unitType, data.baseUnit)
@@ -765,16 +797,17 @@ const Dashboard = ({ onShowToast }) => {
           <p className="text-[9px] font-bold text-red-400 mt-auto pt-2 border-t border-dashed border-red-100 uppercase">Otomatis Potong Laba</p>
         </div>
 
+        {/* KOTAK PEMASUKAN MENGGUNAKAN UANG FISIK */}
         <div onClick={() => navigateToTab('transactions')} className="min-w-[180px] md:min-w-[240px] flex-shrink-0 snap-start bg-white rounded-2xl shadow-sm p-4 md:p-6 border-b-4 border-teal-500 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all flex flex-col justify-between">
-          <p className="text-[10px] md:text-[11px] font-black text-gray-400 uppercase mb-2">Total Pemasukan Jual</p>
-          <h3 className="text-lg md:text-2xl font-black text-teal-700 mb-1">Rp {(totalIncome || 0).toLocaleString('id-ID')}</h3>
-          <p className="text-[9px] font-bold text-gray-300 mt-auto pt-2 border-t border-dashed border-gray-100 uppercase">Gross Income</p>
+          <p className="text-[10px] md:text-[11px] font-black text-gray-400 uppercase mb-2">Total Pemasukan Kasir</p>
+          <h3 className="text-lg md:text-2xl font-black text-teal-700 mb-1">Rp {(totalCashIn || 0).toLocaleString('id-ID')}</h3>
+          <p className="text-[9px] font-bold text-gray-300 mt-auto pt-2 border-t border-dashed border-gray-100 uppercase">Uang Masuk (Jual & Hutang)</p>
         </div>
 
         <div onClick={() => navigateToTab('expenses')} className="min-w-[180px] md:min-w-[240px] flex-shrink-0 snap-start bg-white rounded-2xl shadow-sm p-4 md:p-6 border-b-4 border-rose-400 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all flex flex-col justify-between">
           <p className="text-[10px] md:text-[11px] font-black text-gray-400 uppercase mb-2">Total Kas Keluar</p>
           <h3 className="text-lg md:text-2xl font-black text-rose-600 mb-1">Rp {(totalCashExpenses || 0).toLocaleString('id-ID')}</h3>
-          <p className="text-[9px] font-bold text-gray-300 mt-auto pt-2 border-t border-dashed border-gray-100 uppercase">Operasional & Belanja</p>
+          <p className="text-[9px] font-bold text-gray-300 mt-auto pt-2 border-t border-dashed border-gray-100 uppercase">Operasional Laci</p>
         </div>
 
         <div onClick={() => navigateToTab('debts')} className="min-w-[180px] md:min-w-[240px] flex-shrink-0 snap-start bg-white rounded-2xl shadow-sm p-4 md:p-6 border-b-4 border-orange-500 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all flex flex-col justify-between">
@@ -1134,7 +1167,7 @@ const Dashboard = ({ onShowToast }) => {
 
       {/* --- MODALS --- */}
 
-      {/* MODAL PENJELASAN LABA/RUGI */}
+      {/* MODAL PENJELASAN LABA/RUGI (TANPA KOTAK BIRU) */}
       {showProfitDetailModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[150] p-4">
           <div className={`bg-white rounded-[32px] p-6 md:p-8 max-w-md w-full shadow-2xl relative border-t-8 ${isProfit ? 'border-emerald-500' : 'border-rose-500'}`}>
@@ -1144,22 +1177,22 @@ const Dashboard = ({ onShowToast }) => {
 
             <div className="space-y-3 bg-gray-50 p-4 rounded-2xl border border-gray-100">
               <div className="flex justify-between items-center">
-                <span className="text-xs font-bold text-gray-600">1. Total Pemasukan Jualan</span>
-                <span className="text-sm font-black text-teal-600">(+) Rp {totalIncome.toLocaleString('id-ID')}</span>
+                <span className="text-xs font-bold text-gray-600">1. Total Omset Barang Keluar</span>
+                <span className="text-sm font-black text-teal-600">(+) Rp {totalOmset.toLocaleString('id-ID')}</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-xs font-bold text-gray-600">2. Modal Barang Terjual (HPP)</span>
+                <span className="text-xs font-bold text-gray-600">2. Modal Barang Keluar (HPP)</span>
                 <span className="text-sm font-black text-orange-600">(-) Rp {totalHPP.toLocaleString('id-ID')}</span>
               </div>
               <div className="h-px bg-gray-200 my-2"></div>
               <div className="flex justify-between items-center">
                 <span className="text-xs font-black text-gray-800">Laba Kotor Sementara</span>
-                <span className="text-sm font-black text-gray-800">Rp {(totalIncome - totalHPP).toLocaleString('id-ID')}</span>
+                <span className="text-sm font-black text-gray-800">Rp {(totalOmset - totalHPP).toLocaleString('id-ID')}</span>
               </div>
 
               <div className="h-px bg-gray-200 my-2"></div>
               <div className="flex justify-between items-center">
-                <span className="text-xs font-bold text-gray-600">3. Beban Operasional (Listrik, dll)</span>
+                <span className="text-xs font-bold text-gray-600">3. Beban Operasional Laci Kasir</span>
                 <span className="text-sm font-black text-rose-500">(-) Rp {totalPureOperational.toLocaleString('id-ID')}</span>
               </div>
               <div className="flex justify-between items-center">
@@ -1178,7 +1211,7 @@ const Dashboard = ({ onShowToast }) => {
         </div>
       )}
 
-      {/* MODAL DOWNLOAD */}
+      {/* MODAL DOWNLOAD (FIX: MENYAMBUNGKAN TOTAL KULAKAN KE EXPORT) */}
       {showDownloadModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
           <div className="bg-white rounded-[32px] p-6 md:p-8 max-w-sm w-full shadow-2xl relative border-t-8 border-blue-600">
@@ -1187,13 +1220,13 @@ const Dashboard = ({ onShowToast }) => {
             <p className="text-xs text-gray-500 mb-6 font-bold">Pilih format laporan yang ingin diunduh.</p>
             <div className="flex flex-col gap-2 max-h-[60vh] overflow-y-auto">
               <button onClick={() => { exportMasterExcel({transactions: dateFilteredTransactions, filteredExpenses: dateFilteredExpenses, filteredDebtHistory, activeStoreCustomersDebt, activeStoreCustomersDeposit, filteredDepositHistory, filteredNetBalance, startDate, endDate, storeName: selectedStoreName, formatDisplayDate, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 border border-green-200"><TableIcon className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">Excel Lengkap</p></div></button>
-              <button onClick={() => { exportNeracaExcel({balance, totalUnpaidDebt: totalUnpaidDebtDisplay, totalExpenses: totalCashExpenses, totalDeposit: totalDepositDisplay, totalIncome, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 border border-green-200"><TableIcon className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">Excel Neraca</p></div></button>
-              <button onClick={() => { exportLabaRugiExcel({totalIncome, totalHPP, totalPureOperational, totalKulakan, totalDamagedGoods: totalLossValue, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 border border-green-200"><TableIcon className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">Excel Laba Rugi</p></div></button>
+              <button onClick={() => { exportNeracaExcel({balance, totalUnpaidDebt: totalUnpaidDebtDisplay, totalExpenses: totalCashExpenses, totalDeposit: totalDepositDisplay, totalIncome: totalOmset, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 border border-green-200"><TableIcon className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">Excel Neraca</p></div></button>
+              <button onClick={() => { exportLabaRugiExcel({totalIncome: totalOmset, totalHPP, totalPureOperational, totalKulakan, totalDamagedGoods: totalLossValue, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 border border-green-200"><TableIcon className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">Excel Laba Rugi</p></div></button>
               
               <div className="h-px w-full bg-gray-200 my-2"></div>
               <button onClick={() => { exportMasterPDF({transactions: dateFilteredTransactions, filteredExpenses: dateFilteredExpenses, filteredDebtHistory, activeStoreCustomersDebt, activeStoreCustomersDeposit, filteredDepositHistory, filteredNetBalance, startDate, endDate, storeName: selectedStoreName, formatDisplayDate, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-blue-50 text-blue-700 rounded-2xl hover:bg-blue-100 border border-blue-200"><FileText className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">PDF Lengkap</p></div></button>
-              <button onClick={() => { exportNeracaPDF({balance, totalUnpaidDebt: totalUnpaidDebtDisplay, totalExpenses: totalCashExpenses, totalDeposit: totalDepositDisplay, totalIncome, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-purple-50 text-purple-700 rounded-2xl hover:bg-purple-100 border border-purple-200"><FileText className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">PDF Neraca</p></div></button>
-              <button onClick={() => { exportLabaRugiPDF({totalIncome, totalHPP, totalPureOperational, totalDamagedGoods: totalLossValue, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-purple-50 text-purple-700 rounded-2xl hover:bg-purple-100 border border-purple-200"><FileText className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">PDF Laba Rugi</p></div></button>
+              <button onClick={() => { exportNeracaPDF({balance, totalUnpaidDebt: totalUnpaidDebtDisplay, totalExpenses: totalCashExpenses, totalDeposit: totalDepositDisplay, totalIncome: totalOmset, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-purple-50 text-purple-700 rounded-2xl hover:bg-purple-100 border border-purple-200"><FileText className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">PDF Neraca</p></div></button>
+              <button onClick={() => { exportLabaRugiPDF({totalIncome: totalOmset, totalHPP, totalPureOperational, totalKulakan, totalDamagedGoods: totalLossValue, startDate, endDate, storeName: selectedStoreName, onShowToast}); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-purple-50 text-purple-700 rounded-2xl hover:bg-purple-100 border border-purple-200"><FileText className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">PDF Laba Rugi</p></div></button>
 
               <div className="h-px w-full bg-gray-200 my-2"></div>
               <button onClick={() => { exportKeuntunganExcel(getProfitData(), startDate, endDate, selectedStoreName, onShowToast); setShowDownloadModal(false); }} className="w-full flex items-center gap-3 p-3 bg-green-50 text-green-700 rounded-2xl hover:bg-green-100 border border-green-200"><TableIcon className="w-5 h-5 flex-shrink-0" /><div className="text-left"><p className="font-black text-sm">Excel Laba per Barang</p></div></button>
@@ -1273,7 +1306,7 @@ const Dashboard = ({ onShowToast }) => {
         </div>
       )}
 
-      {/* MODAL HAPUS DATA (FIXED: STOK & PIUTANG AMAN) */}
+      {/* MODAL HAPUS DATA */}
       {showDeleteModal && selectedItem && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
           <div className="bg-white rounded-[32px] p-6 md:p-8 max-w-sm w-full shadow-2xl text-center">
@@ -1283,7 +1316,6 @@ const Dashboard = ({ onShowToast }) => {
               <button onClick={async () => { 
                 try {
                   if (selectedItem.isSale) {
-                    // 1. RESTORE STOK
                     if (selectedItem.items) {
                       const stockToRestore = {};
                       for (const item of selectedItem.items) {
@@ -1303,7 +1335,6 @@ const Dashboard = ({ onShowToast }) => {
                       }
                     }
 
-                    // 2. RESTORE PIUTANG & DEPOSIT
                     if (selectedItem.customerId) {
                       const customer = customers.find(c => c.id === selectedItem.customerId);
                       if (customer) {
