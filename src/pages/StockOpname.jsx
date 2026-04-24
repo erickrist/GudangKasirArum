@@ -162,7 +162,7 @@ const StockOpname = ({ onShowToast }) => {
   }, [allStockHistory, chartPeriod]);
 
   // =========================================================================
-  // FIX: GRAFIK MENGGUNAKAN HARGA SEJARAH DARI NOTA
+  // FIX: GRAFIK LABA MENGGUNAKAN HARGA SEJARAH + PLESTER NOTA JADUL
   // =========================================================================
   const profitChartData = useMemo(() => {
     const dataMap = {};
@@ -174,14 +174,21 @@ const StockOpname = ({ onShowToast }) => {
 
       if (!dataMap[key]) dataMap[key] = { label: key, pendapatan: 0, profit: 0 };
       t.items?.forEach(item => {
-        // Mengunci HPP Sejarah (bukan produk master live)
-        const historicalHpp = Number(item.capitalPrice || 0);
+        let realId = item.originalId || item.productId || item.id;
+        if (typeof realId === 'string' && realId.endsWith('_PCS')) realId = realId.replace('_PCS', '');
+        const currentProduct = products.find(p => p.id === realId);
+        
+        let historicalHpp = item.capitalPrice !== undefined ? Number(item.capitalPrice) : (currentProduct?.hpp || 0);
+        if (item.capitalPrice === undefined && ['PCS', 'KG'].includes(item.unitType?.toUpperCase()) && currentProduct && currentProduct.pcsPerCarton > 1) {
+            historicalHpp = (currentProduct.hpp || 0) / currentProduct.pcsPerCarton;
+        }
+
         dataMap[key].pendapatan += item.subtotal;
-        dataMap[key].profit += (item.subtotal - (historicalHpp * item.qty));
+        dataMap[key].profit += (item.subtotal - (historicalHpp * Number(item.qty || 0)));
       });
     });
     return Object.values(dataMap).slice(-12);
-  }, [activeTransactions, chartPeriod]);
+  }, [activeTransactions, chartPeriod, products]);
 
   const filteredProducts = useMemo(() => {
     return products.filter(product => product.name.toLowerCase().includes(searchProduct.toLowerCase()) || product.category.toLowerCase().includes(searchProduct.toLowerCase()));
@@ -201,7 +208,7 @@ const StockOpname = ({ onShowToast }) => {
   }, [allStockHistory, searchHistory, startDate, endDate]);
 
   // =========================================================================
-  // FIX AKUNTANSI: KALKULATOR LABA MENGGUNAKAN HISTORICAL COST (HARGA KUNCI)
+  // FIX AKUNTANSI: KALKULATOR LABA MENGGUNAKAN HARGA SEJARAH + PLESTER NOTA JADUL
   // =========================================================================
   const getProfitData = () => {
     const salesMap = {};
@@ -233,8 +240,8 @@ const StockOpname = ({ onShowToast }) => {
               qtyReturnedPcs: 0, 
               totalSalesValue: 0, 
               totalReturnValue: 0,
-              totalGrossHpp: 0, // TAMBAH MEMORI KUNCI HPP TRANSAKSI
-              totalReturnHpp: 0 // TAMBAH MEMORI KUNCI HPP RETUR
+              totalGrossHpp: 0, 
+              totalReturnHpp: 0 
             };
           }
 
@@ -247,8 +254,12 @@ const StockOpname = ({ onShowToast }) => {
           salesMap[realId].qtySoldPcs += itemPcs;
           salesMap[realId].totalSalesValue += Number(item.subtotal || ((item.qty || 0) * (item.price || 0) - (item.discount || 0)));
           
-          // TARIK HPP SEJARAH MUTLAK DARI NOTA (ANTI BERUBAH)
-          salesMap[realId].totalGrossHpp += Number(item.capitalPrice || 0) * Number(item.qty || 0); 
+          // TARIK HPP SEJARAH + PLESTER NOTA JADUL
+          let finalHpp = item.capitalPrice !== undefined ? Number(item.capitalPrice) : (currentProduct?.hpp || 0);
+          if (item.capitalPrice === undefined && ['PCS', 'KG'].includes(item.unitType?.toUpperCase()) && currentProduct && currentProduct.pcsPerCarton > 1) {
+              finalHpp = (currentProduct.hpp || 0) / currentProduct.pcsPerCarton;
+          }
+          salesMap[realId].totalGrossHpp += Number(finalHpp) * Number(item.qty || 0); 
         });
       }
     });
@@ -295,8 +306,14 @@ const StockOpname = ({ onShowToast }) => {
 
           salesMap[realId].qtyReturnedPcs += itemPcs;
           salesMap[realId].totalReturnValue += Number(item.qty * (item.finalPrice || item.price));
-          // TARIK HPP RETUR SEJARAH MUTLAK DARI NOTA (ANTI BERUBAH)
-          salesMap[realId].totalReturnHpp += Number(item.hpp || item.capitalPrice || 0) * Number(item.qty || 0); 
+
+          // TARIK HPP SEJARAH + PLESTER NOTA JADUL UNTUK RETUR
+          const currentProduct = products.find(p => p.id === realId);
+          let finalHpp = item.capitalPrice !== undefined ? Number(item.capitalPrice) : (item.hpp !== undefined ? Number(item.hpp) : (currentProduct?.hpp || 0));
+          if (item.capitalPrice === undefined && item.hpp === undefined && ['PCS', 'KG'].includes(item.unitType?.toUpperCase()) && currentProduct && currentProduct.pcsPerCarton > 1) {
+              finalHpp = (currentProduct.hpp || 0) / currentProduct.pcsPerCarton;
+          }
+          salesMap[realId].totalReturnHpp += Number(finalHpp) * Number(item.qty || 0); 
         });
       }
     });
@@ -322,7 +339,7 @@ const StockOpname = ({ onShowToast }) => {
 
     return Object.values(salesMap).map(data => {
       const netSales = data.totalSalesValue - data.totalReturnValue;
-      const netHpp = data.totalGrossHpp - data.totalReturnHpp; // Hitung HPP dari rekaman harga lalu
+      const netHpp = data.totalGrossHpp - data.totalReturnHpp; 
       
       return { 
          ...data, 
@@ -802,7 +819,6 @@ const StockOpname = ({ onShowToast }) => {
                 </div>
               </div>
 
-              {/* FIX: Form input Satuan Dasar */}
               {WHOLESALE_TYPES.includes(formData.unitType) && (
                  <div className="grid grid-cols-2 gap-3 mt-3">
                    <div>
