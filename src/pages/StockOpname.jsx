@@ -161,6 +161,9 @@ const StockOpname = ({ onShowToast }) => {
     return Object.values(dataMap).slice(-12);
   }, [allStockHistory, chartPeriod]);
 
+  // =========================================================================
+  // FIX: GRAFIK MENGGUNAKAN HARGA SEJARAH DARI NOTA
+  // =========================================================================
   const profitChartData = useMemo(() => {
     const dataMap = {};
     activeTransactions.forEach(t => {
@@ -171,14 +174,14 @@ const StockOpname = ({ onShowToast }) => {
 
       if (!dataMap[key]) dataMap[key] = { label: key, pendapatan: 0, profit: 0 };
       t.items?.forEach(item => {
-        const currentProduct = products.find(p => p.id === item.productId);
-        const hpp = currentProduct ? (currentProduct.hpp || 0) : 0;
+        // Mengunci HPP Sejarah (bukan produk master live)
+        const historicalHpp = Number(item.capitalPrice || 0);
         dataMap[key].pendapatan += item.subtotal;
-        dataMap[key].profit += (item.subtotal - (hpp * item.qty));
+        dataMap[key].profit += (item.subtotal - (historicalHpp * item.qty));
       });
     });
     return Object.values(dataMap).slice(-12);
-  }, [activeTransactions, products, chartPeriod]);
+  }, [activeTransactions, chartPeriod]);
 
   const filteredProducts = useMemo(() => {
     return products.filter(product => product.name.toLowerCase().includes(searchProduct.toLowerCase()) || product.category.toLowerCase().includes(searchProduct.toLowerCase()));
@@ -197,6 +200,9 @@ const StockOpname = ({ onShowToast }) => {
     });
   }, [allStockHistory, searchHistory, startDate, endDate]);
 
+  // =========================================================================
+  // FIX AKUNTANSI: KALKULATOR LABA MENGGUNAKAN HISTORICAL COST (HARGA KUNCI)
+  // =========================================================================
   const getProfitData = () => {
     const salesMap = {};
     
@@ -225,19 +231,24 @@ const StockOpname = ({ onShowToast }) => {
               pcsPerCarton: pcsPerCarton, 
               qtySoldPcs: 0, 
               qtyReturnedPcs: 0, 
-              hppPerPcs: currentProduct ? ((currentProduct.hpp || 0) / pcsPerCarton) : ((item.capitalPrice || 0) / (item.unitType === 'PCS' ? 1 : pcsPerCarton)), 
               totalSalesValue: 0, 
-              totalReturnValue: 0 
+              totalReturnValue: 0,
+              totalGrossHpp: 0, // TAMBAH MEMORI KUNCI HPP TRANSAKSI
+              totalReturnHpp: 0 // TAMBAH MEMORI KUNCI HPP RETUR
             };
           }
 
-          let itemPcs = Number(item.qty);
-          if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType?.toUpperCase())) {
-             itemPcs = Number(item.qty) * pcsPerCarton;
+          let itemPcs = Number(item.qty) || 0;
+          const isUtuh = ['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType?.toUpperCase());
+          if (isUtuh) {
+             itemPcs = itemPcs * pcsPerCarton;
           }
 
           salesMap[realId].qtySoldPcs += itemPcs;
-          salesMap[realId].totalSalesValue += Number(item.subtotal || (item.qty * item.price));
+          salesMap[realId].totalSalesValue += Number(item.subtotal || ((item.qty || 0) * (item.price || 0) - (item.discount || 0)));
+          
+          // TARIK HPP SEJARAH MUTLAK DARI NOTA (ANTI BERUBAH)
+          salesMap[realId].totalGrossHpp += Number(item.capitalPrice || 0) * Number(item.qty || 0); 
         });
       }
     });
@@ -251,7 +262,7 @@ const StockOpname = ({ onShowToast }) => {
       }
       if (matchesDate && r.items) {
         r.items.forEach(item => {
-          let realId = item.productId;
+          let realId = item.originalId || item.productId || item.id;
           if (typeof realId === 'string' && realId.endsWith('_PCS')) realId = realId.replace('_PCS', '');
 
           if (!salesMap[realId]) {
@@ -267,28 +278,31 @@ const StockOpname = ({ onShowToast }) => {
               pcsPerCarton: pcsPerCarton, 
               qtySoldPcs: 0, 
               qtyReturnedPcs: 0, 
-              hppPerPcs: currentProduct ? ((currentProduct.hpp || 0) / pcsPerCarton) : ((item.hpp || item.capitalPrice || 0) / (item.unitType === 'PCS' ? 1 : pcsPerCarton)), 
               totalSalesValue: 0, 
-              totalReturnValue: 0 
+              totalReturnValue: 0,
+              totalGrossHpp: 0,
+              totalReturnHpp: 0
             };
           }
 
-          if (salesMap[realId]) {
-            const pcsPerCarton = salesMap[realId].pcsPerCarton;
-            let itemPcs = Number(item.qty);
-            if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType?.toUpperCase()) && item.returnUnit !== 'pcs') {
-               itemPcs = Number(item.qty) * pcsPerCarton;
-            }
-
-            salesMap[realId].qtyReturnedPcs += itemPcs;
-            salesMap[realId].totalReturnValue += Number(item.qty * (item.finalPrice || item.price));
+          const pcsPerCarton = salesMap[realId].pcsPerCarton;
+          let itemPcs = Number(item.qty) || 0;
+          const isUtuh = ['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType?.toUpperCase());
+          
+          if (isUtuh && item.returnUnit !== 'pcs') {
+             itemPcs = itemPcs * pcsPerCarton;
           }
+
+          salesMap[realId].qtyReturnedPcs += itemPcs;
+          salesMap[realId].totalReturnValue += Number(item.qty * (item.finalPrice || item.price));
+          // TARIK HPP RETUR SEJARAH MUTLAK DARI NOTA (ANTI BERUBAH)
+          salesMap[realId].totalReturnHpp += Number(item.hpp || item.capitalPrice || 0) * Number(item.qty || 0); 
         });
       }
     });
 
     const formatUnitText = (totalPcs, pcsPerCarton, unitType, baseUnit) => {
-       if (totalPcs === 0) return '-';
+       if (!totalPcs || totalPcs === 0) return '-';
        
        const safeUnitType = (unitType || 'PCS').toUpperCase();
        const safeBaseUnit = (baseUnit || 'PCS').toUpperCase();
@@ -307,15 +321,14 @@ const StockOpname = ({ onShowToast }) => {
     };
 
     return Object.values(salesMap).map(data => {
-      const netPcsSold = data.qtySoldPcs - data.qtyReturnedPcs;
-      const totalHpp = Math.round(data.hppPerPcs * netPcsSold); 
-      const netSales = data.totalSalesValue - data.totalReturnValue; 
+      const netSales = data.totalSalesValue - data.totalReturnValue;
+      const netHpp = data.totalGrossHpp - data.totalReturnHpp; // Hitung HPP dari rekaman harga lalu
       
       return { 
          ...data, 
          netSales, 
-         totalHpp, 
-         profit: netSales - totalHpp,
+         totalHpp: netHpp, 
+         profit: netSales - netHpp,
          displaySold: formatUnitText(data.qtySoldPcs, data.pcsPerCarton, data.unitType, data.baseUnit),
          displayReturned: formatUnitText(data.qtyReturnedPcs, data.pcsPerCarton, data.unitType, data.baseUnit)
       };
@@ -493,9 +506,6 @@ const StockOpname = ({ onShowToast }) => {
     }
   };
 
-  // =========================================================================
-  // FIX: FUNGSI IMPORT EXCEL (MEMBACA KOLOM ECERAN DENGAN BENAR)
-  // =========================================================================
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -515,7 +525,6 @@ const StockOpname = ({ onShowToast }) => {
           const unit = (row["Satuan Utama (Karton/Ball/Pcs/dll)"] || row["Satuan (Karton/Ball/Pcs/dll)"] || row.TipeSatuan || 'PCS').toUpperCase();
           const isWholesale = WHOLESALE_TYPES.includes(unit);
           
-          // Menerima input "Satuan Eceran" yang diisi dari template excel
           const baseUnitRaw = (row["Satuan Eceran Dasar (Pcs/Kg)"] || row["Satuan Eceran Dasar"] || row.BaseUnit || 'PCS').toUpperCase();
           
           const isiPerSatuan = Number(row["Isi per Satuan Utama"] || row["Isi per Satuan (Pcs)"] || row.IsiPerUnit) || 1;

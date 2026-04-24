@@ -76,6 +76,8 @@ const CustomerSearchSelect = ({ customers, value, onChange, placeholder }) => {
 const FormRetur = ({ isOpen, onClose, onShowToast }) => {
   const { data: products, loading: loadingProducts } = useCollection('products');
   const { data: customers, loading: loadingCust } = useCollection('customers');
+  // KITA TAMBAHKAN TRANSAKSI UNTUK RADAR SEJARAH HPP
+  const { data: transactions } = useCollection('transactions', 'createdAt');
   
   const { data: stores, loading: loadingStores } = useCollection('stores');
   const { activeStoreId, handleStoreChange, getProductPrice } = usePricing(stores);
@@ -98,6 +100,16 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
     p.category.toLowerCase().includes(searchProduct.toLowerCase())
   );
 
+  const getSafeDate = (dateSource) => {
+    if (!dateSource) return new Date();
+    try {
+      if (typeof dateSource.toDate === 'function') return dateSource.toDate();
+      if (dateSource.seconds) return new Date(dateSource.seconds * 1000);
+      const date = new Date(dateSource);
+      return isNaN(date.getTime()) ? new Date() : date;
+    } catch (e) { return new Date(); }
+  };
+
   const handleCustomerSelect = (id) => {
     setSelectedCustomer(id);
     const cust = customers.find(c => c.id === id);
@@ -113,10 +125,54 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
     }
   };
 
+  // =========================================================================================
+  // FIX AKUNTANSI: MENCARI HARGA SEJARAH DARI NOTA LAMA PEMBELI SEBELUM MERETUR
+  // =========================================================================================
   const addToCartAuto = (product, isEceran = false) => {
-    const resolvedPrice = getProductPrice(product);
-    const cartItemId = isEceran ? `${product.id}_PCS` : product.id;
+    if (!selectedCustomer) {
+        return onShowToast('Pilih pembeli terlebih dahulu agar sistem bisa melacak riwayat harga belinya!', 'error');
+    }
 
+    let resolvedWholesalePrice = getProductPrice(product);
+    let resolvedWholesaleHpp = product.hpp || 0;
+    let isHistoryFound = false;
+
+    // RADAR SEJARAH: Cari di histori transaksi pembeli ini
+    if (transactions && transactions.length > 0) {
+      const pastPurchases = transactions
+        .filter(t => t.customerId === selectedCustomer)
+        .sort((a,b) => getSafeDate(b.createdAt) - getSafeDate(a.createdAt));
+      
+      for (const t of pastPurchases) {
+          const boughtItem = t.items?.find(i => {
+              let cid = i.originalId || i.productId || i.id;
+              if(typeof cid === 'string' && cid.endsWith('_PCS')) cid = cid.replace('_PCS','');
+              return cid === product.id;
+          });
+          
+          if (boughtItem) {
+              const isBoughtEceran = (boughtItem.id && boughtItem.id.includes('_PCS')) || 
+                                     (boughtItem.productId && boughtItem.productId.includes('_PCS')) || 
+                                     boughtItem.unitType === (product.baseUnit || 'PCS') || 
+                                     boughtItem.unitType === 'KG';
+              
+              const multiplier = boughtItem.pcsPerCarton || product.pcsPerCarton || 1;
+
+              // Tarik harga murni dari nota lamanya
+              if (isBoughtEceran) {
+                  resolvedWholesalePrice = boughtItem.price * multiplier;
+                  resolvedWholesaleHpp = (boughtItem.capitalPrice || boughtItem.hpp || 0) * multiplier;
+              } else {
+                  resolvedWholesalePrice = boughtItem.price;
+                  resolvedWholesaleHpp = boughtItem.capitalPrice || boughtItem.hpp || 0;
+              }
+              isHistoryFound = true;
+              break;
+          }
+      }
+    }
+
+    const cartItemId = isEceran ? `${product.id}_PCS` : product.id;
     const existing = cart.find(item => item.cartItemId === cartItemId);
     const baseUnitStr = product.baseUnit || 'PCS'; 
     
@@ -130,12 +186,18 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
         unitType: product.unitType,
         baseUnit: baseUnitStr, 
         pcsPerCarton: product.pcsPerCarton || 1,
-        price: resolvedPrice, 
-        hpp: product.hpp || 0,
+        price: resolvedWholesalePrice, // Terkunci
+        hpp: resolvedWholesaleHpp,     // Terkunci
         qty: 1,
-        returnUnit: isEceran ? 'pcs' : 'pack', // Membiarkan sebagai tanda (internal logic)
+        returnUnit: isEceran ? 'pcs' : 'pack', 
         isManual: false
       }]);
+
+      if (isHistoryFound) {
+          onShowToast('Harga Histori (Lama) berhasil ditarik dari riwayat belanja!', 'success');
+      } else {
+          onShowToast('Riwayat tidak ditemukan, menggunakan harga gudang saat ini.', 'warning');
+      }
     }
   };
 
@@ -176,16 +238,17 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
     setCart(cart.map(item => item.cartItemId === cartItemId ? { ...item, qty: qty } : item));
   };
 
+  // FIX AKUNTANSI: Menggunakan pembagian langsung agar desimal tidak hilang karena pembulatan Math.round
   const getItemPrice = (item) => {
     if (item.returnUnit === 'pcs' && item.pcsPerCarton > 1) {
-      return Math.round(item.price / item.pcsPerCarton);
+      return item.price / item.pcsPerCarton;
     }
     return item.price;
   };
 
   const getItemHpp = (item) => {
     if (item.returnUnit === 'pcs' && item.pcsPerCarton > 1) {
-      return Math.round(item.hpp / item.pcsPerCarton);
+      return item.hpp / item.pcsPerCarton;
     }
     return item.hpp;
   };
@@ -207,7 +270,6 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
     if (!cust) return;
 
     const itemDetails = cart.map(item => {
-      // FIX PENTING: Gunakan displayBase untuk menampilkan unit dengan benar!
       const displayBase = item.baseUnit || 'PCS';
       const unitLabel = item.returnUnit === 'pcs' ? displayBase : item.unitType;
       return `${item.qty} ${unitLabel} ${item.name}`;
@@ -273,6 +335,7 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
     }
 
     if (updateRes.success || updateRes.id) {
+      // MEREKAM HPP KE DATABASE RETUR UNTUK DIBACA DASHBOARD
       await addDocument('returns', {
         customerName: cust.name,
         customerId: cust.id,
@@ -284,10 +347,11 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
             name: i.name,
             qty: i.qty,
             unitType: i.unitType,
-            baseUnit: i.baseUnit || 'PCS', // Simpan baseUnit di log retur
+            baseUnit: i.baseUnit || 'PCS', 
             pcsPerCarton: i.pcsPerCarton,
-            price: i.price,
-            hpp: i.hpp,
+            price: getItemPrice(i),
+            hpp: getItemHpp(i), // HPP Terkunci masuk database!
+            capitalPrice: getItemHpp(i), // Duplikat aman untuk jaga-jaga
             returnUnit: i.returnUnit,
             finalPrice: getItemPrice(i) 
         })), 

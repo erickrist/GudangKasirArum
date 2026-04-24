@@ -66,18 +66,22 @@ const Kasir = ({ onShowToast }) => {
     }
   };
 
+  // =======================================================================
+  // FIX AKUNTANSI PENTING: MEREKAM HARGA MODAL (HPP) SAAT BARANG DITAMBAHKAN
+  // =======================================================================
   const handleAddToCartClick = (product, type = 'WHOLESALE') => {
     if (!activeStoreId && stores.length > 0) {
        return onShowToast('Silakan pilih Cabang Toko di atas terlebih dahulu!', 'error');
     }
     
     const resolvedPrice = getProductPrice(product);
-    const hppPrice = product.hpp || 0;
+    const hppPrice = Number(product.hpp) || 0; // Tarik HPP Live dari master produk
     const baseUnitStr = product.baseUnit || 'PCS';
 
     if (type === 'PCS' && product.pcsPerCarton > 1) {
-       const pcsPrice = Math.round(resolvedPrice / product.pcsPerCarton);
-       const pcsHpp = Math.round(hppPrice / product.pcsPerCarton);
+       // Hitung harga eceran dan modal eceran (Tidak dibulatkan Math.round agar tidak rugi pecahan)
+       const pcsPrice = resolvedPrice / product.pcsPerCarton;
+       const pcsHpp = hppPrice / product.pcsPerCarton; 
        
        addToCart({
           ...product,
@@ -88,7 +92,7 @@ const Kasir = ({ onShowToast }) => {
           unitType: baseUnitStr, 
           baseUnit: baseUnitStr, 
           price: pcsPrice,
-          capitalPrice: pcsHpp,
+          capitalPrice: pcsHpp, // <-- MENGUNCI HPP ECERAN
           pcsPerCarton: 1, 
        });
     } 
@@ -98,7 +102,7 @@ const Kasir = ({ onShowToast }) => {
           originalId: product.id,
           baseUnit: baseUnitStr, 
           price: resolvedPrice,
-          capitalPrice: hppPrice
+          capitalPrice: hppPrice // <-- MENGUNCI HPP UTUH
        });
     }
   };
@@ -175,6 +179,9 @@ const Kasir = ({ onShowToast }) => {
 
     const activeStoreName = stores.find(s => s.id === activeStoreId)?.name || 'Cabang Pusat / Utama';
 
+    // =======================================================================
+    // FIX AKUNTANSI PENTING: MENYIMPAN HPP KE DALAM DATABASE PERMANEN
+    // =======================================================================
     const transactionData = {
       storeId: activeStoreId || 'pusat',
       storeName: activeStoreName,
@@ -191,26 +198,22 @@ const Kasir = ({ onShowToast }) => {
         const dbProduct = products.find(p => p.id === cleanId);
         const trueBaseUnit = dbProduct?.baseUnit || 'PCS';
         
-        // =================================================================
-        // FIX: Cek apakah item di keranjang ini adalah Eceran!
-        // Jika eceran, unitType HARUS pakai KG. Jika utuh, pakai KARTON.
-        // =================================================================
         const isEceranCart = (item.id && item.id.includes('_PCS')) || (item.productId && item.productId.includes('_PCS'));
         const trueUnitType = isEceranCart ? trueBaseUnit : (dbProduct?.unitType || item.unitType);
-        
         const truePcsPerCarton = dbProduct?.pcsPerCarton || item.pcsPerCarton;
 
         return {
           productId: cleanId, 
           name: item.name,
-          qty: item.qty,
+          qty: Number(item.qty),
           unitType: trueUnitType, 
           baseUnit: trueBaseUnit, 
           pcsPerCarton: truePcsPerCarton, 
-          price: item.price, 
-          capitalPrice: item.capitalPrice || 0, 
+          price: Number(item.price), 
+          // MENGUNCI HARGA MODAL (HPP) DARI MEMORI KERANJANG KE NOTA
+          capitalPrice: item.capitalPrice !== undefined ? item.capitalPrice : (Number(dbProduct?.hpp) || 0), 
           discount: item.discount || 0,
-          subtotal: item.price * item.qty - (item.discount || 0),
+          subtotal: Number(item.price) * Number(item.qty) - (item.discount || 0),
         };
       }),
       subtotal: subtotal,
