@@ -28,7 +28,7 @@ export const exportMasterExcel = ({
   });
   if (inData.length > 0) {
     inData.push({ 'Tanggal & Jam': 'TOTAL PEMASUKAN', 'Metode': '', 'Nama Pembeli': '', 'Keterangan Rinci': '', 'Nominal': `Rp ${totalIn.toLocaleString('id-ID')}` });
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(inData), "1. Pemasukan");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(inData), "1. Pemasukan Penjualan");
   }
 
   // PISAHKAN PENGELUARAN JADI 2 (OPERASIONAL & KULAKAN)
@@ -112,12 +112,12 @@ export const exportMasterExcel = ({
   });
   if (netData.length > 0) {
     netData.push({ 'Tanggal & Jam': `TOTAL KAS MASUK: Rp ${netIn.toLocaleString('id-ID')} | KAS KELUAR: Rp ${netOut.toLocaleString('id-ID')}`, 'Kategori': '', 'Nama/Subjek': '', 'Keterangan Rinci': 'SALDO AKHIR:', 'Nominal': `Rp ${(netIn - netOut).toLocaleString('id-ID')}` });
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(netData), "7. Saldo Bersih");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(netData), "7. Saldo Bersih Laci");
   }
 
   const fileName = storeName === 'Semua Cabang' ? 'Laporan_Global' : `Laporan_${storeName.replace(/\s+/g, '_')}`;
-  XLSX.writeFile(wb, `${fileName}_${startDate||'Awal'}_sd_${endDate||'Sekarang'}.xlsx`);
-  onShowToast('File Excel Berhasil Diunduh', 'success');
+  XLSX.writeFile(wb, `${fileName}_${Date.now()}.xlsx`);
+  onShowToast('File Excel Lengkap Berhasil Diunduh', 'success');
 };
 
 export const exportNeracaExcel = ({ balance, totalUnpaidDebt, totalExpenses, totalDeposit, totalIncome, startDate, endDate, storeName, onShowToast }) => {
@@ -158,8 +158,8 @@ export const exportLabaRugiExcel = ({ totalIncome, totalHPP, totalPureOperationa
     [`ARZEN Frozen Food ${storeName && storeName !== 'Semua Cabang' ? `- Cabang ${storeName}` : ''}`], 
     [`Periode: ${startDate || 'Awal'} s/d ${endDate || 'Sekarang'}`], [],
     ['Keterangan', 'Nominal (Rp)'],
-    ['1. TOTAL OMSET PENJUALAN (Kotor)', totalIncome],
-    ['2. TOTAL MODAL BARANG KELUAR (HPP)', `-${totalHPP}`],
+    ['1. TOTAL OMSET PENJUALAN (Barang Keluar)', totalIncome],
+    ['2. TOTAL MODAL BARANG KELUAR (HPP Terkunci)', `-${totalHPP}`],
     ['LABA KOTOR', labaKotor], [],
     ['3. BEBAN OPERASIONAL LACI KASIR', `-${totalPureOperational}`],
     ['4. KERUGIAN (RETUR / BARANG RUSAK)', `-${totalDamagedGoods}`], [],
@@ -180,51 +180,64 @@ export const exportLabaRugiExcel = ({ totalIncome, totalHPP, totalPureOperationa
   onShowToast('File Excel Laba Rugi berhasil diunduh', 'success');
 };
 
+// ==========================================
+// FIX: EXPORT TEMPLATE PRODUK (TAMBAH KOLOM ECERAN)
+// ==========================================
 export const exportTemplateProduk = (stores, onShowToast) => {
   const baseData = {
     "Nama Barang": 'Susu UHT 1L (Contoh)',
     "Kategori": 'Minuman',
-    "Satuan (Karton/Ball/Pcs/dll)": 'KARTON',
-    "Isi per Satuan (Pcs)": 12,
-    "Harga Beli Modal (Satuan)": 130000,
-    "Harga Jual Default (Satuan)": 150000,
+    "Satuan Utama (Karton/Ball/Pcs/dll)": 'KARTON',
+    "Satuan Eceran Dasar (Pcs/Kg)": 'PCS',
+    "Isi per Satuan Utama": 12,
+    "Harga Beli Modal (Satuan Utama)": 130000,
+    "Harga Jual Default (Satuan Utama)": 150000,
   };
 
   stores.forEach(store => {
     baseData[`Harga Jual (${store.name})`] = 155000;
   });
 
-  baseData["stock Saat Ini (Satuan)"] = 10;
+  baseData["Stok Saat Ini (Satuan Utama)"] = 10;
   baseData["Url Gambar"] = '';
 
   const worksheet = XLSX.utils.json_to_sheet([baseData]);
+  
+  // Lebarkan kolom
+  worksheet['!cols'] = [{ wch: 30 }, { wch: 15 }, { wch: 30 }, { wch: 25 }, { wch: 20 }, { wch: 30 }, { wch: 30 }];
+  
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, "Template_Produk");
   XLSX.writeFile(workbook, "Template_Import_Produk.xlsx");
   onShowToast('Template Excel Multi-Toko berhasil diunduh', 'success');
 };
 
+// ==========================================
+// FIX: EXPORT DATA PRODUK (BACKUP)
+// ==========================================
 export const exportDataProduk = (products, stores, onShowToast) => {
   if (products.length === 0) return onShowToast('Tidak ada produk untuk diexport', 'error');
 
   const exportData = products.map(p => {
     const isiPerSatuan = Number(p.pcsPerCarton) || 1;
+    // Stok diubah kembali menjadi satuan utuh untuk diexport
     const stockSatuan = Math.floor((Number(p.stockPcs) || 0) / isiPerSatuan);
     
     const row = {
       "Nama Barang": p.name || '',
       "Kategori": p.category || 'Umum',
-      "Satuan (Karton/Ball/Pcs/dll)": p.unitType || 'PCS',
-      "Isi per Satuan (Pcs)": isiPerSatuan,
-      "Harga Beli Modal (Satuan)": Number(p.hpp) || 0,
-      "Harga Jual Default (Satuan)": Number(p.defaultPrice || p.price) || 0,
+      "Satuan Utama (Karton/Ball/Pcs/dll)": p.unitType || 'PCS',
+      "Satuan Eceran Dasar (Pcs/Kg)": p.baseUnit || 'PCS',
+      "Isi per Satuan Utama": isiPerSatuan,
+      "Harga Beli Modal (Satuan Utama)": Number(p.hpp) || 0,
+      "Harga Jual Default (Satuan Utama)": Number(p.defaultPrice || p.price) || 0,
     };
 
     stores.forEach(store => {
        row[`Harga Jual (${store.name})`] = p.storePrices?.[store.id] !== undefined ? p.storePrices[store.id] : (p.defaultPrice || p.price || 0);
     });
 
-    row["stock Saat Ini (Satuan)"] = stockSatuan;
+    row["Stok Saat Ini (Satuan Utama)"] = stockSatuan;
     row["Url Gambar"] = p.image || '';
 
     return row;
@@ -238,7 +251,7 @@ export const exportDataProduk = (products, stores, onShowToast) => {
 };
 
 export const exportHistoristockExcel = (filteredHistory, startDate, endDate, storeName, formatDisplayDate, onShowToast) => {
-  if (filteredHistory.length === 0) return onShowToast('Tidak ada data untuk diexport', 'error');
+  if (filteredHistory.length === 0) return onShowToast('Tidak ada data histori untuk diexport', 'error');
   
   const reportData = filteredHistory.map(log => {
     let pcsPerCarton = 1;
@@ -265,21 +278,21 @@ export const exportHistoristockExcel = (filteredHistory, startDate, endDate, sto
   const ws = XLSX.utils.json_to_sheet(reportData);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, `Histori_${storeName}`);
-  XLSX.writeFile(wb, `Histori_stock_${storeName}_${startDate||'Awal'}_sd_${endDate||'Sekarang'}.xlsx`);
-  onShowToast('Histori stock Excel berhasil diunduh', 'success');
+  XLSX.writeFile(wb, `Histori_Stok_${storeName}_${Date.now()}.xlsx`);
+  onShowToast('Histori Stok Excel berhasil diunduh', 'success');
 };
 
 export const exportKeuntunganExcel = (profitData, startDate, endDate, storeName, onShowToast) => {
-  if (profitData.length === 0) return onShowToast('Tidak ada data penjualan kasir di periode/cabang ini', 'error');
+  if (profitData.length === 0) return onShowToast('Tidak ada data penjualan kasir di periode ini', 'error');
 
   const reportData = profitData.map(item => {
     return {
       'Nama Barang': item.name,
-      'Total Terjual': item.displaySold || '-',
-      'Total Diretur': item.displayReturned || '-',
-      'Total Modal (HPP)': item.totalHpp, 
-      'Pendapatan Bersih': item.netSales, 
-      'Laba / (Rugi) Bersih': item.profit 
+      'Total Terjual (Utuh + Ecer)': item.displaySold || '-',
+      'Diretur (Utuh + Ecer)': item.displayReturned || '-',
+      'Modal (HPP Terkunci)': item.totalHpp, 
+      'Omset Jual': item.netSales, 
+      'Laba Bersih': item.profit 
     };
   });
 
@@ -288,13 +301,20 @@ export const exportKeuntunganExcel = (profitData, startDate, endDate, storeName,
   const totalUntungRugi = profitData.reduce((sum, item) => sum + item.profit, 0);
 
   reportData.push({
-    'Nama Barang': 'TOTAL KESELURUHAN', 'Total Terjual': '', 'Total Diretur': '',
-    'Total Modal (HPP)': totalModal, 'Pendapatan Bersih': totalPendapatan, 'Laba / (Rugi) Bersih': totalUntungRugi
+    'Nama Barang': 'TOTAL KESELURUHAN', 
+    'Total Terjual (Utuh + Ecer)': '', 
+    'Diretur (Utuh + Ecer)': '',
+    'Modal (HPP Terkunci)': totalModal, 
+    'Omset Jual': totalPendapatan, 
+    'Laba Bersih': totalUntungRugi
   });
 
   const ws = XLSX.utils.json_to_sheet(reportData);
+  
+  ws['!cols'] = [{ wch: 35 }, { wch: 25 }, { wch: 25 }, { wch: 20 }, { wch: 20 }, { wch: 20 }];
+  
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, `Laba_${storeName}`);
-  XLSX.writeFile(wb, `Laporan_Keuntungan_${storeName}_${startDate||'Awal'}_sd_${endDate||'Sekarang'}.xlsx`);
-  onShowToast('Laporan Keuntungan Excel berhasil diunduh', 'success');
+  XLSX.writeFile(wb, `Laporan_Laba_Per_Barang_${storeName}_${Date.now()}.xlsx`);
+  onShowToast('Laporan Laba Per Barang Excel berhasil diunduh', 'success');
 };

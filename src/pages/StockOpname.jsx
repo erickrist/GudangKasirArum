@@ -197,9 +197,6 @@ const StockOpname = ({ onShowToast }) => {
     });
   }, [allStockHistory, searchHistory, startDate, endDate]);
 
-  // =========================================================================
-  // FIX: KALKULATOR LABA (SAMA PERSIS DENGAN DASHBOARD: BISA KG & DESIMAL)
-  // =========================================================================
   const getProfitData = () => {
     const salesMap = {};
     
@@ -254,7 +251,7 @@ const StockOpname = ({ onShowToast }) => {
       }
       if (matchesDate && r.items) {
         r.items.forEach(item => {
-          let realId = item.originalId || item.productId || item.id;
+          let realId = item.productId;
           if (typeof realId === 'string' && realId.endsWith('_PCS')) realId = realId.replace('_PCS', '');
 
           if (!salesMap[realId]) {
@@ -276,14 +273,16 @@ const StockOpname = ({ onShowToast }) => {
             };
           }
 
-          const pcsPerCarton = salesMap[realId].pcsPerCarton;
-          let itemPcs = Number(item.qty);
-          if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType?.toUpperCase()) && item.returnUnit !== 'pcs') {
-             itemPcs = Number(item.qty) * pcsPerCarton;
-          }
+          if (salesMap[realId]) {
+            const pcsPerCarton = salesMap[realId].pcsPerCarton;
+            let itemPcs = Number(item.qty);
+            if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType?.toUpperCase()) && item.returnUnit !== 'pcs') {
+               itemPcs = Number(item.qty) * pcsPerCarton;
+            }
 
-          salesMap[realId].qtyReturnedPcs += itemPcs;
-          salesMap[realId].totalReturnValue += Number(item.qty * (item.finalPrice || item.price));
+            salesMap[realId].qtyReturnedPcs += itemPcs;
+            salesMap[realId].totalReturnValue += Number(item.qty * (item.finalPrice || item.price));
+          }
         });
       }
     });
@@ -293,11 +292,12 @@ const StockOpname = ({ onShowToast }) => {
        
        const safeUnitType = (unitType || 'PCS').toUpperCase();
        const safeBaseUnit = (baseUnit || 'PCS').toUpperCase();
+       const pCarton = Number(pcsPerCarton) || 1;
 
-       if (pcsPerCarton <= 1 || ['PCS', 'KG'].includes(safeUnitType)) return `${totalPcs} ${safeBaseUnit}`;
+       if (pCarton <= 1 || ['PCS', 'KG'].includes(safeUnitType)) return `${totalPcs} ${safeBaseUnit}`;
        
-       const utuh = Math.floor(totalPcs / pcsPerCarton);
-       const ecer = Number((totalPcs % pcsPerCarton).toFixed(2));
+       const utuh = Math.floor(totalPcs / pCarton);
+       const ecer = Number((totalPcs % pCarton).toFixed(2));
        
        let textParts = [];
        if (utuh > 0) textParts.push(`${utuh} ${safeUnitType}`);
@@ -308,7 +308,7 @@ const StockOpname = ({ onShowToast }) => {
 
     return Object.values(salesMap).map(data => {
       const netPcsSold = data.qtySoldPcs - data.qtyReturnedPcs;
-      const totalHpp = Math.round(data.hppPerPcs * netPcsSold);
+      const totalHpp = Math.round(data.hppPerPcs * netPcsSold); 
       const netSales = data.totalSalesValue - data.totalReturnValue; 
       
       return { 
@@ -346,7 +346,7 @@ const StockOpname = ({ onShowToast }) => {
       const newStorePrices = {};
       stores.forEach(store => { newStorePrices[store.id] = currentStorePrices[store.id] || ''; });
       productData.storePrices = newStorePrices;
-      productData.baseUnit = productData.baseUnit || 'PCS';
+      productData.baseUnit = productData.baseUnit || 'PCS'; 
       
       setFormData(productData); 
       setSelectedProduct(productData); 
@@ -493,6 +493,9 @@ const StockOpname = ({ onShowToast }) => {
     }
   };
 
+  // =========================================================================
+  // FIX: FUNGSI IMPORT EXCEL (MEMBACA KOLOM ECERAN DENGAN BENAR)
+  // =========================================================================
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -509,12 +512,17 @@ const StockOpname = ({ onShowToast }) => {
           const rawName = row["Nama Barang"] || row.Nama;
           if (!rawName) continue;
           
-          const unit = (row["Satuan (Karton/Ball/Pcs/dll)"] || row.TipeSatuan || 'PCS').toUpperCase();
+          const unit = (row["Satuan Utama (Karton/Ball/Pcs/dll)"] || row["Satuan (Karton/Ball/Pcs/dll)"] || row.TipeSatuan || 'PCS').toUpperCase();
           const isWholesale = WHOLESALE_TYPES.includes(unit);
-          const isiPerSatuan = Number(row["Isi per Satuan (Pcs)"] || row.IsiPerUnit) || 1;
-          const stockSatuan = Number(row["stock Saat Ini (Satuan)"] || row.stockPcs) || 0;
           
-          const defaultPrice = parseFloat(row["Harga Jual Default (Satuan)"] || row["Harga Jual (Satuan)"] || row.HargaJual || row.Harga) || 0;
+          // Menerima input "Satuan Eceran" yang diisi dari template excel
+          const baseUnitRaw = (row["Satuan Eceran Dasar (Pcs/Kg)"] || row["Satuan Eceran Dasar"] || row.BaseUnit || 'PCS').toUpperCase();
+          
+          const isiPerSatuan = Number(row["Isi per Satuan Utama"] || row["Isi per Satuan (Pcs)"] || row.IsiPerUnit) || 1;
+          const stockSatuan = Number(row["Stok Saat Ini (Satuan Utama)"] || row["stock Saat Ini (Satuan)"] || row.stockPcs) || 0;
+          
+          const defaultPrice = parseFloat(row["Harga Jual Default (Satuan Utama)"] || row["Harga Jual Default (Satuan)"] || row["Harga Jual (Satuan)"] || row.HargaJual || row.Harga) || 0;
+          const hppValue = parseFloat(row["Harga Beli Modal (Satuan Utama)"] || row["Harga Beli Modal (Satuan)"] || row.HargaBeli) || 0;
 
           const dynamicStorePrices = {};
           stores.forEach(store => {
@@ -527,11 +535,16 @@ const StockOpname = ({ onShowToast }) => {
           });
 
           const productData = {
-            name: rawName, category: row["Kategori"] || row.Kategori || 'Umum', unitType: unit,
-            baseUnit: 'PCS', 
-            hpp: parseFloat(row["Harga Beli Modal (Satuan)"] || row.HargaBeli) || 0,
-            price: defaultPrice, defaultPrice: defaultPrice, storePrices: dynamicStorePrices,
-            pcsPerCarton: isWholesale ? isiPerSatuan : 1, stockPcs: stockSatuan * (isWholesale ? isiPerSatuan : 1),
+            name: rawName, 
+            category: row["Kategori"] || row.Kategori || 'Umum', 
+            unitType: unit,
+            baseUnit: isWholesale ? baseUnitRaw : unit, 
+            hpp: hppValue,
+            price: defaultPrice, 
+            defaultPrice: defaultPrice, 
+            storePrices: dynamicStorePrices,
+            pcsPerCarton: isWholesale ? isiPerSatuan : 1, 
+            stockPcs: stockSatuan * (isWholesale ? isiPerSatuan : 1),
             image: row["Url Gambar"] || row.UrlGambar || '',
           };
 
@@ -540,13 +553,13 @@ const StockOpname = ({ onShowToast }) => {
              await updateDocument('products', existingProduct.id, productData); updateCount++;
              if (productData.stockPcs !== existingProduct.stockPcs) {
                 const diff = productData.stockPcs - existingProduct.stockPcs;
-                await addDocument('stock_logs', { productId: existingProduct.id, productName: productData.name, type: diff > 0 ? 'in' : 'out', amount: Math.abs(diff), unitType: 'PCS', totalPcs: Math.abs(diff), note: 'Import Excel', createdAt: new Date() });
+                await addDocument('stock_logs', { productId: existingProduct.id, productName: productData.name, type: diff > 0 ? 'in' : 'out', amount: Math.abs(diff), unitType: productData.baseUnit, totalPcs: Math.abs(diff), note: 'Import Excel', createdAt: new Date() });
              }
           } else {
              const result = await addDocument('products', productData);
              if (result.success) {
                successCount++;
-               if (productData.stockPcs > 0) await addDocument('stock_logs', { productId: result.id, productName: productData.name, type: 'in', amount: productData.stockPcs, unitType: 'PCS', totalPcs: productData.stockPcs, note: `Import Excel`, createdAt: new Date() });
+               if (productData.stockPcs > 0) await addDocument('stock_logs', { productId: result.id, productName: productData.name, type: 'in', amount: productData.stockPcs, unitType: productData.baseUnit, totalPcs: productData.stockPcs, note: `Import Excel`, createdAt: new Date() });
              }
           }
         }

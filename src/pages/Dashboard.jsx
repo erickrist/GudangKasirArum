@@ -126,10 +126,8 @@ const Dashboard = ({ onShowToast }) => {
     });
   }, [activeStoreReturns, startDate, endDate]);
 
-  // KAS MASUK FISIK LACI (Untuk Ditampilkan di Kotak Pemasukan)
   const totalCashIn = useMemo(() => dateFilteredTransactions.reduce((sum, t) => sum + (Number(t.total) || 0), 0), [dateFilteredTransactions]);
   
-  // OMSET KOTOR (Untuk Perhitungan Laba agar tidak minus)
   const totalOmset = useMemo(() => dateFilteredTransactions.reduce((sum, t) => {
     const systemNotes = ['Pelunasan Hutang Manual', 'Penambahan Hutang Manual', 'Koreksi Hutang (Bertambah)', 'Koreksi Hutang (Berkurang)'];
     if (systemNotes.includes(t.note)) return sum;
@@ -147,26 +145,14 @@ const Dashboard = ({ onShowToast }) => {
 
   const balance = totalCashIn - totalCashExpenses;
 
-  // HPP MENGGUNAKAN HARGA MASTER LIVE
+  // =========================================================================================
+  // FIX AKUNTANSI PENTING: HPP MENGGUNAKAN DATA SEJARAH TRANSAKSI YANG DIKUNCI (HISTORICAL COST)
+  // =========================================================================================
   const totalHPP = useMemo(() => dateFilteredTransactions.reduce((sum, t) => {
     if (!t.items) return sum;
-    const itemHpp = t.items.reduce((iSum, i) => {
-        let realId = i.originalId || i.productId || i.id;
-        if (typeof realId === 'string' && realId.endsWith('_PCS')) realId = realId.replace('_PCS', '');
-        
-        const p = products.find(prod => prod.id === realId);
-        const pcsPerCarton = p ? (p.pcsPerCarton || 1) : (i.pcsPerCarton || 1);
-        
-        const hppPerPcs = p ? ((p.hpp || 0) / pcsPerCarton) : ((i.capitalPrice || 0) / (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(i.unitType?.toUpperCase()) ? 1 : pcsPerCarton));
-        
-        let qtyPcs = Number(i.qty);
-        if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(i.unitType?.toUpperCase())) {
-            qtyPcs = qtyPcs * pcsPerCarton;
-        }
-        return iSum + (hppPerPcs * qtyPcs);
-    }, 0);
+    const itemHpp = t.items.reduce((iSum, i) => iSum + (Number(i.capitalPrice || 0) * Number(i.qty || 0)), 0);
     return sum + itemHpp;
-  }, 0), [dateFilteredTransactions, products]);
+  }, 0), [dateFilteredTransactions]);
 
   const totalOperationalExpenses = useMemo(() => 
     dateFilteredExpenses
@@ -202,26 +188,16 @@ const Dashboard = ({ onShowToast }) => {
         const expTime = getSafeDate(exp.createdAt).getTime();
         const matchedReturn = dateFilteredReturns.find(r => r.refundType === 'cash' && Math.abs(getSafeDate(r.createdAt).getTime() - expTime) <= 5000);
         if (matchedReturn && matchedReturn.items) {
+            // FIX AKUNTANSI: Gunakan HPP Sejarah Retur
             const totalHpp = matchedReturn.items.reduce((sum, item) => {
-                let realId = item.originalId || item.productId || item.id;
-                if (typeof realId === 'string' && realId.endsWith('_PCS')) realId = realId.replace('_PCS', '');
-                
-                const p = products.find(prod => prod.id === realId);
-                const pcsPerCarton = p ? (p.pcsPerCarton || 1) : (item.pcsPerCarton || 1);
-                const hppPerPcs = p ? ((p.hpp || 0) / pcsPerCarton) : ((item.hpp || item.capitalPrice || 0) / (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType?.toUpperCase()) ? 1 : pcsPerCarton));
-                
-                let qtyPcs = Number(item.qty);
-                if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType?.toUpperCase()) && item.returnUnit !== 'pcs') {
-                   qtyPcs = qtyPcs * pcsPerCarton;
-                }
-                return sum + (hppPerPcs * qtyPcs);
+                return sum + ((Number(item.hpp) || Number(item.capitalPrice) || 0) * Number(item.qty || 0));
             }, 0);
             const labaBatal = Math.max(0, exp.amount - totalHpp);
             total += labaBatal;
         }
     });
     return total;
-  }, [dateFilteredExpenses, dateFilteredReturns, products]);
+  }, [dateFilteredExpenses, dateFilteredReturns]);
 
   const totalLossValue = totalDamagedGoods + totalReturnExpenses + totalReturnCashSupplierLabaBatal;
   const totalPureOperational = totalOperationalExpenses - totalDamagedGoods - totalReturnExpenses;
@@ -345,6 +321,9 @@ const Dashboard = ({ onShowToast }) => {
   const filteredDepositHistory = useMemo(() => applyFilters(depositLogs, ['customerName', 'note', 'reason']), [depositLogs, searchTerm, startDate, endDate]);
   const filteredNetBalance = useMemo(() => applyFilters(netLogs, ['customerName', 'note', 'title', 'subjName', 'detailNote']), [netLogs, searchTerm, startDate, endDate]);
 
+  // =========================================================================
+  // FIX AKUNTANSI: PENARIKAN HPP MURNI DARI NOTA SEJARAH & REKAP ECERAN
+  // =========================================================================
   const getProfitData = () => {
     const salesMap = {};
     
@@ -357,8 +336,11 @@ const Dashboard = ({ onShowToast }) => {
       }
       if (matchesDate && t.items) {
         t.items.forEach(item => {
+          // Secara otomatis menghapus akhiran _PCS agar Grosir & Eceran bergabung di satu nama
           let realId = item.originalId || item.productId || item.id;
-          if (typeof realId === 'string' && realId.endsWith('_PCS')) realId = realId.replace('_PCS', '');
+          if (typeof realId === 'string') {
+              realId = realId.replace('_PCS', '');
+          }
 
           const currentProduct = products.find(p => p.id === realId);
           const realUnit = currentProduct ? currentProduct.unitType : (item.unitType === 'PCS' ? 'KARTON' : item.unitType);
@@ -373,19 +355,25 @@ const Dashboard = ({ onShowToast }) => {
               pcsPerCarton: pcsPerCarton, 
               qtySoldPcs: 0, 
               qtyReturnedPcs: 0, 
-              hppPerPcs: currentProduct ? ((currentProduct.hpp || 0) / pcsPerCarton) : ((item.capitalPrice || 0) / (item.unitType === 'PCS' ? 1 : pcsPerCarton)), 
               totalSalesValue: 0, 
-              totalReturnValue: 0
+              totalReturnValue: 0,
+              totalGrossHpp: 0, // MENGUNCI MODAL SEJARAH TRANSAKSI
+              totalReturnHpp: 0 
             };
           }
 
-          let itemPcs = Number(item.qty);
-          if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType?.toUpperCase())) {
-             itemPcs = Number(item.qty) * pcsPerCarton;
+          let itemPcs = Number(item.qty) || 0;
+          // Cek apakah item ini terjual utuh (karton/ball) atau eceran
+          const isUtuh = ['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType?.toUpperCase());
+          if (isUtuh) {
+             itemPcs = itemPcs * pcsPerCarton;
           }
 
           salesMap[realId].qtySoldPcs += itemPcs;
           salesMap[realId].totalSalesValue += Number(item.subtotal || ((item.qty || 0) * (item.price || 0) - (item.discount || 0)));
+          
+          // TARIK HPP SEJARAH (MENGUNCI HARGA MASA LALU)
+          salesMap[realId].totalGrossHpp += Number(item.capitalPrice || 0) * Number(item.qty || 0); 
         });
       }
     });
@@ -400,7 +388,9 @@ const Dashboard = ({ onShowToast }) => {
       if (matchesDate && r.items) {
         r.items.forEach(item => {
           let realId = item.originalId || item.productId || item.id;
-          if (typeof realId === 'string' && realId.endsWith('_PCS')) realId = realId.replace('_PCS', '');
+          if (typeof realId === 'string') {
+              realId = realId.replace('_PCS', '');
+          }
 
           if (!salesMap[realId]) {
             const currentProduct = products.find(p => p.id === realId);
@@ -415,34 +405,39 @@ const Dashboard = ({ onShowToast }) => {
               pcsPerCarton: pcsPerCarton, 
               qtySoldPcs: 0, 
               qtyReturnedPcs: 0, 
-              hppPerPcs: currentProduct ? ((currentProduct.hpp || 0) / pcsPerCarton) : ((item.hpp || item.capitalPrice || 0) / (item.unitType === 'PCS' ? 1 : pcsPerCarton)), 
               totalSalesValue: 0, 
-              totalReturnValue: 0
+              totalReturnValue: 0,
+              totalGrossHpp: 0,
+              totalReturnHpp: 0
             };
           }
 
           const pcsPerCarton = salesMap[realId].pcsPerCarton;
-          let itemPcs = Number(item.qty);
-          if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType?.toUpperCase()) && item.returnUnit !== 'pcs') {
-             itemPcs = Number(item.qty) * pcsPerCarton;
+          let itemPcs = Number(item.qty) || 0;
+          const isUtuh = ['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType?.toUpperCase());
+          
+          if (isUtuh && item.returnUnit !== 'pcs') {
+             itemPcs = itemPcs * pcsPerCarton;
           }
 
           salesMap[realId].qtyReturnedPcs += itemPcs;
           salesMap[realId].totalReturnValue += Number(item.qty * (item.finalPrice || item.price));
+          salesMap[realId].totalReturnHpp += Number(item.hpp || item.capitalPrice || 0) * Number(item.qty || 0); 
         });
       }
     });
 
     const formatUnitText = (totalPcs, pcsPerCarton, unitType, baseUnit) => {
-       if (totalPcs === 0) return '-';
+       if (!totalPcs || totalPcs === 0) return '-';
        
        const safeUnitType = (unitType || 'PCS').toUpperCase();
        const safeBaseUnit = (baseUnit || 'PCS').toUpperCase();
+       const pCarton = Number(pcsPerCarton) || 1;
 
-       if (pcsPerCarton <= 1 || ['PCS', 'KG'].includes(safeUnitType)) return `${totalPcs} ${safeBaseUnit}`;
+       if (pCarton <= 1 || ['PCS', 'KG'].includes(safeUnitType)) return `${totalPcs} ${safeBaseUnit}`;
        
-       const utuh = Math.floor(totalPcs / pcsPerCarton);
-       const ecer = Number((totalPcs % pcsPerCarton).toFixed(2));
+       const utuh = Math.floor(totalPcs / pCarton);
+       const ecer = Number((totalPcs % pCarton).toFixed(2));
        
        let textParts = [];
        if (utuh > 0) textParts.push(`${utuh} ${safeUnitType}`);
@@ -453,14 +448,13 @@ const Dashboard = ({ onShowToast }) => {
 
     return Object.values(salesMap).map(data => {
       const netSales = data.totalSalesValue - data.totalReturnValue;
-      const netPcsSold = data.qtySoldPcs - data.qtyReturnedPcs;
-      const totalHpp = Math.round(data.hppPerPcs * netPcsSold); 
+      const netHpp = data.totalGrossHpp - data.totalReturnHpp; 
       
       return { 
          ...data, 
          netSales, 
-         totalHpp: totalHpp, 
-         profit: netSales - totalHpp,
+         totalHpp: netHpp, 
+         profit: netSales - netHpp,
          displaySold: formatUnitText(data.qtySoldPcs, data.pcsPerCarton, data.unitType, data.baseUnit),
          displayReturned: formatUnitText(data.qtyReturnedPcs, data.pcsPerCarton, data.unitType, data.baseUnit)
       };
@@ -797,7 +791,6 @@ const Dashboard = ({ onShowToast }) => {
           <p className="text-[9px] font-bold text-red-400 mt-auto pt-2 border-t border-dashed border-red-100 uppercase">Otomatis Potong Laba</p>
         </div>
 
-        {/* KOTAK PEMASUKAN MENGGUNAKAN UANG FISIK */}
         <div onClick={() => navigateToTab('transactions')} className="min-w-[180px] md:min-w-[240px] flex-shrink-0 snap-start bg-white rounded-2xl shadow-sm p-4 md:p-6 border-b-4 border-teal-500 cursor-pointer hover:-translate-y-1 hover:shadow-md transition-all flex flex-col justify-between">
           <p className="text-[10px] md:text-[11px] font-black text-gray-400 uppercase mb-2">Total Pemasukan Kasir</p>
           <h3 className="text-lg md:text-2xl font-black text-teal-700 mb-1">Rp {(totalCashIn || 0).toLocaleString('id-ID')}</h3>
@@ -1211,7 +1204,7 @@ const Dashboard = ({ onShowToast }) => {
         </div>
       )}
 
-      {/* MODAL DOWNLOAD (FIX: MENYAMBUNGKAN TOTAL KULAKAN KE EXPORT) */}
+      {/* MODAL DOWNLOAD */}
       {showDownloadModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
           <div className="bg-white rounded-[32px] p-6 md:p-8 max-w-sm w-full shadow-2xl relative border-t-8 border-blue-600">
