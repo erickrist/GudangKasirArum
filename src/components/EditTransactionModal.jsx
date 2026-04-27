@@ -42,7 +42,7 @@ const EditTransactionModal = ({ isOpen, onClose, transaction, products = [], cus
   );
 
   // =======================================================================
-  // FIX: HANDLER TAMBAH BARANG (MENDUKUNG UTUH & ECERAN) + KUNCI HPP
+  // HANDLER TAMBAH BARANG (MENDUKUNG UTUH & ECERAN) + KUNCI HPP
   // =======================================================================
   const handleAddProduct = (product, type = 'WHOLESALE') => {
     const baseUnitStr = product.baseUnit || 'PCS';
@@ -86,20 +86,20 @@ const EditTransactionModal = ({ isOpen, onClose, transaction, products = [], cus
     onShowToast(`${product.name} ${isEceran ? '(Eceran)' : ''} ditambahkan ke revisi nota`, 'success');
   };
 
-  // Handler untuk tombol +/-
+  // FIX: Menggunakan parseFloat agar mendukung desimal/Koma (KG)
   const handleQtyClickAdjustment = (index, delta) => {
     const newItems = [...items];
-    const currentQty = parseInt(newItems[index].qty) || 0;
+    const currentQty = parseFloat(newItems[index].qty) || 0;
     const newQty = currentQty + delta;
     
-    if (newQty < 1) return;
+    if (newQty <= 0) return;
 
     newItems[index].qty = newQty;
     newItems[index].subtotal = (newItems[index].price * newQty) - (newItems[index].discount || 0);
     setItems(newItems);
   };
 
-  // Handler untuk mengetik langsung di input
+  // FIX: Menggunakan parseFloat agar mendukung desimal/Koma (KG) saat diketik manual
   const handleQtyInputChange = (index, value) => {
     const newItems = [...items];
     
@@ -110,11 +110,11 @@ const EditTransactionModal = ({ isOpen, onClose, transaction, products = [], cus
       return;
     }
 
-    let newQty = parseInt(value, 10);
-    if (isNaN(newQty) || newQty < 1) newQty = 1;
-
-    newItems[index].qty = newQty;
-    newItems[index].subtotal = (newItems[index].price * newQty) - (newItems[index].discount || 0);
+    // Biarkan sebagai string dulu supaya bisa mengetik "1." atau "1.5"
+    newItems[index].qty = value;
+    
+    const calcQty = parseFloat(value) || 0;
+    newItems[index].subtotal = (newItems[index].price * calcQty) - (newItems[index].discount || 0);
     setItems(newItems);
   };
 
@@ -124,7 +124,8 @@ const EditTransactionModal = ({ isOpen, onClose, transaction, products = [], cus
   };
 
   const calculateNewTotals = () => {
-    const getValidQty = (qty) => (qty === '' || isNaN(parseInt(qty))) ? 0 : parseInt(qty);
+    // Gunakan parseFloat
+    const getValidQty = (qty) => (qty === '' || isNaN(parseFloat(qty))) ? 0 : parseFloat(qty);
 
     const newSubtotal = items.reduce((sum, item) => {
       const validQty = getValidQty(item.qty);
@@ -156,8 +157,9 @@ const EditTransactionModal = ({ isOpen, onClose, transaction, products = [], cus
   const { newSubtotal, newTotal, newReturnUsed, returnToRefund, totalNota, parsedDebtPaid } = calculateNewTotals();
 
   const handleSave = async () => {
-    if (items.some(i => i.qty === '' || isNaN(parseInt(i.qty)) || parseInt(i.qty) < 1)) {
-        return onShowToast('Pastikan semua jumlah barang terisi minimal 1.', 'error');
+    // FIX VALIDASI: parseFloat mendukung desimal (harus > 0)
+    if (items.some(i => i.qty === '' || isNaN(parseFloat(i.qty)) || parseFloat(i.qty) <= 0)) {
+        return onShowToast('Pastikan semua jumlah barang terisi angka yang valid (minimal 0.01).', 'error');
     }
     if (items.length === 0) return onShowToast('Transaksi kosong. Gunakan tombol hapus di Dashboard jika ingin membatalkan total.', 'error');
     
@@ -171,7 +173,7 @@ const EditTransactionModal = ({ isOpen, onClose, transaction, products = [], cus
 
     for (const newItem of items) {
       const oldItem = oldItemsMap[newItem.productId] || { qty: 0 };
-      const qtyDiff = newItem.qty - oldItem.qty; 
+      const qtyDiff = parseFloat(newItem.qty) - parseFloat(oldItem.qty); 
 
       if (qtyDiff > 0) { 
         let cleanId = newItem.productId;
@@ -197,7 +199,7 @@ const EditTransactionModal = ({ isOpen, onClose, transaction, products = [], cus
       // 1. UPDATE STOK BARANG & LOG HISTORI
       for (const newItem of items) {
         const oldItem = oldItemsMap[newItem.productId] || { qty: 0 };
-        const qtyDiff = newItem.qty - oldItem.qty; 
+        const qtyDiff = parseFloat(newItem.qty) - parseFloat(oldItem.qty); 
 
         if (qtyDiff !== 0) {
           let cleanId = newItem.productId;
@@ -230,10 +232,10 @@ const EditTransactionModal = ({ isOpen, onClose, transaction, products = [], cus
           const isWholesale = ['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(oldItem.unitType?.toUpperCase());
           const multiplier = isWholesale ? (oldItem.pcsPerCarton || 1) : 1;
           
-          await updateDocument('products', product.id, { stockPcs: product.stockPcs + (oldItem.qty * multiplier) });
+          await updateDocument('products', product.id, { stockPcs: product.stockPcs + (parseFloat(oldItem.qty) * multiplier) });
           await addDocument('stock_logs', {
             productId: product.id, productName: product.name, type: 'in', 
-            amount: oldItem.qty, unitType: oldItem.unitType, totalPcs: oldItem.qty * multiplier,
+            amount: parseFloat(oldItem.qty), unitType: oldItem.unitType, totalPcs: parseFloat(oldItem.qty) * multiplier,
             note: `Hapus item dr Nota #${transaction.id.substring(0,6)}`, createdAt: new Date()
           });
         }
@@ -268,7 +270,7 @@ const EditTransactionModal = ({ isOpen, onClose, transaction, products = [], cus
 
       // 3. UPDATE DOKUMEN TRANSAKSI
       await updateDocument('transactions', transaction.id, {
-        items: items, 
+        items: items.map(i => ({...i, qty: parseFloat(i.qty)})), // Pastikan tersimpan sebagai Number
         subtotal: newSubtotal, 
         returnUsed: newReturnUsed,
         total: newTotal
@@ -323,7 +325,6 @@ const EditTransactionModal = ({ isOpen, onClose, transaction, products = [], cus
               />
             </div>
             
-            {/* FIX: DROPDOWN HASIL PENCARIAN (TAMPILAN BARU GROSIR & ECERAN) */}
             {showDropdown && (
                <div className="absolute z-50 w-full mt-2 bg-white border border-gray-200 rounded-xl shadow-xl max-h-60 overflow-y-auto custom-scrollbar">
                  {filteredProducts.length === 0 ? (
@@ -397,7 +398,8 @@ const EditTransactionModal = ({ isOpen, onClose, transaction, products = [], cus
                       <td className="p-1 md:p-4 md:table-cell mb-3 md:mb-0">
                         <div className="flex items-center gap-1.5 bg-gray-50 md:bg-white border border-gray-200 md:border-gray-100 rounded-xl p-1 shadow-inner md:shadow-sm w-full md:w-max md:mx-auto justify-between md:justify-center">
                           <button onClick={() => handleQtyClickAdjustment(index, -1)} className="p-2 md:p-1.5 text-gray-500 hover:text-red-500 hover:bg-red-50 rounded-lg active:scale-90 transition-all"><Minus className="w-4 h-4 md:w-3.5 md:h-3.5" /></button>
-                          <input type="number" value={item.qty} onChange={(e) => handleQtyInputChange(index, e.target.value)} min="1" className="w-full md:w-16 text-center font-black text-base md:text-sm bg-transparent outline-none border border-gray-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 rounded-lg p-1.5 md:p-1 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" placeholder="0" />
+                          {/* FIX: Input menggunakan step="any" agar koma bisa diketik dengan bebas */}
+                          <input type="number" min="0.01" step="any" value={item.qty} onChange={(e) => handleQtyInputChange(index, e.target.value)} className="w-full md:w-16 text-center font-black text-base md:text-sm bg-transparent outline-none border border-gray-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 rounded-lg p-1.5 md:p-1 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" placeholder="0" />
                           <button onClick={() => handleQtyClickAdjustment(index, 1)} className="p-2 md:p-1.5 text-gray-500 hover:text-blue-500 hover:bg-blue-50 rounded-lg active:scale-90 transition-all"><Plus className="w-4 h-4 md:w-3.5 md:h-3.5" /></button>
                           <span className="text-[10px] font-bold text-gray-400 md:hidden pr-2">{item.unitType}</span>
                         </div>
@@ -470,15 +472,27 @@ const EditTransactionModal = ({ isOpen, onClose, transaction, products = [], cus
                 <span className="text-base md:text-xl font-black text-blue-600">Rp {newTotal.toLocaleString('id-ID')}</span>
               </div>
               <div className="p-3.5 bg-orange-50 border border-orange-100 rounded-2xl flex flex-col items-center justify-center text-center relative overflow-hidden shadow-inner">
-                <span className="text-[9px] md:text-[10px] uppercase font-black text-orange-800 mb-1 tracking-wider">Hutang Baru</span>
+                <span className="text-[9px] md:text-[10px] uppercase font-black text-orange-800 mb-1 tracking-wider">Hutang Baru Tercatat</span>
                 <span className="text-base md:text-xl font-black text-orange-600">Rp {(transaction.paymentStatus === 'HUTANG' ? totalNota : 0).toLocaleString('id-ID')}</span>
               </div>
            </div>
            
+           {/* TOMBOL AKSI */}
            <div className="flex gap-3 md:gap-4">
-             <button onClick={onClose} disabled={isSaving} className="hidden md:block flex-1 py-3.5 bg-gray-100 text-gray-600 rounded-xl font-black text-sm hover:bg-gray-200 transition-all active:scale-95">Batal</button>
+             <button onClick={onClose} disabled={isSaving} className="hidden md:block flex-1 py-3.5 bg-gray-100 text-gray-600 rounded-xl font-black text-sm hover:bg-gray-200 transition-all active:scale-95">
+                Batal
+             </button>
              <button onClick={handleSave} disabled={isSaving || items.length === 0} className="flex-[2] md:flex-1 py-3.5 bg-blue-600 text-white rounded-xl font-black text-sm md:text-base hover:bg-blue-700 shadow-md shadow-blue-200 uppercase tracking-widest active:scale-95 disabled:opacity-60 transition-all flex items-center justify-center gap-2">
-               {isSaving ? 'Menyimpan...' : 'Simpan Revisi'}
+               {isSaving ? (
+                 <>
+                   <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                   Menyimpan...
+                 </>
+               ) : (
+                 <>
+                   <Save className="w-5 h-5" /> Simpan Revisi
+                 </>
+               )}
              </button>
            </div>
         </div>
