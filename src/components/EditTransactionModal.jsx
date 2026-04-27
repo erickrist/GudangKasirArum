@@ -41,35 +41,49 @@ const EditTransactionModal = ({ isOpen, onClose, transaction, products = [], cus
     p.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  // --- HANDLER TAMBAH PRODUK BARU KE NOTA LAMA ---
-  const handleAddProduct = (product) => {
-    const existingIndex = items.findIndex(i => i.productId === product.id);
+  // =======================================================================
+  // FIX: HANDLER TAMBAH BARANG (MENDUKUNG UTUH & ECERAN) + KUNCI HPP
+  // =======================================================================
+  const handleAddProduct = (product, type = 'WHOLESALE') => {
+    const baseUnitStr = product.baseUnit || 'PCS';
+    const isEceran = type === 'PCS' && product.pcsPerCarton > 1;
+    const targetId = isEceran ? `${product.id}_PCS` : product.id;
+
+    const existingIndex = items.findIndex(i => i.productId === targetId);
     
     if (existingIndex >= 0) {
-      // Jika barang sudah ada di list nota ini, tambah Qty saja
       handleQtyClickAdjustment(existingIndex, 1);
     } else {
-      // Jika barang belum ada, tambahkan sebagai baris baru
-      // FIX: Kita MENARIK HPP (Modal) LIVE dari Master Produk dan MENGUNCINYA di nota ini
-      const price = Number(product.sellPrice || product.price || 0);
-      const capitalPrice = Number(product.hpp || 0); 
-      
+      let finalPrice = Number(product.sellPrice || product.price || 0);
+      let finalHpp = Number(product.hpp || 0);
+      let finalUnitType = product.unit || product.unitType || 'PCS';
+      let finalName = product.name;
+
+      if (isEceran) {
+          finalPrice = finalPrice / product.pcsPerCarton;
+          finalHpp = finalHpp / product.pcsPerCarton;
+          finalUnitType = baseUnitStr;
+          finalName = `${product.name} (Eceran)`;
+      }
+
       const newItem = {
-        productId: product.id,
-        name: product.name,
-        price: price,
-        capitalPrice: capitalPrice, // Kunci Modal Beli
+        productId: targetId,
+        originalId: product.id,
+        name: finalName,
+        price: finalPrice,
+        capitalPrice: finalHpp, // Kunci Modal Beli
         qty: 1,
-        unitType: product.unit || product.unitType || 'PCS',
-        pcsPerCarton: product.pcsPerCarton || 1,
+        unitType: finalUnitType,
+        baseUnit: baseUnitStr,
+        pcsPerCarton: isEceran ? 1 : (product.pcsPerCarton || 1),
         discount: 0,
-        subtotal: price
+        subtotal: finalPrice
       };
       setItems([...items, newItem]);
     }
     setSearchQuery('');
     setShowDropdown(false);
-    onShowToast(`${product.name} ditambahkan ke revisi nota`, 'success');
+    onShowToast(`${product.name} ${isEceran ? '(Eceran)' : ''} ditambahkan ke revisi nota`, 'success');
   };
 
   // Handler untuk tombol +/-
@@ -150,7 +164,7 @@ const EditTransactionModal = ({ isOpen, onClose, transaction, products = [], cus
     setIsSaving(true);
     
     // =======================================================================
-    // FIX: PRE-FLIGHT CHECK (CEK STOK MINUS) SEBELUM DISIMPAN
+    // PRE-FLIGHT CHECK (CEK STOK MINUS) SEBELUM DISIMPAN
     // =======================================================================
     const oldItemsMap = {};
     transaction.items.forEach(i => oldItemsMap[i.productId] = i);
@@ -159,7 +173,7 @@ const EditTransactionModal = ({ isOpen, onClose, transaction, products = [], cus
       const oldItem = oldItemsMap[newItem.productId] || { qty: 0 };
       const qtyDiff = newItem.qty - oldItem.qty; 
 
-      if (qtyDiff > 0) { // Jika barang ditambah
+      if (qtyDiff > 0) { 
         let cleanId = newItem.productId;
         if (typeof cleanId === 'string' && cleanId.endsWith('_PCS')) {
             cleanId = cleanId.replace('_PCS', '');
@@ -309,7 +323,7 @@ const EditTransactionModal = ({ isOpen, onClose, transaction, products = [], cus
               />
             </div>
             
-            {/* DROPDOWN HASIL PENCARIAN */}
+            {/* FIX: DROPDOWN HASIL PENCARIAN (TAMPILAN BARU GROSIR & ECERAN) */}
             {showDropdown && (
                <div className="absolute z-50 w-full mt-2 bg-white border border-gray-200 rounded-xl shadow-xl max-h-60 overflow-y-auto custom-scrollbar">
                  {filteredProducts.length === 0 ? (
@@ -318,18 +332,34 @@ const EditTransactionModal = ({ isOpen, onClose, transaction, products = [], cus
                    filteredProducts.map(p => (
                      <div
                        key={p.id}
-                       className="p-3 md:p-4 border-b border-gray-50 hover:bg-blue-50 cursor-pointer flex justify-between items-center group transition-colors"
-                       onClick={() => handleAddProduct(p)}
+                       className="p-3 md:p-4 border-b border-gray-50 hover:bg-blue-50 cursor-default flex flex-col gap-2 transition-colors"
                      >
-                       <div>
-                         <p className="font-black text-sm text-gray-800 group-hover:text-blue-700 transition-colors">{p.name}</p>
-                         <p className="text-[10px] md:text-xs text-gray-500 font-bold mt-0.5">
-                           Sisa Stok: <span className="text-orange-500">{p.stockPcs}</span> | Rp {(p.sellPrice || p.price || 0).toLocaleString('id-ID')}
-                         </p>
+                       <div className="flex justify-between items-start">
+                         <div>
+                           <p className="font-black text-sm text-gray-800">{p.name}</p>
+                           <p className="text-[10px] md:text-xs text-gray-500 font-bold mt-0.5">
+                             Sisa Stok: <span className="text-orange-500">{p.stockPcs}</span> | Rp {(p.sellPrice || p.price || 0).toLocaleString('id-ID')}
+                           </p>
+                         </div>
+                         <span className="bg-blue-100 text-blue-700 text-[9px] md:text-[10px] font-black px-2 py-1 rounded-lg">{p.unitType}</span>
                        </div>
-                       <button className="bg-blue-100 text-blue-600 p-1.5 md:p-2 rounded-lg group-hover:bg-blue-600 group-hover:text-white transition-all">
-                         <PlusCircle className="w-4 h-4 md:w-5 md:h-5" />
-                       </button>
+                       
+                       <div className="flex gap-2 border-t border-dashed border-gray-200 pt-2 mt-1">
+                          <button 
+                             onClick={(e) => { e.stopPropagation(); handleAddProduct(p, 'WHOLESALE'); }} 
+                             className="flex-1 bg-blue-100 text-blue-700 py-1.5 md:py-2 rounded-lg text-[9px] md:text-[10px] font-black uppercase hover:bg-blue-200 transition-colors shadow-sm active:scale-95"
+                          >
+                             + 1 {p.unitType}
+                          </button>
+                          {p.pcsPerCarton > 1 && !['PCS', 'KG'].includes(p.unitType) && (
+                             <button 
+                               onClick={(e) => { e.stopPropagation(); handleAddProduct(p, 'PCS'); }} 
+                               className="flex-1 bg-orange-100 text-orange-700 py-1.5 md:py-2 rounded-lg text-[9px] md:text-[10px] font-black uppercase hover:bg-orange-200 transition-colors shadow-sm active:scale-95"
+                             >
+                               + 1 {p.baseUnit || 'PCS'}
+                             </button>
+                          )}
+                       </div>
                      </div>
                    ))
                  )}
