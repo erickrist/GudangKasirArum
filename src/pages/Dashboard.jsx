@@ -63,8 +63,10 @@ const Dashboard = ({ onShowToast }) => {
   
   const [debtPaymentAmount, setDebtPaymentAmount] = useState('');
   const [isFullPayment, setIsFullPayment] = useState(true);
+  
+  // FIX AKUNTANSI: Default pengeluaran langsung diset ke 'ALL' (Global)
   const [newManualIncome, setNewManualIncome] = useState({ note: '', amount: '', method: 'TUNAI', storeId: '' });
-  const [newExpense, setNewExpense] = useState({ title: '', amount: '', category: 'Operasional', storeId: '' });
+  const [newExpense, setNewExpense] = useState({ title: '', amount: '', category: 'Operasional', storeId: 'ALL' });
   const [newManualDebt, setNewManualDebt] = useState({ customerId: '', amount: '', note: '', storeId: '' });
 
   const getSafeDate = (dateSource) => {
@@ -145,9 +147,6 @@ const Dashboard = ({ onShowToast }) => {
 
   const balance = totalCashIn - totalCashExpenses;
 
-  // =========================================================================================
-  // FIX AKUNTANSI: HPP SEJARAH DENGAN PELINDUNG UNTUK NOTA JADUL
-  // =========================================================================================
   const totalHPP = useMemo(() => dateFilteredTransactions.reduce((sum, t) => {
     if (!t.items) return sum;
     const itemHpp = t.items.reduce((iSum, i) => {
@@ -156,7 +155,6 @@ const Dashboard = ({ onShowToast }) => {
         const p = products.find(prod => prod.id === realId);
         
         let finalHpp = i.capitalPrice !== undefined ? Number(i.capitalPrice) : (p?.hpp || 0);
-        // Jika ini nota jadul & transaksinya eceran, kita harus bagi HPP live-nya
         if (i.capitalPrice === undefined && ['PCS', 'KG'].includes(i.unitType?.toUpperCase()) && p && p.pcsPerCarton > 1) {
             finalHpp = (p.hpp || 0) / p.pcsPerCarton;
         }
@@ -384,7 +382,6 @@ const Dashboard = ({ onShowToast }) => {
           salesMap[realId].qtySoldPcs += itemPcs;
           salesMap[realId].totalSalesValue += Number(item.subtotal || ((item.qty || 0) * (item.price || 0) - (item.discount || 0)));
           
-          // Plester Nota Jadul
           let finalHpp = item.capitalPrice !== undefined ? Number(item.capitalPrice) : (currentProduct?.hpp || 0);
           if (item.capitalPrice === undefined && ['PCS', 'KG'].includes(item.unitType?.toUpperCase()) && currentProduct && currentProduct.pcsPerCarton > 1) {
               finalHpp = (currentProduct.hpp || 0) / currentProduct.pcsPerCarton;
@@ -972,7 +969,7 @@ const Dashboard = ({ onShowToast }) => {
 
                 await addDocument('expenses', {...newExpense, amount: Number(newExpense.amount), storeId: newExpense.storeId, storeName: finalStoreName, createdAt: new Date()}); 
                 onShowToast('Disimpan', 'success'); 
-                setNewExpense({title: '', amount: '', category: 'Operasional', storeId: ''}); 
+                setNewExpense({title: '', amount: '', category: 'Operasional', storeId: 'ALL'}); 
               }} 
               className="flex flex-col md:flex-row gap-3"
             >
@@ -980,15 +977,18 @@ const Dashboard = ({ onShowToast }) => {
                 required 
                 value={activeTab === 'transactions' ? newManualIncome.storeId : newExpense.storeId} 
                 onChange={(e) => activeTab === 'transactions' ? setNewManualIncome({...newManualIncome, storeId: e.target.value}) : setNewExpense({...newExpense, storeId: e.target.value})} 
-                disabled={activeTab === 'expenses' && newExpense.category === 'Kulakan'}
+                disabled={activeTab === 'expenses'} 
                 className="w-full md:w-48 bg-gray-50 px-4 py-3 rounded-xl border border-gray-200 text-sm font-bold outline-none focus:ring-2 focus:ring-teal-500 disabled:bg-gray-200 disabled:text-gray-500 cursor-pointer"
               >
                 <option value="" disabled>-- Pilih Sumber Dana --</option>
-                {activeTab === 'expenses' && newExpense.category === 'Kulakan' && (
+                {activeTab === 'expenses' ? (
                   <option value="ALL">🌐 Dana Global (Semua)</option>
+                ) : (
+                  <>
+                    <option value="pusat">🏢 Cabang Pusat</option>
+                    {stores.map(s => <option key={s.id} value={s.id}>🏪 {s.name}</option>)}
+                  </>
                 )}
-                <option value="pusat">🏢 Cabang Pusat</option>
-                {stores.map(s => <option key={s.id} value={s.id}>🏪 {s.name}</option>)}
               </select>
 
               {activeTab === 'expenses' && (
@@ -999,7 +999,7 @@ const Dashboard = ({ onShowToast }) => {
                     setNewExpense({
                       ...newExpense, 
                       category: selectedCat,
-                      storeId: selectedCat === 'Kulakan' ? 'ALL' : '' 
+                      storeId: 'ALL' // Pastikan selalu ALL saat ganti kategori
                     });
                   }} 
                   className="w-full md:w-48 bg-gray-50 px-4 py-3 rounded-xl border border-gray-200 text-sm font-bold outline-none focus:ring-2 focus:ring-red-500 cursor-pointer"
