@@ -100,11 +100,15 @@ const Dashboard = ({ onShowToast }) => {
     return returnsData.filter(r => r.storeId === selectedStoreFilter || (!r.storeId && selectedStoreFilter === 'pusat'));
   }, [returnsData, selectedStoreFilter]);
 
+  // =========================================================================================
+  // FIX ZONA WAKTU: Mengunci Start Date ke jam 00:00:00 agar transaksi dini hari tetap masuk
+  // =========================================================================================
   const dateFilteredTransactions = useMemo(() => {
     return activeStoreTransactions.filter(t => {
       if (!startDate || !endDate) return true;
       const d = getSafeDate(t.createdAt);
-      const startD = new Date(startDate); const endD = new Date(endDate); endD.setHours(23, 59, 59);
+      const startD = new Date(startDate); startD.setHours(0, 0, 0, 0); // Kunci jam 00.00
+      const endD = new Date(endDate); endD.setHours(23, 59, 59, 999);
       return d >= startD && d <= endD;
     });
   }, [activeStoreTransactions, startDate, endDate]);
@@ -113,7 +117,8 @@ const Dashboard = ({ onShowToast }) => {
     return activeStoreExpenses.filter(e => {
       if (!startDate || !endDate) return true;
       const d = getSafeDate(e.createdAt);
-      const startD = new Date(startDate); const endD = new Date(endDate); endD.setHours(23, 59, 59);
+      const startD = new Date(startDate); startD.setHours(0, 0, 0, 0); // Kunci jam 00.00
+      const endD = new Date(endDate); endD.setHours(23, 59, 59, 999);
       return d >= startD && d <= endD;
     });
   }, [activeStoreExpenses, startDate, endDate]);
@@ -122,7 +127,8 @@ const Dashboard = ({ onShowToast }) => {
     return activeStoreReturns.filter(r => {
       if (!startDate || !endDate) return true;
       const d = getSafeDate(r.createdAt);
-      const startD = new Date(startDate); const endD = new Date(endDate); endD.setHours(23, 59, 59);
+      const startD = new Date(startDate); startD.setHours(0, 0, 0, 0); // Kunci jam 00.00
+      const endD = new Date(endDate); endD.setHours(23, 59, 59, 999);
       return d >= startD && d <= endD;
     });
   }, [activeStoreReturns, startDate, endDate]);
@@ -248,13 +254,13 @@ const Dashboard = ({ onShowToast }) => {
     let logs = [];
     activeStoreReturns.forEach(r => {
       if (r.refundType === 'deposit' || r.type === 'manual_deposit_in') {
-        logs.push({ ...r, sourceCollection: 'returns', depType: 'in', nominal: r.amount, note: r.note || `Retur: ${r.reason}` });
+        logs.push({ ...r, sourceCollection: 'returns', depType: 'in', nominal: r.amount, note: r.note || `Retur: ${r.reason}`, items: r.items });
       } else if (r.type === 'manual_deposit_out') {
-        logs.push({ ...r, sourceCollection: 'returns', depType: 'out', nominal: r.amount, note: r.note });
+        logs.push({ ...r, sourceCollection: 'returns', depType: 'out', nominal: r.amount, note: r.note, items: r.items });
       }
     });
     activeStoreTransactions.forEach(t => {
-      if (t.returnUsed > 0) logs.push({ ...t, sourceCollection: 'transactions', depType: 'out', nominal: t.returnUsed, note: `Dipakai belanja (Nota: #${t.id?.substring(0,6)})` });
+      if (t.returnUsed > 0) logs.push({ ...t, sourceCollection: 'transactions', depType: 'out', nominal: t.returnUsed, note: `Dipakai belanja (Nota: #${t.id?.substring(0,6)})`, items: t.items });
     });
     return logs.sort((a, b) => getSafeDate(b.createdAt) - getSafeDate(a.createdAt));
   }, [activeStoreReturns, activeStoreTransactions]);
@@ -296,9 +302,6 @@ const Dashboard = ({ onShowToast }) => {
   const totalUnpaidDebtDisplay = activeStoreCustomersDebt.reduce((sum, c) => sum + c.displayDebt, 0);
   const totalDepositDisplay = activeStoreCustomersDeposit.reduce((sum, c) => sum + c.displayDeposit, 0);
 
-  // =========================================================================
-  // FIX AKUNTANSI: MENYARING "BATAL LABA/BARANG RUSAK" DARI ALIRAN KAS LACI
-  // =========================================================================
   const netLogs = useMemo(() => {
     let logs = [];
     activeStoreTransactions.forEach(t => {
@@ -307,7 +310,6 @@ const Dashboard = ({ onShowToast }) => {
       }
     });
     activeStoreExpenses.forEach(e => {
-      // PERBAIKAN: Kerugian "Barang Rusak" (Deposit) tidak mengurangi uang laci secara fisik.
       if (e.category !== 'Barang Rusak') {
          logs.push({ ...e, sourceCollection: 'expenses', netType: 'out', nominal: e.amount, subjName: e.category === 'Kulakan' ? 'Kulakan / Restock' : e.category === 'Retur' ? 'Refund Retur Tunai' : e.category === 'Retur Tukar Pabrik' ? 'Refund Retur Tunai (Tukar)' : 'Beban/Pengeluaran', detailNote: e.title });
       }
@@ -328,8 +330,10 @@ const Dashboard = ({ onShowToast }) => {
     const matchesSearch = searchFields.some(field => (item[field] || '').toLowerCase().includes(searchTerm.toLowerCase()));
     let matchesDate = true;
     if (startDate && endDate) {
-      const start = new Date(startDate); const end = new Date(endDate); end.setHours(23, 59, 59);
-      matchesDate = date >= start && date <= end;
+      // FIX ZONA WAKTU: Kunci jam ke 00.00 untuk Start Date
+      const startD = new Date(startDate); startD.setHours(0, 0, 0, 0); 
+      const endD = new Date(endDate); endD.setHours(23, 59, 59, 999);
+      matchesDate = date >= startD && date <= endD;
     }
     return matchesSearch && matchesDate;
   });
@@ -351,7 +355,8 @@ const Dashboard = ({ onShowToast }) => {
       const date = getSafeDate(t.createdAt);
       let matchesDate = true;
       if (startDate && endDate) {
-        const start = new Date(startDate); const end = new Date(endDate); end.setHours(23, 59, 59);
+        const start = new Date(startDate); start.setHours(0, 0, 0, 0);
+        const end = new Date(endDate); end.setHours(23, 59, 59, 999);
         matchesDate = date >= start && date <= end;
       }
       if (matchesDate && t.items) {
@@ -400,7 +405,8 @@ const Dashboard = ({ onShowToast }) => {
       const date = getSafeDate(r.createdAt);
       let matchesDate = true;
       if (startDate && endDate) {
-        const start = new Date(startDate); const end = new Date(endDate); end.setHours(23, 59, 59);
+        const start = new Date(startDate); start.setHours(0, 0, 0, 0);
+        const end = new Date(endDate); end.setHours(23, 59, 59, 999);
         matchesDate = date >= start && date <= end;
       }
       if (matchesDate && r.items) {
@@ -1430,9 +1436,80 @@ const Dashboard = ({ onShowToast }) => {
         </div>
       )}
 
-      {/* DETAIL MODALS */}
+      {/* DETAIL MODALS YANG SEBELUMNYA KOSONG */}
       {showDetailModal && selectedDetailItem && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4"><div className="bg-white p-8 rounded-[32px] w-full max-w-sm"><h3 className="text-xl font-black mb-4">Detail</h3><button onClick={() => setShowDetailModal(false)} className="w-full py-3 bg-gray-100 rounded-xl font-black">Tutup</button></div></div>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
+          <div className="bg-white p-6 md:p-8 rounded-[32px] w-full max-w-md shadow-2xl relative border-t-8 border-blue-500 max-h-[90vh] flex flex-col">
+            <button onClick={() => setShowDetailModal(false)} className="absolute right-6 top-6 text-gray-400 hover:text-gray-600"><X className="w-5 h-5"/></button>
+            <h3 className="text-xl font-black text-gray-800 mb-4 uppercase">Detail Riwayat</h3>
+
+            <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-4">
+              <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Tanggal</span>
+                  <span className="text-xs font-bold text-gray-600">{formatDisplayDate(selectedDetailItem.createdAt)}</span>
+                </div>
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Pelanggan</span>
+                  <span className="text-sm font-black text-gray-800 uppercase">{selectedDetailItem.customerName || 'Tanpa Nama'}</span>
+                </div>
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Status</span>
+                  <span className={`px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-tight ${
+                     selectedDetailItem.depType === 'in' || selectedDetailItem.debtType === 'in' || selectedDetailItem.netType === 'in'
+                     ? 'bg-teal-100 text-teal-700' : 'bg-red-100 text-red-700'
+                  }`}>
+                    {selectedDetailItem.depType === 'in' ? 'DEPOSIT MASUK' :
+                     selectedDetailItem.depType === 'out' ? 'DEPOSIT TERPAKAI' :
+                     selectedDetailItem.debtType === 'in' ? 'HUTANG BERTAMBAH' :
+                     selectedDetailItem.debtType === 'out' ? 'HUTANG BERKURANG' :
+                     selectedDetailItem.netType === 'in' ? 'KAS MASUK' :
+                     selectedDetailItem.netType === 'out' ? 'KAS KELUAR' : 'INFO'}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center border-t border-gray-200 pt-2 mt-2">
+                  <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Nominal</span>
+                  <span className={`text-base font-black ${
+                     selectedDetailItem.depType === 'in' || selectedDetailItem.debtType === 'in' || selectedDetailItem.netType === 'in'
+                     ? 'text-teal-600' : 'text-red-600'
+                  }`}>
+                    Rp {(Number(selectedDetailItem.nominal || selectedDetailItem.amount || selectedDetailItem.total || 0)).toLocaleString('id-ID')}
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Keterangan / Catatan</h4>
+                <p className="text-sm font-bold text-gray-700 bg-gray-50 p-3 rounded-xl border border-gray-100 leading-relaxed">
+                  {selectedDetailItem.note || selectedDetailItem.detailNote || selectedDetailItem.reason || '-'}
+                </p>
+              </div>
+
+              {selectedDetailItem.items && selectedDetailItem.items.length > 0 && (
+                <div>
+                  <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Daftar Barang Terkait</h4>
+                  <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+                    {selectedDetailItem.items.map((item, idx) => (
+                      <div key={idx} className="p-3 border-b border-gray-100 last:border-0 flex justify-between items-center hover:bg-gray-50">
+                        <div>
+                          <p className="font-bold text-sm text-gray-800 line-clamp-1">{item.name}</p>
+                          <p className="text-[10px] text-gray-500 font-medium mt-0.5">
+                            {item.qty} {item.returnUnit === 'pcs' ? (item.baseUnit || 'PCS') : item.unitType} x Rp {(item.finalPrice || item.price || 0).toLocaleString('id-ID')}
+                          </p>
+                        </div>
+                        <p className="font-black text-xs text-gray-700">Rp {((item.finalPrice || item.price || 0) * item.qty).toLocaleString('id-ID')}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-4 pt-4 border-t border-gray-100 shrink-0">
+              <button onClick={() => setShowDetailModal(false)} className="w-full py-3.5 bg-gray-100 text-gray-600 rounded-xl font-black text-sm uppercase tracking-widest hover:bg-gray-200 transition-colors active:scale-95">Tutup Detail</button>
+            </div>
+          </div>
+        </div>
       )}
 
       <FormRetur isOpen={showReturnModal} onClose={() => setShowReturnModal(false)} onShowToast={onShowToast} />
