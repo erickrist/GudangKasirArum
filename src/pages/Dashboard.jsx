@@ -64,7 +64,6 @@ const Dashboard = ({ onShowToast }) => {
   const [debtPaymentAmount, setDebtPaymentAmount] = useState('');
   const [isFullPayment, setIsFullPayment] = useState(true);
   
-  // FIX AKUNTANSI: Default pengeluaran langsung diset ke 'ALL' (Global)
   const [newManualIncome, setNewManualIncome] = useState({ note: '', amount: '', method: 'TUNAI', storeId: '' });
   const [newExpense, setNewExpense] = useState({ title: '', amount: '', category: 'Operasional', storeId: 'ALL' });
   const [newManualDebt, setNewManualDebt] = useState({ customerId: '', amount: '', note: '', storeId: '' });
@@ -297,6 +296,9 @@ const Dashboard = ({ onShowToast }) => {
   const totalUnpaidDebtDisplay = activeStoreCustomersDebt.reduce((sum, c) => sum + c.displayDebt, 0);
   const totalDepositDisplay = activeStoreCustomersDeposit.reduce((sum, c) => sum + c.displayDeposit, 0);
 
+  // =========================================================================
+  // FIX AKUNTANSI: MENYARING "BATAL LABA/BARANG RUSAK" DARI ALIRAN KAS LACI
+  // =========================================================================
   const netLogs = useMemo(() => {
     let logs = [];
     activeStoreTransactions.forEach(t => {
@@ -305,7 +307,10 @@ const Dashboard = ({ onShowToast }) => {
       }
     });
     activeStoreExpenses.forEach(e => {
-      logs.push({ ...e, sourceCollection: 'expenses', netType: 'out', nominal: e.amount, subjName: e.category === 'Kulakan' ? 'Kulakan / Restock' : e.category === 'Barang Rusak' ? 'Barang Rusak/Basi' : e.category === 'Retur' ? 'Refund Retur' : e.category === 'Retur Tukar Pabrik' ? 'Refund Retur (Tukar)' : 'Beban/Pengeluaran', detailNote: e.title });
+      // PERBAIKAN: Kerugian "Barang Rusak" (Deposit) tidak mengurangi uang laci secara fisik.
+      if (e.category !== 'Barang Rusak') {
+         logs.push({ ...e, sourceCollection: 'expenses', netType: 'out', nominal: e.amount, subjName: e.category === 'Kulakan' ? 'Kulakan / Restock' : e.category === 'Retur' ? 'Refund Retur Tunai' : e.category === 'Retur Tukar Pabrik' ? 'Refund Retur Tunai (Tukar)' : 'Beban/Pengeluaran', detailNote: e.title });
+      }
     });
     return logs.sort((a, b) => getSafeDate(b.createdAt) - getSafeDate(a.createdAt));
   }, [activeStoreTransactions, activeStoreExpenses]);
