@@ -2,7 +2,7 @@ import { useState, useRef, useMemo } from 'react';
 import { 
   Plus, CreditCard as Edit2, Trash2, Package, CircleArrowUp as ArrowUpCircle, 
   CircleArrowDown as ArrowDownCircle, Upload, Download, Search, 
-  History, Calendar, Table as TableIcon, FileText, ChevronLeft, ChevronRight, ListFilter, AlertTriangle, X, TrendingUp, Store, RotateCcw
+  History, Calendar, Table as TableIcon, FileText, ChevronLeft, ChevronRight, ListFilter, AlertTriangle, X, TrendingUp, Store, RotateCcw, ShieldAlert
 } from 'lucide-react';
 import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import { useCollection, addDocument, updateDocument, deleteDocument } from '../hooks/useFirestore';
@@ -33,6 +33,7 @@ const StockOpname = ({ onShowToast }) => {
   const [showDeleteHistoryModal, setShowDeleteHistoryModal] = useState(false);
   
   const [showResetStockModal, setShowResetStockModal] = useState(false); 
+  const [showResetAllProductsModal, setShowResetAllProductsModal] = useState(false); // TAMBAHAN: Modal Hapus Semua Barang
   const [showBulkDeleteHistoryModal, setShowBulkDeleteHistoryModal] = useState(false);
   
   const [selectedHistoryItem, setSelectedHistoryItem] = useState(null);
@@ -191,16 +192,13 @@ const StockOpname = ({ onShowToast }) => {
     return products.filter(product => product.name.toLowerCase().includes(searchProduct.toLowerCase()) || product.category.toLowerCase().includes(searchProduct.toLowerCase()));
   }, [products, searchProduct]);
 
-  // =========================================================================================
-  // FIX ZONA WAKTU: Mengunci Start Date ke jam 00:00:00 agar transaksi dini hari tetap masuk
-  // =========================================================================================
   const filteredHistory = useMemo(() => {
     return allStockHistory.filter(log => {
       const date = getSafeDate(log.createdAt);
       const matchesSearch = (log.productName || log.note || '').toLowerCase().includes(searchHistory.toLowerCase());
       let matchesDate = true;
       if (startDate && endDate) {
-        const start = new Date(startDate); start.setHours(0, 0, 0, 0); // Kunci jam 00.00
+        const start = new Date(startDate); start.setHours(0, 0, 0, 0); 
         const end = new Date(endDate); end.setHours(23, 59, 59, 999);
         matchesDate = date >= start && date <= end;
       }
@@ -215,7 +213,7 @@ const StockOpname = ({ onShowToast }) => {
       const date = getSafeDate(t.createdAt);
       let matchesDate = true;
       if (startDate && endDate) {
-        const start = new Date(startDate); start.setHours(0, 0, 0, 0); // Kunci jam 00.00
+        const start = new Date(startDate); start.setHours(0, 0, 0, 0);
         const end = new Date(endDate); end.setHours(23, 59, 59, 999);
         matchesDate = date >= start && date <= end;
       }
@@ -233,7 +231,7 @@ const StockOpname = ({ onShowToast }) => {
             salesMap[realId] = { 
               name: currentProduct ? currentProduct.name : (item.name || '').replace(' (Eceran)', ''), 
               unitType: realUnit, 
-              baseUnit: trueBaseUnit,
+              baseUnit: trueBaseUnit, 
               pcsPerCarton: pcsPerCarton, 
               qtySoldPcs: 0, 
               qtyReturnedPcs: 0, 
@@ -245,8 +243,7 @@ const StockOpname = ({ onShowToast }) => {
           }
 
           let itemPcs = Number(item.qty) || 0;
-          const isUtuh = ['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType?.toUpperCase());
-          if (isUtuh) {
+          if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType?.toUpperCase())) {
              itemPcs = itemPcs * pcsPerCarton;
           }
 
@@ -266,7 +263,7 @@ const StockOpname = ({ onShowToast }) => {
       const date = getSafeDate(r.createdAt);
       let matchesDate = true;
       if (startDate && endDate) {
-        const start = new Date(startDate); start.setHours(0, 0, 0, 0); // Kunci jam 00.00
+        const start = new Date(startDate); start.setHours(0, 0, 0, 0); 
         const end = new Date(endDate); end.setHours(23, 59, 59, 999);
         matchesDate = date >= start && date <= end;
       }
@@ -284,7 +281,7 @@ const StockOpname = ({ onShowToast }) => {
             salesMap[realId] = { 
               name: currentProduct ? currentProduct.name : (item.name || '').replace(' (Eceran)', ''), 
               unitType: realUnit, 
-              baseUnit: trueBaseUnit,
+              baseUnit: trueBaseUnit, 
               pcsPerCarton: pcsPerCarton, 
               qtySoldPcs: 0, 
               qtyReturnedPcs: 0, 
@@ -297,9 +294,7 @@ const StockOpname = ({ onShowToast }) => {
 
           const pcsPerCarton = salesMap[realId].pcsPerCarton;
           let itemPcs = Number(item.qty) || 0;
-          const isUtuh = ['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType?.toUpperCase());
-          
-          if (isUtuh && item.returnUnit !== 'pcs') {
+          if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType?.toUpperCase()) && item.returnUnit !== 'pcs') {
              itemPcs = itemPcs * pcsPerCarton;
           }
 
@@ -330,7 +325,7 @@ const StockOpname = ({ onShowToast }) => {
        
        let textParts = [];
        if (utuh > 0) textParts.push(`${utuh} ${safeUnitType}`);
-       if (ecer > 0) textParts.push(`${ecer} ${safeBaseUnit}`);
+       if (ecer > 0) textParts.push(`${ecer} ${safeBaseUnit}`); 
        
        return textParts.join(' + ');
     };
@@ -425,6 +420,21 @@ const StockOpname = ({ onShowToast }) => {
   const handleDelete = async () => {
     const result = await deleteDocument('products', selectedProduct.id);
     if (result.success) { onShowToast('Produk dihapus', 'success'); setShowDeleteModal(false); }
+  };
+
+  // TAMBAHAN: FUNGSI SAPU JAGAT HAPUS SEMUA BARANG
+  const handleResetAllProducts = async () => {
+    let count = 0;
+    try {
+      for (const p of products) {
+        await deleteDocument('products', p.id);
+        count++;
+      }
+      onShowToast(`${count} Barang berhasil dihapus permanen`, 'success');
+      setShowResetAllProductsModal(false);
+    } catch (err) {
+      onShowToast('Gagal menghapus sebagian barang', 'error');
+    }
   };
 
   const handleResetAllStock = async () => {
@@ -625,7 +635,11 @@ const StockOpname = ({ onShowToast }) => {
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-white p-4 md:p-6 rounded-2xl md:rounded-3xl border shadow-sm gap-4">
             <div><h3 className="text-base md:text-lg font-black text-gray-800 uppercase flex items-center gap-2"><Package className="w-5 h-5 text-teal-600"/> Manajemen Produk</h3></div>
             <div className="grid grid-cols-2 md:flex gap-2 w-full md:w-auto">
-              <button onClick={() => setShowResetStockModal(true)} className="flex items-center justify-center gap-1.5 bg-red-50 text-red-700 border border-red-200 px-3 py-2 rounded-xl text-xs font-black shadow-sm hover:bg-red-100 transition-colors"><RotateCcw className="w-3.5 h-3.5" /> Nol-kan stock</button>
+              <button onClick={() => setShowResetStockModal(true)} className="flex items-center justify-center gap-1.5 bg-orange-50 text-orange-700 border border-orange-200 px-3 py-2 rounded-xl text-xs font-black shadow-sm hover:bg-orange-100 transition-colors"><RotateCcw className="w-3.5 h-3.5" /> Nol-kan stock</button>
+              
+              {/* TOMBOL SAPU JAGAT - HAPUS SEMUA BARANG */}
+              <button onClick={() => setShowResetAllProductsModal(true)} className="flex items-center justify-center gap-1.5 bg-red-600 text-white border border-red-700 px-3 py-2 rounded-xl text-xs font-black shadow-sm hover:bg-red-700 transition-colors"><Trash2 className="w-3.5 h-3.5" /> Hapus Semua</button>
+              
               <button onClick={() => exportTemplateProduk(stores, onShowToast)} className="flex items-center gap-1.5 bg-gray-50 text-gray-700 border px-3 py-2 rounded-xl text-xs font-black shadow-sm"><Download className="w-3.5 h-3.5" /> Template</button>
               <button onClick={() => exportDataProduk(products, stores, onShowToast)} className="flex items-center gap-1.5 bg-purple-50 text-purple-700 border border-purple-200 px-3 py-2 rounded-xl text-xs font-black shadow-sm"><Upload className="w-3.5 h-3.5 rotate-180" /> Export</button>
               <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".xlsx, .xls" className="hidden" />
@@ -744,13 +758,32 @@ const StockOpname = ({ onShowToast }) => {
       {/* MODAL RESET SEMUA stock KE 0 */}
       {showResetStockModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[120] p-4">
-          <div className="bg-white rounded-[24px] md:rounded-[32px] p-6 md:p-8 w-full max-w-sm shadow-2xl text-center border-t-8 border-red-600 animate-in zoom-in-95 duration-200">
-            <div className="bg-red-50 w-16 h-16 md:w-20 md:h-20 rounded-full flex items-center justify-center mx-auto mb-4 md:mb-5"><RotateCcw className="w-8 h-8 md:w-10 md:h-10 text-red-600" /></div>
-            <h3 className="text-lg md:text-xl font-black text-gray-800 mb-2 uppercase tracking-tight">KOSONGKAN SELURUH stock?</h3>
-            <p className="text-xs md:text-sm text-gray-500 mb-6 md:mb-8 font-bold leading-relaxed">Peringatan! Semua stock barang di database akan berubah menjadi 0. Gunakan fitur ini hanya jika Anda ingin melakukan penghitungan fisik dari awal.</p>
+          <div className="bg-white rounded-[24px] md:rounded-[32px] p-6 md:p-8 w-full max-w-sm shadow-2xl text-center border-t-8 border-orange-500 animate-in zoom-in-95 duration-200">
+            <div className="bg-orange-50 w-16 h-16 md:w-20 md:h-20 rounded-full flex items-center justify-center mx-auto mb-4 md:mb-5"><RotateCcw className="w-8 h-8 md:w-10 md:h-10 text-orange-600" /></div>
+            <h3 className="text-lg md:text-xl font-black text-gray-800 mb-2 uppercase tracking-tight">KOSONGKAN SELURUH STOK?</h3>
+            <p className="text-xs md:text-sm text-gray-500 mb-6 md:mb-8 font-bold leading-relaxed">Peringatan! Semua stok barang di database akan berubah menjadi 0. Gunakan fitur ini hanya jika Anda ingin melakukan penghitungan fisik dari awal.</p>
             <div className="flex gap-3">
               <button onClick={() => setShowResetStockModal(false)} className="flex-1 py-3 rounded-xl font-black text-gray-500 bg-gray-100 hover:bg-gray-200 transition-colors text-xs md:text-sm">Batal</button>
-              <button onClick={handleResetAllStock} className="flex-1 py-3 rounded-xl font-black text-white bg-red-600 hover:bg-red-700 shadow-lg shadow-red-200 transition-colors text-xs md:text-sm active:scale-95">Ya, Nol-kan</button>
+              <button onClick={handleResetAllStock} className="flex-1 py-3 rounded-xl font-black text-white bg-orange-600 hover:bg-orange-700 shadow-lg shadow-orange-200 transition-colors text-xs md:text-sm active:scale-95">Ya, Nol-kan</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL HAPUS SEMUA BARANG (SAPU JAGAT) */}
+      {showResetAllProductsModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[120] p-4">
+          <div className="bg-white rounded-[24px] md:rounded-[32px] p-6 md:p-8 w-full max-w-sm shadow-2xl text-center border-t-8 border-red-600 animate-in zoom-in-95 duration-200">
+            <div className="bg-red-50 w-16 h-16 md:w-20 md:h-20 rounded-full flex items-center justify-center mx-auto mb-4 md:mb-5">
+              <ShieldAlert className="w-8 h-8 md:w-10 md:h-10 text-red-600" />
+            </div>
+            <h3 className="text-lg md:text-xl font-black text-gray-800 mb-2 uppercase tracking-tight">HAPUS SEMUA BARANG?</h3>
+            <p className="text-xs md:text-sm text-gray-500 mb-6 md:mb-8 font-bold leading-relaxed">
+              Peringatan FATAL! Seluruh daftar barang/produk Anda akan <span className="text-red-600">dihapus permanen</span> dari database. Tindakan ini tidak bisa dibatalkan!
+            </p>
+            <div className="flex gap-3">
+              <button onClick={() => setShowResetAllProductsModal(false)} className="flex-1 py-3 rounded-xl font-black text-gray-500 bg-gray-100 hover:bg-gray-200 transition-colors text-xs md:text-sm">Batal</button>
+              <button onClick={handleResetAllProducts} className="flex-1 py-3 rounded-xl font-black text-white bg-red-600 hover:bg-red-700 shadow-lg shadow-red-200 transition-colors text-xs md:text-sm active:scale-95">Ya, Hapus Semua</button>
             </div>
           </div>
         </div>

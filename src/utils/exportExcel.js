@@ -181,7 +181,7 @@ export const exportLabaRugiExcel = ({ totalIncome, totalHPP, totalPureOperationa
 };
 
 // ==========================================
-// FIX: EXPORT TEMPLATE PRODUK (TAMBAH KOLOM ECERAN)
+// EXPORT TEMPLATE PRODUK
 // ==========================================
 export const exportTemplateProduk = (stores, onShowToast) => {
   const baseData = {
@@ -202,8 +202,6 @@ export const exportTemplateProduk = (stores, onShowToast) => {
   baseData["Url Gambar"] = '';
 
   const worksheet = XLSX.utils.json_to_sheet([baseData]);
-  
-  // Lebarkan kolom
   worksheet['!cols'] = [{ wch: 30 }, { wch: 15 }, { wch: 30 }, { wch: 25 }, { wch: 20 }, { wch: 30 }, { wch: 30 }];
   
   const workbook = XLSX.utils.book_new();
@@ -213,14 +211,13 @@ export const exportTemplateProduk = (stores, onShowToast) => {
 };
 
 // ==========================================
-// FIX: EXPORT DATA PRODUK (BACKUP)
+// EXPORT DATA PRODUK (BACKUP)
 // ==========================================
 export const exportDataProduk = (products, stores, onShowToast) => {
   if (products.length === 0) return onShowToast('Tidak ada produk untuk diexport', 'error');
 
   const exportData = products.map(p => {
     const isiPerSatuan = Number(p.pcsPerCarton) || 1;
-    // Stok diubah kembali menjadi satuan utuh untuk diexport
     const stockSatuan = Math.floor((Number(p.stockPcs) || 0) / isiPerSatuan);
     
     const row = {
@@ -317,4 +314,88 @@ export const exportKeuntunganExcel = (profitData, startDate, endDate, storeName,
   XLSX.utils.book_append_sheet(wb, ws, `Laba_${storeName}`);
   XLSX.writeFile(wb, `Laporan_Laba_Per_Barang_${storeName}_${Date.now()}.xlsx`);
   onShowToast('Laporan Laba Per Barang Excel berhasil diunduh', 'success');
+};
+
+// ==========================================
+// EXPORT TEMPLATE PEMBELI
+// ==========================================
+export const exportTemplatePembeli = (stores, onShowToast) => {
+  const baseData = {
+    "Nama Lengkap": 'Ahmad Budi (Contoh)',
+    "No Telepon": '08123456789',
+    "Alamat Lengkap": 'Jl. Contoh No. 123',
+  };
+
+  const storeInfos = stores.map(s => `${s.name} (${s.id})`).join(', ');
+  baseData["ID Cabang Asal (pusat / ID Toko)"] = 'pusat';
+
+  const worksheet = XLSX.utils.json_to_sheet([baseData]);
+  worksheet['!cols'] = [{ wch: 25 }, { wch: 20 }, { wch: 35 }, { wch: 40 }];
+  
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Template_Pembeli");
+  XLSX.writeFile(workbook, "Template_Import_Pembeli.xlsx");
+  onShowToast('Template Import Pembeli berhasil diunduh', 'success');
+};
+
+// ==========================================
+// EXPORT DATA PEMBELI (BACKUP)
+// ==========================================
+export const exportDataPembeli = (customers, stores, onShowToast) => {
+  if (customers.length === 0) return onShowToast('Tidak ada data pembeli untuk diexport', 'error');
+
+  const exportData = customers.map(c => {
+    return {
+      "Nama Lengkap": c.name || '',
+      "No Telepon": c.phone || '',
+      "Alamat Lengkap": c.address || '',
+      "ID Cabang Asal (pusat / ID Toko)": c.storeId || 'pusat',
+      "Total Hutang Aktif": Number(c.remainingDebt) || 0,
+      "Total Saldo Deposit": Number(c.returnAmount) || 0,
+    };
+  });
+
+  const worksheet = XLSX.utils.json_to_sheet(exportData);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Data_Pembeli");
+  XLSX.writeFile(workbook, `Backup_Data_Pembeli_${Date.now()}.xlsx`);
+  onShowToast('Data pembeli berhasil diexport', 'success');
+};
+
+// ==========================================
+// TAMBAHAN: EXPORT TEMPLATE TOKO
+// ==========================================
+export const exportTemplateToko = (onShowToast) => {
+  const baseData = {
+    "Nama Cabang": 'Toko Baru (Contoh)',
+    "Alamat Lengkap": 'Jl. Merdeka No. 123',
+  };
+
+  const worksheet = XLSX.utils.json_to_sheet([baseData]);
+  worksheet['!cols'] = [{ wch: 30 }, { wch: 50 }];
+  
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Template_Toko");
+  XLSX.writeFile(workbook, "Template_Import_Toko.xlsx");
+  onShowToast('Template Import Toko berhasil diunduh', 'success');
+};
+
+// ==========================================
+// TAMBAHAN: EXPORT DATA TOKO (BACKUP)
+// ==========================================
+export const exportDataToko = (stores, onShowToast) => {
+  if (stores.length === 0) return onShowToast('Tidak ada data toko untuk diexport', 'error');
+
+  const exportData = stores.map(s => {
+    return {
+      "Nama Cabang": s.name || '',
+      "Alamat Lengkap": s.address || '',
+    };
+  });
+
+  const worksheet = XLSX.utils.json_to_sheet(exportData);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Data_Toko");
+  XLSX.writeFile(workbook, `Backup_Data_Toko_${Date.now()}.xlsx`);
+  onShowToast('Data toko berhasil diexport', 'success');
 };

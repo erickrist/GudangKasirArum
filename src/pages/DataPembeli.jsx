@@ -1,24 +1,29 @@
-import { useState, useMemo } from 'react';
-import { Plus, CreditCard as Edit2, Trash2, Users, Phone, MapPin, Search, ChevronLeft, ChevronRight, Info, Store } from 'lucide-react';
+import { useState, useMemo, useRef } from 'react';
+import { Plus, CreditCard as Edit2, Trash2, Users, Phone, MapPin, Search, ChevronLeft, ChevronRight, Info, Store, Download, Upload, ShieldAlert } from 'lucide-react';
 import { useCollection, addDocument, updateDocument, deleteDocument } from '../hooks/useFirestore';
 import Loading from '../components/common/Loading';
 import EmptyState from '../components/common/EmptyState';
+import * as XLSX from 'xlsx';
+import { exportTemplatePembeli, exportDataPembeli } from '../utils/exportExcel';
 
 const DataPembeli = ({ onShowToast }) => {
   const { data: customers, loading } = useCollection('customers', 'name'); 
-  const { data: stores } = useCollection('stores'); // FIX: Panggil data toko
+  const { data: stores } = useCollection('stores'); 
   
   // --- UI & FORM STATES ---
   const [showModal, setShowModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showResetAllModal, setShowResetAllModal] = useState(false); // Modal sapu jagat
   const [modalMode, setModalMode] = useState('add');
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   
+  const fileInputRef = useRef(null);
+
   const [formData, setFormData] = useState({
     name: '',
     phone: '',
     address: '',
-    storeId: '' // FIX: Tambah state cabang toko
+    storeId: '' 
   });
 
   // --- FILTER & PAGINATION STATES ---
@@ -37,7 +42,7 @@ const DataPembeli = ({ onShowToast }) => {
         name: customer.name || '',
         phone: customer.phone || '',
         address: customer.address || '',
-        storeId: customer.storeId || '' // Set toko saat edit
+        storeId: customer.storeId || ''
       });
       setSelectedCustomer(customer);
     } else {
@@ -53,7 +58,7 @@ const DataPembeli = ({ onShowToast }) => {
       name: formData.name,
       phone: formData.phone,
       address: formData.address,
-      storeId: formData.storeId || 'ALL', // Simpan data toko (Default ALL kalau kosong)
+      storeId: formData.storeId || 'ALL', 
     };
 
     let result;
@@ -88,6 +93,67 @@ const DataPembeli = ({ onShowToast }) => {
     } else {
       onShowToast('Gagal menghapus pembeli', 'error');
     }
+  };
+
+  // TAMBAHAN: FUNGSI SAPU JAGAT HAPUS SEMUA PEMBELI
+  const handleResetAllCustomers = async () => {
+    let count = 0;
+    try {
+      for (const c of customers) {
+        await deleteDocument('customers', c.id);
+        count++;
+      }
+      onShowToast(`${count} Data Pembeli berhasil dihapus permanen`, 'success');
+      setShowResetAllModal(false);
+    } catch (err) {
+      onShowToast('Gagal menghapus sebagian pembeli', 'error');
+    }
+  };
+
+  // TAMBAHAN: FUNGSI IMPORT EXCEL
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const data = new Uint8Array(evt.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const excelData = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+        if (excelData.length === 0) return onShowToast('File Excel kosong', 'error');
+
+        let successCount = 0; let updateCount = 0; 
+        for (const row of excelData) {
+          const rawName = row["Nama Lengkap"] || row.Nama;
+          if (!rawName) continue; // Skip jika tidak ada nama
+
+          const customerData = {
+            name: String(rawName), 
+            phone: row["No Telepon"] ? String(row["No Telepon"]) : '',
+            address: row["Alamat Lengkap"] ? String(row["Alamat Lengkap"]) : '',
+            storeId: row["ID Cabang Asal (pusat / ID Toko)"] || 'ALL',
+            remainingDebt: Number(row["Total Hutang Aktif"]) || 0,
+            returnAmount: Number(row["Total Saldo Deposit"]) || 0
+          };
+
+          // Cari jika nama sudah ada (Update)
+          const existingCustomer = customers.find(c => c.name.toLowerCase() === customerData.name.toLowerCase());
+          if (existingCustomer) {
+             await updateDocument('customers', existingCustomer.id, customerData); 
+             updateCount++;
+          } else {
+             // Jika belum ada (Tambah Baru)
+             await addDocument('customers', customerData);
+             successCount++;
+          }
+        }
+        onShowToast(`${successCount} pelanggan baru, ${updateCount} diperbarui`, 'success');
+      } catch (error) { 
+        onShowToast('Gagal import file Excel', 'error'); 
+      }
+      e.target.value = null; // Reset input file
+    };
+    reader.readAsArrayBuffer(file);
   };
 
   // --- FILTERING & PAGINATION LOGIC ---
@@ -150,19 +216,38 @@ const DataPembeli = ({ onShowToast }) => {
   return (
     <div className="pb-10 min-h-screen">
       {/* HEADER RESPONSIF */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-white p-4 md:p-6 rounded-2xl md:rounded-3xl border shadow-sm gap-4 mb-4 md:mb-6">
+      <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center bg-white p-4 md:p-6 rounded-2xl md:rounded-3xl border shadow-sm gap-4 mb-4 md:mb-6">
         <div>
           <h3 className="text-base md:text-lg font-black text-gray-800 uppercase tracking-tighter flex items-center gap-2">
             <Users className="w-5 h-5 text-teal-600" /> Database Pembeli
           </h3>
           <p className="text-[10px] md:text-xs text-gray-500 mt-1 font-bold">Kelola nama, kontak, dan alamat pelanggan Anda.</p>
         </div>
-        <button
-          onClick={() => handleOpenModal('add')}
-          className="w-full md:w-auto flex justify-center items-center gap-2 bg-teal-600 text-white px-6 py-3 md:py-3.5 rounded-xl md:rounded-2xl hover:bg-teal-700 transition-colors font-black text-xs md:text-sm shadow-md uppercase tracking-widest active:scale-95"
-        >
-          <Plus className="w-4 h-4" /> Tambah Pembeli
-        </button>
+        
+        {/* TOMBOL-TOMBOL AKSI */}
+        <div className="grid grid-cols-2 md:flex flex-wrap gap-2 w-full xl:w-auto">
+          {/* Tombol Sapu Jagat */}
+          <button onClick={() => setShowResetAllModal(true)} className="flex items-center justify-center gap-1.5 bg-red-600 text-white px-3 py-2 rounded-xl text-xs font-black shadow-sm hover:bg-red-700 transition-colors">
+            <Trash2 className="w-3.5 h-3.5" /> Hapus Semua
+          </button>
+          
+          <button onClick={() => exportTemplatePembeli(stores, onShowToast)} className="flex items-center justify-center gap-1.5 bg-gray-50 text-gray-700 border px-3 py-2 rounded-xl text-xs font-black shadow-sm">
+            <Download className="w-3.5 h-3.5" /> Template
+          </button>
+          
+          <button onClick={() => exportDataPembeli(customers, stores, onShowToast)} className="flex items-center justify-center gap-1.5 bg-purple-50 text-purple-700 border border-purple-200 px-3 py-2 rounded-xl text-xs font-black shadow-sm">
+            <Upload className="w-3.5 h-3.5 rotate-180" /> Export
+          </button>
+
+          <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".xlsx, .xls" className="hidden" />
+          <button onClick={() => fileInputRef.current?.click()} className="flex items-center justify-center gap-1.5 bg-blue-50 text-blue-700 border border-blue-200 px-3 py-2 rounded-xl text-xs font-black shadow-sm">
+            <Upload className="w-3.5 h-3.5" /> Import
+          </button>
+
+          <button onClick={() => handleOpenModal('add')} className="col-span-2 md:col-auto flex items-center justify-center gap-1.5 bg-teal-600 text-white px-4 py-2 rounded-xl text-xs font-black shadow-md">
+            <Plus className="w-4 h-4" /> Tambah Pembeli
+          </button>
+        </div>
       </div>
 
       {/* SEARCH BAR */}
@@ -285,7 +370,6 @@ const DataPembeli = ({ onShowToast }) => {
                 <input type="tel" value={formData.phone} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} className="w-full px-3 md:px-4 py-2.5 md:py-3 bg-gray-50 border-none rounded-xl font-bold text-xs md:text-sm outline-none focus:ring-2 focus:ring-teal-500" placeholder="08..." />
               </div>
 
-              {/* FIX: Input Pilihan Cabang Asal Pembeli */}
               <div>
                 <label className="block text-[9px] md:text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 ml-2">Cabang Asal (Opsional)</label>
                 <div className="relative">
@@ -330,7 +414,26 @@ const DataPembeli = ({ onShowToast }) => {
         </div>
       )}
 
-      {/* --- MODAL DELETE --- */}
+      {/* --- MODAL HAPUS SEMUA PEMBELI (SAPU JAGAT) --- */}
+      {showResetAllModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[120] p-4">
+          <div className="bg-white rounded-[24px] md:rounded-[32px] p-6 md:p-8 w-full max-w-sm shadow-2xl text-center border-t-8 border-red-600 animate-in zoom-in-95 duration-200">
+            <div className="bg-red-50 w-16 h-16 md:w-20 md:h-20 rounded-full flex items-center justify-center mx-auto mb-4 md:mb-5">
+              <ShieldAlert className="w-8 h-8 md:w-10 md:h-10 text-red-600" />
+            </div>
+            <h3 className="text-lg md:text-xl font-black text-gray-800 mb-2 uppercase tracking-tight">HAPUS SEMUA PEMBELI?</h3>
+            <p className="text-xs md:text-sm text-gray-500 mb-6 md:mb-8 font-bold leading-relaxed">
+              Peringatan FATAL! Seluruh daftar pelanggan beserta catatan hutang dan depositnya akan <span className="text-red-600">dihapus permanen</span>.
+            </p>
+            <div className="flex gap-3">
+              <button onClick={() => setShowResetAllModal(false)} className="flex-1 py-3 rounded-xl font-black text-gray-500 bg-gray-100 hover:bg-gray-200 transition-colors text-xs md:text-sm">Batal</button>
+              <button onClick={handleResetAllCustomers} className="flex-1 py-3 rounded-xl font-black text-white bg-red-600 hover:bg-red-700 shadow-lg shadow-red-200 transition-colors text-xs md:text-sm active:scale-95">Ya, Hapus Semua</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL DELETE SATUAN --- */}
       {showDeleteModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
           <div className="bg-white rounded-[24px] md:rounded-[32px] p-6 md:p-8 max-w-sm w-full shadow-2xl text-center">
