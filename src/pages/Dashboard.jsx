@@ -64,6 +64,9 @@ const Dashboard = ({ onShowToast }) => {
   const [debtPaymentAmount, setDebtPaymentAmount] = useState('');
   const [isFullPayment, setIsFullPayment] = useState(true);
   
+  const [debtPaymentStoreId, setDebtPaymentStoreId] = useState('');
+  const [editBalanceStoreId, setEditBalanceStoreId] = useState('');
+
   const [newManualIncome, setNewManualIncome] = useState({ note: '', amount: '', method: 'TUNAI', storeId: '' });
   const [newExpense, setNewExpense] = useState({ title: '', amount: '', category: 'Operasional', storeId: 'ALL' });
   const [newManualDebt, setNewManualDebt] = useState({ customerId: '', amount: '', note: '', storeId: '' });
@@ -100,14 +103,11 @@ const Dashboard = ({ onShowToast }) => {
     return returnsData.filter(r => r.storeId === selectedStoreFilter || (!r.storeId && selectedStoreFilter === 'pusat'));
   }, [returnsData, selectedStoreFilter]);
 
-  // =========================================================================================
-  // FIX ZONA WAKTU: Mengunci Start Date ke jam 00:00:00 agar transaksi dini hari tetap masuk
-  // =========================================================================================
   const dateFilteredTransactions = useMemo(() => {
     return activeStoreTransactions.filter(t => {
       if (!startDate || !endDate) return true;
       const d = getSafeDate(t.createdAt);
-      const startD = new Date(startDate); startD.setHours(0, 0, 0, 0); // Kunci jam 00.00
+      const startD = new Date(startDate); startD.setHours(0, 0, 0, 0); 
       const endD = new Date(endDate); endD.setHours(23, 59, 59, 999);
       return d >= startD && d <= endD;
     });
@@ -117,7 +117,7 @@ const Dashboard = ({ onShowToast }) => {
     return activeStoreExpenses.filter(e => {
       if (!startDate || !endDate) return true;
       const d = getSafeDate(e.createdAt);
-      const startD = new Date(startDate); startD.setHours(0, 0, 0, 0); // Kunci jam 00.00
+      const startD = new Date(startDate); startD.setHours(0, 0, 0, 0); 
       const endD = new Date(endDate); endD.setHours(23, 59, 59, 999);
       return d >= startD && d <= endD;
     });
@@ -127,7 +127,7 @@ const Dashboard = ({ onShowToast }) => {
     return activeStoreReturns.filter(r => {
       if (!startDate || !endDate) return true;
       const d = getSafeDate(r.createdAt);
-      const startD = new Date(startDate); startD.setHours(0, 0, 0, 0); // Kunci jam 00.00
+      const startD = new Date(startDate); startD.setHours(0, 0, 0, 0); 
       const endD = new Date(endDate); endD.setHours(23, 59, 59, 999);
       return d >= startD && d <= endD;
     });
@@ -330,7 +330,6 @@ const Dashboard = ({ onShowToast }) => {
     const matchesSearch = searchFields.some(field => (item[field] || '').toLowerCase().includes(searchTerm.toLowerCase()));
     let matchesDate = true;
     if (startDate && endDate) {
-      // FIX ZONA WAKTU: Kunci jam ke 00.00 untuk Start Date
       const startD = new Date(startDate); startD.setHours(0, 0, 0, 0); 
       const endD = new Date(endDate); endD.setHours(23, 59, 59, 999);
       matchesDate = date >= startD && date <= endD;
@@ -576,13 +575,29 @@ const Dashboard = ({ onShowToast }) => {
   };
 
   const handlePayDebt = async () => {
+    if (!debtPaymentStoreId) return onShowToast('Pilih cabang laci penerima uang!', 'error');
+
     const maxAmount = selectedCustomer.displayDebt ?? selectedCustomer.remainingDebt;
     const amount = isFullPayment ? maxAmount : Number(debtPaymentAmount);
     if (amount <= 0 || amount > maxAmount) return onShowToast('Nominal tidak valid', 'error');
     
+    const storeObj = stores.find(s => s.id === debtPaymentStoreId);
+    const finalStoreName = storeObj ? storeObj.name : 'Pusat';
+
     const updateRes = await updateDocument('customers', selectedCustomer.id, { remainingDebt: (selectedCustomer.remainingDebt || 0) - amount });
     if (updateRes.success) {
-      await addDocument('transactions', { customerName: selectedCustomer.name, customerId: selectedCustomer.id, subtotal: amount, total: amount, note: 'Pelunasan Hutang Manual', paymentStatus: 'LUNAS', paymentMethod: 'TUNAI', storeId: selectedStoreFilter !== 'ALL' ? selectedStoreFilter : 'pusat', storeName: selectedStoreName, createdAt: new Date() });
+      await addDocument('transactions', { 
+        customerName: selectedCustomer.name, 
+        customerId: selectedCustomer.id, 
+        subtotal: amount, 
+        total: amount, 
+        note: 'Pelunasan Hutang Manual', 
+        paymentStatus: 'LUNAS', 
+        paymentMethod: 'TUNAI', 
+        storeId: debtPaymentStoreId, 
+        storeName: finalStoreName, 
+        createdAt: new Date() 
+      });
       onShowToast('Hutang diperbarui', 'success');
       setShowPayDebtModal(false);
     }
@@ -607,9 +622,14 @@ const Dashboard = ({ onShowToast }) => {
   };
 
   const handleSaveEditBalance = async () => {
+    if (!editBalanceStoreId) return onShowToast('Pilih cabang untuk koreksi!', 'error');
+
     const newAmount = Number(editBalanceAmount);
     if (isNaN(newAmount) || newAmount < 0) return onShowToast('Nominal tidak valid', 'error');
     
+    const storeObj = stores.find(s => s.id === editBalanceStoreId);
+    const finalStoreName = storeObj ? storeObj.name : 'Pusat';
+
     if (editBalanceType === 'debt') {
       const oldStoreAmount = selectedCustomer.displayDebt ?? selectedCustomer.remainingDebt;
       const diff = newAmount - oldStoreAmount;
@@ -617,9 +637,9 @@ const Dashboard = ({ onShowToast }) => {
       
       await updateDocument('customers', selectedCustomer.id, { remainingDebt: (selectedCustomer.remainingDebt || 0) + diff });
       if (diff > 0) {
-        await addDocument('transactions', { customerName: selectedCustomer.name, customerId: selectedCustomer.id, subtotal: diff, total: 0, note: 'Koreksi Hutang (Bertambah)', paymentStatus: 'HUTANG', storeId: selectedStoreFilter !== 'ALL' ? selectedStoreFilter : 'pusat', storeName: selectedStoreName, createdAt: new Date() });
+        await addDocument('transactions', { customerName: selectedCustomer.name, customerId: selectedCustomer.id, subtotal: diff, total: 0, note: 'Koreksi Hutang (Bertambah)', paymentStatus: 'HUTANG', storeId: editBalanceStoreId, storeName: finalStoreName, createdAt: new Date() });
       } else {
-        await addDocument('transactions', { customerName: selectedCustomer.name, customerId: selectedCustomer.id, subtotal: Math.abs(diff), total: 0, note: 'Koreksi Hutang (Berkurang)', paymentStatus: 'LUNAS', storeId: selectedStoreFilter !== 'ALL' ? selectedStoreFilter : 'pusat', storeName: selectedStoreName, createdAt: new Date() });
+        await addDocument('transactions', { customerName: selectedCustomer.name, customerId: selectedCustomer.id, subtotal: Math.abs(diff), total: 0, note: 'Koreksi Hutang (Berkurang)', paymentStatus: 'LUNAS', storeId: editBalanceStoreId, storeName: finalStoreName, createdAt: new Date() });
       }
       onShowToast('Hutang berhasil diubah', 'success');
     } else {
@@ -629,9 +649,9 @@ const Dashboard = ({ onShowToast }) => {
 
       await updateDocument('customers', selectedCustomer.id, { returnAmount: (selectedCustomer.returnAmount || 0) + diff });
       if (diff > 0) {
-        await addDocument('returns', { customerName: selectedCustomer.name, customerId: selectedCustomer.id, amount: diff, type: 'manual_deposit_in', note: 'Koreksi Deposit (Bertambah)', storeId: selectedStoreFilter !== 'ALL' ? selectedStoreFilter : 'pusat', storeName: selectedStoreName, createdAt: new Date() });
+        await addDocument('returns', { customerName: selectedCustomer.name, customerId: selectedCustomer.id, amount: diff, type: 'manual_deposit_in', note: 'Koreksi Deposit (Bertambah)', storeId: editBalanceStoreId, storeName: finalStoreName, createdAt: new Date() });
       } else {
-        await addDocument('returns', { customerName: selectedCustomer.name, customerId: selectedCustomer.id, amount: Math.abs(diff), type: 'manual_deposit_out', note: 'Koreksi Deposit (Berkurang)', storeId: selectedStoreFilter !== 'ALL' ? selectedStoreFilter : 'pusat', storeName: selectedStoreName, createdAt: new Date() });
+        await addDocument('returns', { customerName: selectedCustomer.name, customerId: selectedCustomer.id, amount: Math.abs(diff), type: 'manual_deposit_out', note: 'Koreksi Deposit (Berkurang)', storeId: editBalanceStoreId, storeName: finalStoreName, createdAt: new Date() });
       }
       onShowToast('Deposit berhasil diubah', 'success');
     }
@@ -1010,7 +1030,7 @@ const Dashboard = ({ onShowToast }) => {
                     setNewExpense({
                       ...newExpense, 
                       category: selectedCat,
-                      storeId: 'ALL' // Pastikan selalu ALL saat ganti kategori
+                      storeId: 'ALL' 
                     });
                   }} 
                   className="w-full md:w-48 bg-gray-50 px-4 py-3 rounded-xl border border-gray-200 text-sm font-bold outline-none focus:ring-2 focus:ring-red-500 cursor-pointer"
@@ -1087,8 +1107,25 @@ const Dashboard = ({ onShowToast }) => {
           newManualDebt={newManualDebt}
           setNewManualDebt={setNewManualDebt}
           handleAddManualDebt={handleAddManualDebt}
-          onPayDebt={(c) => { setSelectedCustomer(c); setShowPayDebtModal(true); setDebtPaymentAmount(''); setIsFullPayment(true); }}
-          onEditDebt={(c) => { setEditBalanceType('debt'); setSelectedCustomer(c); setEditBalanceAmount(c.displayDebt); setShowEditBalanceModal(true); }}
+          
+          /* PERBAIKAN: OTOMATIS SET CABANG LACI SAAT TOMBOL BAYAR/EDIT DITEKAN */
+          onPayDebt={(c) => { 
+            setSelectedCustomer(c); 
+            setShowPayDebtModal(true); 
+            setDebtPaymentAmount(''); 
+            setIsFullPayment(true); 
+            const defaultStore = (c.storeId && c.storeId !== 'ALL') ? c.storeId : (selectedStoreFilter !== 'ALL' ? selectedStoreFilter : 'pusat');
+            setDebtPaymentStoreId(defaultStore);
+          }}
+          onEditDebt={(c) => { 
+            setEditBalanceType('debt'); 
+            setSelectedCustomer(c); 
+            setEditBalanceAmount(c.displayDebt); 
+            setShowEditBalanceModal(true); 
+            const defaultStore = (c.storeId && c.storeId !== 'ALL') ? c.storeId : (selectedStoreFilter !== 'ALL' ? selectedStoreFilter : 'pusat');
+            setEditBalanceStoreId(defaultStore);
+          }}
+          
           onDeleteCustomerDebt={(c) => { setSelectedItem({...c, isCustomerDebt: true}); setShowDeleteModal(true); }}
           onViewHistoryDetail={(item) => { setSelectedDetailItem(item); setShowDetailModal(true); }}
           onDeleteHistory={(item) => { setSelectedItem(item); setShowDeleteModal(true); }}
@@ -1119,7 +1156,14 @@ const Dashboard = ({ onShowToast }) => {
                        <td className="p-4 font-black italic text-sm md:text-lg whitespace-nowrap text-purple-600">Rp {c.displayDeposit.toLocaleString('id-ID')}</td>
                        <td className="p-4 text-right">
                          <div className="flex justify-end items-center gap-2">
-                           <button onClick={() => { setEditBalanceType('deposit'); setSelectedCustomer(c); setEditBalanceAmount(c.displayDeposit); setShowEditBalanceModal(true); }} className="bg-white border text-gray-600 p-2 rounded-xl hover:bg-gray-50 hover:text-teal-600"><Edit3 className="w-4 h-4 inline-block"/></button>
+                           <button onClick={() => { 
+                             setEditBalanceType('deposit'); 
+                             setSelectedCustomer(c); 
+                             setEditBalanceAmount(c.displayDeposit); 
+                             setShowEditBalanceModal(true); 
+                             const defaultStore = (c.storeId && c.storeId !== 'ALL') ? c.storeId : (selectedStoreFilter !== 'ALL' ? selectedStoreFilter : 'pusat');
+                             setEditBalanceStoreId(defaultStore);
+                           }} className="bg-white border text-gray-600 p-2 rounded-xl hover:bg-gray-50 hover:text-teal-600"><Edit3 className="w-4 h-4 inline-block"/></button>
                            {selectedStoreFilter === 'ALL' && <button onClick={() => { setSelectedItem({...c, isCustomerDeposit: true}); setShowDeleteModal(true); }} className="bg-red-50 text-red-600 p-2 rounded-xl hover:bg-red-100"><Trash2 className="w-4 h-4" /></button>}
                          </div>
                        </td>
@@ -1190,7 +1234,7 @@ const Dashboard = ({ onShowToast }) => {
 
       {/* --- MODALS --- */}
 
-      {/* MODAL PENJELASAN LABA/RUGI (TANPA KOTAK BIRU) */}
+      {/* MODAL PENJELASAN LABA/RUGI */}
       {showProfitDetailModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[150] p-4">
           <div className={`bg-white rounded-[32px] p-6 md:p-8 max-w-md w-full shadow-2xl relative border-t-8 ${isProfit ? 'border-emerald-500' : 'border-rose-500'}`}>
@@ -1271,25 +1315,40 @@ const Dashboard = ({ onShowToast }) => {
         </div>
       )}
 
-      {/* MODAL EDIT BALANCE */}
+      {/* MODAL EDIT BALANCE (DITAMBAH DROPDOWN LOKASI CABANG) */}
       {showEditBalanceModal && selectedCustomer && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
           <div className="bg-white rounded-[32px] p-6 md:p-8 max-w-sm w-full shadow-2xl relative border-t-8 border-teal-600">
             <button onClick={() => setShowEditBalanceModal(false)} className="absolute right-6 top-6 text-gray-400"><X /></button>
             <h3 className="text-lg md:text-xl font-black text-gray-800 mb-2 uppercase">Koreksi Manual</h3>
+            
+            <div className="mb-4">
+              <label className="text-[10px] font-black text-gray-400 uppercase mb-2 block">Lokasi Cabang Koreksi</label>
+              <select
+                value={editBalanceStoreId}
+                onChange={e => setEditBalanceStoreId(e.target.value)}
+                className="w-full bg-gray-50 rounded-2xl px-4 py-3 text-sm font-bold text-gray-800 outline-none focus:ring-2 focus:ring-teal-500"
+                required
+              >
+                <option value="" disabled>-- Pilih Cabang --</option>
+                <option value="pusat">🏢 Cabang Pusat</option>
+                {stores.map(s => <option key={s.id} value={s.id}>🏪 {s.name}</option>)}
+              </select>
+            </div>
+
             <div className="mb-6">
-              <label className="text-[10px] font-black text-gray-400 uppercase mb-2 block">Total Baru</label>
-              <input type="number" className="w-full bg-gray-50 rounded-2xl px-4 py-4 text-xl font-black text-teal-600 outline-none" value={editBalanceAmount} onChange={e => setEditBalanceAmount(e.target.value)} />
+              <label className="text-[10px] font-black text-gray-400 uppercase mb-2 block">Total Saldo Baru</label>
+              <input type="number" className="w-full bg-white border-2 border-gray-200 rounded-2xl px-4 py-4 text-xl font-black text-teal-600 outline-none focus:border-teal-500" value={editBalanceAmount} onChange={e => setEditBalanceAmount(e.target.value)} />
             </div>
             <div className="flex gap-2">
               <button onClick={() => setShowEditBalanceModal(false)} className="flex-1 py-3 font-black text-gray-400 bg-gray-100 rounded-xl">Batal</button>
-              <button onClick={handleSaveEditBalance} className="flex-1 bg-teal-600 text-white py-3 rounded-xl font-black shadow-md">Simpan</button>
+              <button onClick={handleSaveEditBalance} className="flex-1 bg-teal-600 text-white py-3 rounded-xl font-black shadow-md hover:bg-teal-700 active:scale-95 transition-all">Simpan</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* MODAL TERIMA PEMBAYARAN HUTANG */}
+      {/* MODAL TERIMA PEMBAYARAN HUTANG (DITAMBAH DROPDOWN LOKASI CABANG) */}
       {showPayDebtModal && selectedCustomer && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
           <div className="bg-white rounded-[32px] p-6 md:p-8 w-full max-w-sm shadow-2xl relative border-t-8 border-teal-600 flex flex-col max-h-[90vh]">
@@ -1297,13 +1356,29 @@ const Dashboard = ({ onShowToast }) => {
                <X className="w-5 h-5" />
             </button>
             <h3 className="text-xl font-black text-gray-800 mb-2 uppercase flex items-center gap-2"><CreditCard className="w-5 h-5 text-teal-600"/> Bayar Hutang</h3>
+            
             <div className="bg-gray-50 p-3 rounded-xl border border-gray-100 mb-4">
                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Pelanggan</p>
                <p className="font-black text-gray-800 text-sm">{selectedCustomer.name}</p>
                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-2 mb-1">Sisa Hutang</p>
                <p className="font-black text-red-600 text-lg">Rp {(selectedCustomer.displayDebt ?? selectedCustomer.remainingDebt).toLocaleString('id-ID')}</p>
             </div>
-            <div className="space-y-4 overflow-y-auto custom-scrollbar flex-1 pr-1">
+            
+            <div className="space-y-4 overflow-y-auto custom-scrollbar flex-1 pr-1 pb-2">
+              <div>
+                <label className="text-[10px] font-black text-gray-400 uppercase mb-2 block">Laci Penerima Uang (Cabang)</label>
+                <select
+                  value={debtPaymentStoreId}
+                  onChange={e => setDebtPaymentStoreId(e.target.value)}
+                  className="w-full bg-white border-2 border-gray-200 rounded-xl px-4 py-3 text-sm font-bold text-gray-800 outline-none focus:border-teal-500 cursor-pointer transition-colors"
+                  required
+                >
+                  <option value="" disabled>-- Pilih Laci Cabang --</option>
+                  <option value="pusat">🏢 Cabang Pusat</option>
+                  {stores.map(s => <option key={s.id} value={s.id}>🏪 {s.name}</option>)}
+                </select>
+              </div>
+
               <div>
                 <label className="text-[10px] font-black text-gray-400 uppercase mb-2 block">Jenis Pembayaran</label>
                 <div className="flex gap-2">
@@ -1311,6 +1386,7 @@ const Dashboard = ({ onShowToast }) => {
                   <button onClick={() => setIsFullPayment(false)} className={`flex-1 py-2.5 rounded-xl text-xs font-black uppercase transition-all ${!isFullPayment ? 'bg-teal-600 text-white shadow-md' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>Cicil</button>
                 </div>
               </div>
+              
               {!isFullPayment && (
                 <div className="animate-in fade-in slide-in-from-top-2 duration-200">
                   <label className="text-[10px] font-black text-gray-400 uppercase mb-2 block">Nominal Cicilan</label>
@@ -1321,8 +1397,9 @@ const Dashboard = ({ onShowToast }) => {
                 </div>
               )}
             </div>
+
             <div className="flex gap-2 pt-4 mt-2 border-t border-gray-100 shrink-0">
-              <button onClick={() => setShowPayDebtModal(false)} className="flex-1 py-3.5 font-black text-gray-500 bg-gray-100 rounded-xl text-sm uppercase hover:bg-gray-200 transition-colors">Batal</button>
+              <button onClick={() => setShowPayDebtModal(false)} className="flex-1 py-3.5 font-black text-gray-500 bg-gray-100 rounded-xl text-sm uppercase hover:bg-gray-200 transition-colors active:scale-95">Batal</button>
               <button onClick={handlePayDebt} className="flex-1 bg-teal-600 text-white py-3.5 rounded-xl font-black text-sm uppercase shadow-md shadow-teal-200 hover:bg-teal-700 transition-colors active:scale-95">Proses</button>
             </div>
           </div>

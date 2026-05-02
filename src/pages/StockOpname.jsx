@@ -161,9 +161,6 @@ const StockOpname = ({ onShowToast }) => {
     return Object.values(dataMap).slice(-12);
   }, [allStockHistory, chartPeriod]);
 
-  // =========================================================================
-  // FIX: GRAFIK LABA MENGGUNAKAN HARGA SEJARAH + PLESTER NOTA JADUL
-  // =========================================================================
   const profitChartData = useMemo(() => {
     const dataMap = {};
     activeTransactions.forEach(t => {
@@ -194,22 +191,23 @@ const StockOpname = ({ onShowToast }) => {
     return products.filter(product => product.name.toLowerCase().includes(searchProduct.toLowerCase()) || product.category.toLowerCase().includes(searchProduct.toLowerCase()));
   }, [products, searchProduct]);
 
+  // =========================================================================================
+  // FIX ZONA WAKTU: Mengunci Start Date ke jam 00:00:00 agar transaksi dini hari tetap masuk
+  // =========================================================================================
   const filteredHistory = useMemo(() => {
     return allStockHistory.filter(log => {
       const date = getSafeDate(log.createdAt);
       const matchesSearch = (log.productName || log.note || '').toLowerCase().includes(searchHistory.toLowerCase());
       let matchesDate = true;
       if (startDate && endDate) {
-        const start = new Date(startDate); const end = new Date(endDate); end.setHours(23, 59, 59);
+        const start = new Date(startDate); start.setHours(0, 0, 0, 0); // Kunci jam 00.00
+        const end = new Date(endDate); end.setHours(23, 59, 59, 999);
         matchesDate = date >= start && date <= end;
       }
       return matchesSearch && matchesDate;
     });
   }, [allStockHistory, searchHistory, startDate, endDate]);
 
-  // =========================================================================
-  // FIX AKUNTANSI: KALKULATOR LABA MENGGUNAKAN HARGA SEJARAH + PLESTER NOTA JADUL
-  // =========================================================================
   const getProfitData = () => {
     const salesMap = {};
     
@@ -217,7 +215,8 @@ const StockOpname = ({ onShowToast }) => {
       const date = getSafeDate(t.createdAt);
       let matchesDate = true;
       if (startDate && endDate) {
-        const start = new Date(startDate); const end = new Date(endDate); end.setHours(23, 59, 59);
+        const start = new Date(startDate); start.setHours(0, 0, 0, 0); // Kunci jam 00.00
+        const end = new Date(endDate); end.setHours(23, 59, 59, 999);
         matchesDate = date >= start && date <= end;
       }
       if (matchesDate && t.items) {
@@ -254,7 +253,6 @@ const StockOpname = ({ onShowToast }) => {
           salesMap[realId].qtySoldPcs += itemPcs;
           salesMap[realId].totalSalesValue += Number(item.subtotal || ((item.qty || 0) * (item.price || 0) - (item.discount || 0)));
           
-          // TARIK HPP SEJARAH + PLESTER NOTA JADUL
           let finalHpp = item.capitalPrice !== undefined ? Number(item.capitalPrice) : (currentProduct?.hpp || 0);
           if (item.capitalPrice === undefined && ['PCS', 'KG'].includes(item.unitType?.toUpperCase()) && currentProduct && currentProduct.pcsPerCarton > 1) {
               finalHpp = (currentProduct.hpp || 0) / currentProduct.pcsPerCarton;
@@ -268,7 +266,8 @@ const StockOpname = ({ onShowToast }) => {
       const date = getSafeDate(r.createdAt);
       let matchesDate = true;
       if (startDate && endDate) {
-        const start = new Date(startDate); const end = new Date(endDate); end.setHours(23, 59, 59);
+        const start = new Date(startDate); start.setHours(0, 0, 0, 0); // Kunci jam 00.00
+        const end = new Date(endDate); end.setHours(23, 59, 59, 999);
         matchesDate = date >= start && date <= end;
       }
       if (matchesDate && r.items) {
@@ -307,7 +306,6 @@ const StockOpname = ({ onShowToast }) => {
           salesMap[realId].qtyReturnedPcs += itemPcs;
           salesMap[realId].totalReturnValue += Number(item.qty * (item.finalPrice || item.price));
 
-          // TARIK HPP SEJARAH + PLESTER NOTA JADUL UNTUK RETUR
           const currentProduct = products.find(p => p.id === realId);
           let finalHpp = item.capitalPrice !== undefined ? Number(item.capitalPrice) : (item.hpp !== undefined ? Number(item.hpp) : (currentProduct?.hpp || 0));
           if (item.capitalPrice === undefined && item.hpp === undefined && ['PCS', 'KG'].includes(item.unitType?.toUpperCase()) && currentProduct && currentProduct.pcsPerCarton > 1) {

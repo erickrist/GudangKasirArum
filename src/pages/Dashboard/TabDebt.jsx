@@ -82,11 +82,10 @@ const TabDebt = ({
       <div className="bg-white p-4 md:p-6 rounded-3xl border shadow-sm relative z-10">
         <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3 md:mb-4">Penambahan Hutang Manual</h4>
         <form onSubmit={handleAddManualDebt} className="flex flex-col md:flex-row gap-3">
-          {/* TAMBAHAN: DROPDOWN PILIH TOKO/CABANG */}
           <select 
             value={newManualDebt.storeId} 
             onChange={e => setNewManualDebt({...newManualDebt, storeId: e.target.value})} 
-            className="w-full md:w-48 bg-gray-50 rounded-xl px-4 py-3 text-sm font-bold border-none outline-none focus:ring-2 focus:ring-orange-500" 
+            className="w-full md:w-48 bg-gray-50 rounded-xl px-4 py-3 text-sm font-bold border-none outline-none focus:ring-2 focus:ring-orange-500 transition-all" 
             required
           >
             <option value="" disabled>-- Pilih Cabang --</option>
@@ -94,7 +93,21 @@ const TabDebt = ({
             {stores && stores.map(s => <option key={s.id} value={s.id}>🏪 {s.name}</option>)}
           </select>
 
-          <CustomerSearchSelect customers={customers} value={newManualDebt.customerId} onChange={(id) => setNewManualDebt({...newManualDebt, customerId: id})} placeholder="-- Cari Pembeli --" />
+          {/* PERBAIKAN: Saat pembeli dipilih, langsung injeksi storeId pembeli tersebut ke dropdown! */}
+          <CustomerSearchSelect 
+            customers={customers} 
+            value={newManualDebt.customerId} 
+            onChange={(id) => {
+              const cust = customers.find(c => c.id === id);
+              let autoStoreId = newManualDebt.storeId; // Default tetap yang lama
+              if (cust && cust.storeId && cust.storeId !== 'ALL') {
+                 autoStoreId = cust.storeId; // Timpa dengan store milik pembeli
+              }
+              setNewManualDebt({...newManualDebt, customerId: id, storeId: autoStoreId});
+            }} 
+            placeholder="-- Cari Pembeli --" 
+          />
+          
           <input type="text" placeholder="Keterangan" required className="w-full md:flex-1 bg-gray-50 rounded-xl px-4 py-3 text-sm font-bold border-none outline-none focus:ring-2 focus:ring-orange-500" value={newManualDebt.note} onChange={e => setNewManualDebt({...newManualDebt, note: e.target.value})} />
           <input type="number" placeholder="Rp" required className="w-full md:w-44 bg-gray-50 rounded-xl px-4 py-3 text-sm font-black border-none outline-none focus:ring-2 focus:ring-orange-500" value={newManualDebt.amount} onChange={e => setNewManualDebt({...newManualDebt, amount: e.target.value})} />
           <button className="w-full md:w-auto px-8 py-3 rounded-xl font-black text-sm text-white bg-orange-600 shadow-md hover:bg-orange-700 transition-colors">Simpan</button>
@@ -148,7 +161,6 @@ const TabDebt = ({
                    return (
                      <tr key={item.id + (item.debtType || '')} className="hover:bg-gray-50 transition-colors">
                         <td className="p-4 font-bold text-gray-500 whitespace-nowrap">{formatDisplayDate(item.createdAt)}</td>
-                        {/* TAMBAHAN KOLOM CABANG DI HISTORI */}
                         <td className="p-4 font-black text-gray-800 uppercase text-[10px]">{item.storeName || 'Pusat'}</td>
                         <td className="p-4 font-black text-gray-800 uppercase">{item.customerName}</td>
                         <td className="p-4 font-bold text-gray-600">{item.note}</td>
