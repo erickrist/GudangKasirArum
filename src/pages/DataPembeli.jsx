@@ -227,9 +227,9 @@ const DataPembeli = ({ onShowToast }) => {
         {/* TOMBOL-TOMBOL AKSI */}
         <div className="grid grid-cols-2 md:flex flex-wrap gap-2 w-full xl:w-auto">
           {/* Tombol Sapu Jagat */}
-          <button onClick={() => setShowResetAllModal(true)} className="flex items-center justify-center gap-1.5 bg-red-600 text-white px-3 py-2 rounded-xl text-xs font-black shadow-sm hover:bg-red-700 transition-colors">
+          {/* <button onClick={() => setShowResetAllModal(true)} className="flex items-center justify-center gap-1.5 bg-red-600 text-white px-3 py-2 rounded-xl text-xs font-black shadow-sm hover:bg-red-700 transition-colors">
             <Trash2 className="w-3.5 h-3.5" /> Hapus Semua
-          </button>
+          </button> */}
           
           <button onClick={() => exportTemplatePembeli(stores, onShowToast)} className="flex items-center justify-center gap-1.5 bg-gray-50 text-gray-700 border px-3 py-2 rounded-xl text-xs font-black shadow-sm">
             <Download className="w-3.5 h-3.5" /> Template

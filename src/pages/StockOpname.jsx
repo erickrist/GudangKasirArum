@@ -635,10 +635,10 @@ const StockOpname = ({ onShowToast }) => {
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-white p-4 md:p-6 rounded-2xl md:rounded-3xl border shadow-sm gap-4">
             <div><h3 className="text-base md:text-lg font-black text-gray-800 uppercase flex items-center gap-2"><Package className="w-5 h-5 text-teal-600"/> Manajemen Produk</h3></div>
             <div className="grid grid-cols-2 md:flex gap-2 w-full md:w-auto">
-              <button onClick={() => setShowResetStockModal(true)} className="flex items-center justify-center gap-1.5 bg-orange-50 text-orange-700 border border-orange-200 px-3 py-2 rounded-xl text-xs font-black shadow-sm hover:bg-orange-100 transition-colors"><RotateCcw className="w-3.5 h-3.5" /> Nol-kan stock</button>
+              {/* <button onClick={() => setShowResetStockModal(true)} className="flex items-center justify-center gap-1.5 bg-orange-50 text-orange-700 border border-orange-200 px-3 py-2 rounded-xl text-xs font-black shadow-sm hover:bg-orange-100 transition-colors"><RotateCcw className="w-3.5 h-3.5" /> Nol-kan stock</button> */}
               
               {/* TOMBOL SAPU JAGAT - HAPUS SEMUA BARANG */}
-              <button onClick={() => setShowResetAllProductsModal(true)} className="flex items-center justify-center gap-1.5 bg-red-600 text-white border border-red-700 px-3 py-2 rounded-xl text-xs font-black shadow-sm hover:bg-red-700 transition-colors"><Trash2 className="w-3.5 h-3.5" /> Hapus Semua</button>
+              {/* <button onClick={() => setShowResetAllProductsModal(true)} className="flex items-center justify-center gap-1.5 bg-red-600 text-white border border-red-700 px-3 py-2 rounded-xl text-xs font-black shadow-sm hover:bg-red-700 transition-colors"><Trash2 className="w-3.5 h-3.5" /> Hapus Semua</button> */}
               
               <button onClick={() => exportTemplateProduk(stores, onShowToast)} className="flex items-center gap-1.5 bg-gray-50 text-gray-700 border px-3 py-2 rounded-xl text-xs font-black shadow-sm"><Download className="w-3.5 h-3.5" /> Template</button>
               <button onClick={() => exportDataProduk(products, stores, onShowToast)} className="flex items-center gap-1.5 bg-purple-50 text-purple-700 border border-purple-200 px-3 py-2 rounded-xl text-xs font-black shadow-sm"><Upload className="w-3.5 h-3.5 rotate-180" /> Export</button>
