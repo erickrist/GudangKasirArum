@@ -8,6 +8,8 @@ import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Ba
 import { useCollection, addDocument, updateDocument, deleteDocument } from '../hooks/useFirestore';
 import Loading from '../components/common/Loading';
 import EmptyState from '../components/common/EmptyState';
+import { writeBatch, doc, collection } from 'firebase/firestore';
+import { db } from '../config/firebase'; // Sesuaikan lokasi file db Firebase Anda
 
 import * as XLSX from 'xlsx';
 
@@ -535,6 +537,7 @@ const StockOpname = ({ onShowToast }) => {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
+    
     reader.onload = async (evt) => {
       try {
         const data = new Uint8Array(evt.target.result);
@@ -542,63 +545,116 @@ const StockOpname = ({ onShowToast }) => {
         const excelData = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
         if (excelData.length === 0) return onShowToast('File kosong', 'error');
 
-        let successCount = 0; let updateCount = 0; 
-        for (const row of excelData) {
-          const rawName = row["Nama Barang"] || row.Nama;
-          if (!rawName) continue;
-          
-          const unit = (row["Satuan Utama (Karton/Ball/Pcs/dll)"] || row["Satuan (Karton/Ball/Pcs/dll)"] || row.TipeSatuan || 'PCS').toUpperCase();
-          const isWholesale = WHOLESALE_TYPES.includes(unit);
-          
-          const baseUnitRaw = (row["Satuan Eceran Dasar (Pcs/Kg)"] || row["Satuan Eceran Dasar"] || row.BaseUnit || 'PCS').toUpperCase();
-          
-          const isiPerSatuan = Number(row["Isi per Satuan Utama"] || row["Isi per Satuan (Pcs)"] || row.IsiPerUnit) || 1;
-          const stockSatuan = Number(row["Stok Saat Ini (Satuan Utama)"] || row["stock Saat Ini (Satuan)"] || row.stockPcs) || 0;
-          
-          const defaultPrice = parseFloat(row["Harga Jual Default (Satuan Utama)"] || row["Harga Jual Default (Satuan)"] || row["Harga Jual (Satuan)"] || row.HargaJual || row.Harga) || 0;
-          const hppValue = parseFloat(row["Harga Beli Modal (Satuan Utama)"] || row["Harga Beli Modal (Satuan)"] || row.HargaBeli) || 0;
+        onShowToast('Sedang memproses ratusan data, tunggu kedip bentar... 🚀', 'success');
 
-          const dynamicStorePrices = {};
-          stores.forEach(store => {
-            const colName = `Harga Jual (${store.name})`;
-            if (row[colName] !== undefined && row[colName] !== '') {
-               dynamicStorePrices[store.id] = parseFloat(row[colName]) || defaultPrice;
+        // --- MULAI SISTEM BATCH NGEBUT ---
+        const BATAS_BATCH = 400; // Maksimal isi 1 karung Firebase
+        const promises = [];
+        let successCount = 0; 
+        let updateCount = 0; 
+
+        // Pecah total ratusan data ke dalam beberapa karung kecil
+        for (let i = 0; i < excelData.length; i += BATAS_BATCH) {
+          const potonganData = excelData.slice(i, i + BATAS_BATCH);
+          const batch = writeBatch(db); // Buka karung baru
+
+          for (const row of potonganData) {
+            const rawName = row["Nama Barang"] || row.Nama;
+            if (!rawName) continue;
+            
+            // --- Logika Mapping Excel Bawaan Bos ---
+            const unit = (row["Satuan Utama (Karton/Ball/Pcs/dll)"] || row["Satuan (Karton/Ball/Pcs/dll)"] || row.TipeSatuan || 'PCS').toUpperCase();
+            const isWholesale = WHOLESALE_TYPES.includes(unit);
+            
+            const baseUnitRaw = (row["Satuan Eceran Dasar (Pcs/Kg)"] || row["Satuan Eceran Dasar"] || row.BaseUnit || 'PCS').toUpperCase();
+            
+            const isiPerSatuan = Number(row["Isi per Satuan Utama"] || row["Isi per Satuan (Pcs)"] || row.IsiPerUnit) || 1;
+            const stockSatuan = Number(row["Stok Saat Ini (Satuan Utama)"] || row["stock Saat Ini (Satuan)"] || row.stockPcs) || 0;
+            
+            const defaultPrice = parseFloat(row["Harga Jual Default (Satuan Utama)"] || row["Harga Jual Default (Satuan)"] || row["Harga Jual (Satuan)"] || row.HargaJual || row.Harga) || 0;
+            const hppValue = parseFloat(row["Harga Beli Modal (Satuan Utama)"] || row["Harga Beli Modal (Satuan)"] || row.HargaBeli) || 0;
+
+            const dynamicStorePrices = {};
+            stores.forEach(store => {
+              const colName = `Harga Jual (${store.name})`;
+              if (row[colName] !== undefined && row[colName] !== '') {
+                 dynamicStorePrices[store.id] = parseFloat(row[colName]) || defaultPrice;
+              } else {
+                 dynamicStorePrices[store.id] = defaultPrice;
+              }
+            });
+
+            const productData = {
+              name: rawName, 
+              category: row["Kategori"] || row.Kategori || 'Umum', 
+              unitType: unit,
+              baseUnit: isWholesale ? baseUnitRaw : unit, 
+              hpp: hppValue,
+              price: defaultPrice, 
+              defaultPrice: defaultPrice, 
+              storePrices: dynamicStorePrices,
+              pcsPerCarton: isWholesale ? isiPerSatuan : 1, 
+              stockPcs: stockSatuan * (isWholesale ? isiPerSatuan : 1),
+              image: row["Url Gambar"] || row.UrlGambar || '',
+            };
+
+            const existingProduct = products.find(p => p.name.toLowerCase() === productData.name.toLowerCase());
+            
+            if (existingProduct) {
+               // Masukkan perintah UPDATE BARANG ke dalam karung
+               const productRef = doc(db, 'products', existingProduct.id);
+               batch.update(productRef, productData); 
+               updateCount++;
+               
+               // Cek perubahan stok & masukkan perintah LOG STOK ke dalam karung
+               if (productData.stockPcs !== existingProduct.stockPcs) {
+                  const diff = productData.stockPcs - existingProduct.stockPcs;
+                  const logRef = doc(collection(db, 'stock_logs'));
+                  batch.set(logRef, { 
+                    productId: existingProduct.id, 
+                    productName: productData.name, 
+                    type: diff > 0 ? 'in' : 'out', 
+                    amount: Math.abs(diff), 
+                    unitType: productData.baseUnit, 
+                    totalPcs: Math.abs(diff), 
+                    note: 'Import Excel', 
+                    createdAt: new Date() 
+                  });
+               }
             } else {
-               dynamicStorePrices[store.id] = defaultPrice;
-            }
-          });
-
-          const productData = {
-            name: rawName, 
-            category: row["Kategori"] || row.Kategori || 'Umum', 
-            unitType: unit,
-            baseUnit: isWholesale ? baseUnitRaw : unit, 
-            hpp: hppValue,
-            price: defaultPrice, 
-            defaultPrice: defaultPrice, 
-            storePrices: dynamicStorePrices,
-            pcsPerCarton: isWholesale ? isiPerSatuan : 1, 
-            stockPcs: stockSatuan * (isWholesale ? isiPerSatuan : 1),
-            image: row["Url Gambar"] || row.UrlGambar || '',
-          };
-
-          const existingProduct = products.find(p => p.name.toLowerCase() === productData.name.toLowerCase());
-          if (existingProduct) {
-             await updateDocument('products', existingProduct.id, productData); updateCount++;
-             if (productData.stockPcs !== existingProduct.stockPcs) {
-                const diff = productData.stockPcs - existingProduct.stockPcs;
-                await addDocument('stock_logs', { productId: existingProduct.id, productName: productData.name, type: diff > 0 ? 'in' : 'out', amount: Math.abs(diff), unitType: productData.baseUnit, totalPcs: Math.abs(diff), note: 'Import Excel', createdAt: new Date() });
-             }
-          } else {
-             const result = await addDocument('products', productData);
-             if (result.success) {
+               // Masukkan perintah TAMBAH BARANG BARU ke dalam karung
+               const newProductRef = doc(collection(db, 'products'));
+               batch.set(newProductRef, productData);
                successCount++;
-               if (productData.stockPcs > 0) await addDocument('stock_logs', { productId: result.id, productName: productData.name, type: 'in', amount: productData.stockPcs, unitType: productData.baseUnit, totalPcs: productData.stockPcs, note: `Import Excel`, createdAt: new Date() });
-             }
+               
+               // Jika barang baru punya stok, masukkan log stok ke karung
+               if (productData.stockPcs > 0) {
+                 const logRef = doc(collection(db, 'stock_logs'));
+                 batch.set(logRef, { 
+                   productId: newProductRef.id, 
+                   productName: productData.name, 
+                   type: 'in', 
+                   amount: productData.stockPcs, 
+                   unitType: productData.baseUnit, 
+                   totalPcs: productData.stockPcs, 
+                   note: `Import Excel`, 
+                   createdAt: new Date() 
+                 });
+               }
+            }
           }
+          // Simpan karung yang sudah diisi penuh ke dalam antrian pengiriman
+          promises.push(batch.commit());
         }
-        onShowToast(`${successCount} baru, ${updateCount} diupdate`, 'success');
-      } catch (error) { onShowToast('Gagal import', 'error'); }
+
+        // Tembak semua karung ke Firebase secara bersamaan!
+        await Promise.all(promises);
+        onShowToast(`Ngebut Maksimal! ${successCount} baru, ${updateCount} diupdate`, 'success');
+
+      } catch (error) { 
+        console.error("Waduh error batch:", error);
+        onShowToast('Gagal import', 'error'); 
+      }
       e.target.value = null; 
     };
     reader.readAsArrayBuffer(file);
