@@ -491,7 +491,7 @@ const EditTransactionModal = ({ isOpen, onClose, transaction, products = [], cus
                  </>
                ) : (
                  <>
-                   <Save className="w-5 h-5" /> Simpan Revisi Nota
+                   <Save className="w-5 h-5" /> Simpan Revisi Nota.
                  </>
                )}
              </button>
