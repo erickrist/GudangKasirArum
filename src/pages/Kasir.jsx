@@ -198,9 +198,15 @@ const Kasir = ({ onShowToast }) => {
         const dbProduct = products.find(p => p.id === cleanId);
         const trueBaseUnit = dbProduct?.baseUnit || 'PCS';
         
-        const isEceranCart = (item.id && item.id.includes('_PCS')) || (item.productId && item.productId.includes('_PCS'));
+        const isEceranCart = (item.id && item.id.includes('_PCS')) || (item.productId && item.productId.includes('_PCS')) || ['PCS', 'KG'].includes(item.unitType?.toUpperCase());
         const trueUnitType = isEceranCart ? trueBaseUnit : (dbProduct?.unitType || item.unitType);
         const truePcsPerCarton = dbProduct?.pcsPerCarton || item.pcsPerCarton;
+
+        // --- PERBAIKAN BUG HPP: Hitung paksa HPP Eceran yang benar ---
+        let correctHpp = Number(dbProduct?.hpp) || 0;
+        if (isEceranCart && dbProduct && dbProduct.pcsPerCarton > 1) {
+            correctHpp = correctHpp / dbProduct.pcsPerCarton;
+        }
 
         return {
           productId: cleanId, 
@@ -210,8 +216,8 @@ const Kasir = ({ onShowToast }) => {
           baseUnit: trueBaseUnit, 
           pcsPerCarton: truePcsPerCarton, 
           price: Number(item.price), 
-          // MENGUNCI HARGA MODAL (HPP) DARI MEMORI KERANJANG KE NOTA
-          capitalPrice: item.capitalPrice !== undefined ? item.capitalPrice : (Number(dbProduct?.hpp) || 0), 
+          // FIX: Gunakan correctHpp yang sudah dihitung akurat ke database
+          capitalPrice: correctHpp, 
           discount: item.discount || 0,
           subtotal: Number(item.price) * Number(item.qty) - (item.discount || 0),
         };

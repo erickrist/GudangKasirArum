@@ -35,7 +35,7 @@ const StockOpname = ({ onShowToast }) => {
   const [showDeleteHistoryModal, setShowDeleteHistoryModal] = useState(false);
   
   const [showResetStockModal, setShowResetStockModal] = useState(false); 
-  const [showResetAllProductsModal, setShowResetAllProductsModal] = useState(false); // TAMBAHAN: Modal Hapus Semua Barang
+  const [showResetAllProductsModal, setShowResetAllProductsModal] = useState(false); 
   const [showBulkDeleteHistoryModal, setShowBulkDeleteHistoryModal] = useState(false);
   
   const [selectedHistoryItem, setSelectedHistoryItem] = useState(null);
@@ -178,9 +178,12 @@ const StockOpname = ({ onShowToast }) => {
         if (typeof realId === 'string' && realId.endsWith('_PCS')) realId = realId.replace('_PCS', '');
         const currentProduct = products.find(p => p.id === realId);
         
+        // FIX: Self-healing HPP untuk chart
         let historicalHpp = item.capitalPrice !== undefined ? Number(item.capitalPrice) : (currentProduct?.hpp || 0);
-        if (item.capitalPrice === undefined && ['PCS', 'KG'].includes(item.unitType?.toUpperCase()) && currentProduct && currentProduct.pcsPerCarton > 1) {
-            historicalHpp = (currentProduct.hpp || 0) / currentProduct.pcsPerCarton;
+        if (['PCS', 'KG'].includes(item.unitType?.toUpperCase()) && currentProduct && currentProduct.pcsPerCarton > 1) {
+            if (item.capitalPrice === undefined || Number(item.capitalPrice) === Number(currentProduct.hpp)) {
+                historicalHpp = (currentProduct.hpp || 0) / currentProduct.pcsPerCarton;
+            }
         }
 
         dataMap[key].pendapatan += item.subtotal;
@@ -252,9 +255,12 @@ const StockOpname = ({ onShowToast }) => {
           salesMap[realId].qtySoldPcs += itemPcs;
           salesMap[realId].totalSalesValue += Number(item.subtotal || ((item.qty || 0) * (item.price || 0) - (item.discount || 0)));
           
+          // FIX: Self-healing HPP transaksi lama yang terlanjur rusak
           let finalHpp = item.capitalPrice !== undefined ? Number(item.capitalPrice) : (currentProduct?.hpp || 0);
-          if (item.capitalPrice === undefined && ['PCS', 'KG'].includes(item.unitType?.toUpperCase()) && currentProduct && currentProduct.pcsPerCarton > 1) {
-              finalHpp = (currentProduct.hpp || 0) / currentProduct.pcsPerCarton;
+          if (['PCS', 'KG'].includes(item.unitType?.toUpperCase()) && currentProduct && currentProduct.pcsPerCarton > 1) {
+              if (item.capitalPrice === undefined || Number(item.capitalPrice) === Number(currentProduct.hpp)) {
+                  finalHpp = (currentProduct.hpp || 0) / currentProduct.pcsPerCarton;
+              }
           }
           salesMap[realId].totalGrossHpp += Number(finalHpp) * Number(item.qty || 0); 
         });
@@ -303,10 +309,13 @@ const StockOpname = ({ onShowToast }) => {
           salesMap[realId].qtyReturnedPcs += itemPcs;
           salesMap[realId].totalReturnValue += Number(item.qty * (item.finalPrice || item.price));
 
+          // FIX: Self-healing HPP retur lama yang terlanjur rusak
           const currentProduct = products.find(p => p.id === realId);
           let finalHpp = item.capitalPrice !== undefined ? Number(item.capitalPrice) : (item.hpp !== undefined ? Number(item.hpp) : (currentProduct?.hpp || 0));
-          if (item.capitalPrice === undefined && item.hpp === undefined && ['PCS', 'KG'].includes(item.unitType?.toUpperCase()) && currentProduct && currentProduct.pcsPerCarton > 1) {
-              finalHpp = (currentProduct.hpp || 0) / currentProduct.pcsPerCarton;
+          if (['PCS', 'KG'].includes(item.unitType?.toUpperCase()) && currentProduct && currentProduct.pcsPerCarton > 1) {
+              if ((item.capitalPrice === undefined && item.hpp === undefined) || Number(item.capitalPrice) === Number(currentProduct.hpp)) {
+                  finalHpp = (currentProduct.hpp || 0) / currentProduct.pcsPerCarton;
+              }
           }
           salesMap[realId].totalReturnHpp += Number(finalHpp) * Number(item.qty || 0); 
         });
@@ -424,7 +433,6 @@ const StockOpname = ({ onShowToast }) => {
     if (result.success) { onShowToast('Produk dihapus', 'success'); setShowDeleteModal(false); }
   };
 
-  // TAMBAHAN: FUNGSI SAPU JAGAT HAPUS SEMUA BARANG
   const handleResetAllProducts = async () => {
     let count = 0;
     try {
@@ -547,22 +555,19 @@ const StockOpname = ({ onShowToast }) => {
 
         onShowToast('Sedang memproses ratusan data, tunggu kedip bentar... 🚀', 'success');
 
-        // --- MULAI SISTEM BATCH NGEBUT ---
-        const BATAS_BATCH = 400; // Maksimal isi 1 karung Firebase
+        const BATAS_BATCH = 400; 
         const promises = [];
         let successCount = 0; 
         let updateCount = 0; 
 
-        // Pecah total ratusan data ke dalam beberapa karung kecil
         for (let i = 0; i < excelData.length; i += BATAS_BATCH) {
           const potonganData = excelData.slice(i, i + BATAS_BATCH);
-          const batch = writeBatch(db); // Buka karung baru
+          const batch = writeBatch(db); 
 
           for (const row of potonganData) {
             const rawName = row["Nama Barang"] || row.Nama;
             if (!rawName) continue;
             
-            // --- Logika Mapping Excel Bawaan Bos ---
             const unit = (row["Satuan Utama (Karton/Ball/Pcs/dll)"] || row["Satuan (Karton/Ball/Pcs/dll)"] || row.TipeSatuan || 'PCS').toUpperCase();
             const isWholesale = WHOLESALE_TYPES.includes(unit);
             
@@ -601,12 +606,10 @@ const StockOpname = ({ onShowToast }) => {
             const existingProduct = products.find(p => p.name.toLowerCase() === productData.name.toLowerCase());
             
             if (existingProduct) {
-               // Masukkan perintah UPDATE BARANG ke dalam karung
                const productRef = doc(db, 'products', existingProduct.id);
                batch.update(productRef, productData); 
                updateCount++;
                
-               // Cek perubahan stok & masukkan perintah LOG STOK ke dalam karung
                if (productData.stockPcs !== existingProduct.stockPcs) {
                   const diff = productData.stockPcs - existingProduct.stockPcs;
                   const logRef = doc(collection(db, 'stock_logs'));
@@ -622,12 +625,10 @@ const StockOpname = ({ onShowToast }) => {
                   });
                }
             } else {
-               // Masukkan perintah TAMBAH BARANG BARU ke dalam karung
                const newProductRef = doc(collection(db, 'products'));
                batch.set(newProductRef, productData);
                successCount++;
                
-               // Jika barang baru punya stok, masukkan log stok ke karung
                if (productData.stockPcs > 0) {
                  const logRef = doc(collection(db, 'stock_logs'));
                  batch.set(logRef, { 
@@ -643,11 +644,9 @@ const StockOpname = ({ onShowToast }) => {
                }
             }
           }
-          // Simpan karung yang sudah diisi penuh ke dalam antrian pengiriman
           promises.push(batch.commit());
         }
 
-        // Tembak semua karung ke Firebase secara bersamaan!
         await Promise.all(promises);
         onShowToast(`Ngebut Maksimal! ${successCount} baru, ${updateCount} diupdate`, 'success');
 
@@ -691,11 +690,6 @@ const StockOpname = ({ onShowToast }) => {
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-white p-4 md:p-6 rounded-2xl md:rounded-3xl border shadow-sm gap-4">
             <div><h3 className="text-base md:text-lg font-black text-gray-800 uppercase flex items-center gap-2"><Package className="w-5 h-5 text-teal-600"/> Manajemen Produk</h3></div>
             <div className="grid grid-cols-2 md:flex gap-2 w-full md:w-auto">
-              {/* <button onClick={() => setShowResetStockModal(true)} className="flex items-center justify-center gap-1.5 bg-orange-50 text-orange-700 border border-orange-200 px-3 py-2 rounded-xl text-xs font-black shadow-sm hover:bg-orange-100 transition-colors"><RotateCcw className="w-3.5 h-3.5" /> Nol-kan stock</button> */}
-              
-              {/* TOMBOL SAPU JAGAT - HAPUS SEMUA BARANG */}
-              {/* <button onClick={() => setShowResetAllProductsModal(true)} className="flex items-center justify-center gap-1.5 bg-red-600 text-white border border-red-700 px-3 py-2 rounded-xl text-xs font-black shadow-sm hover:bg-red-700 transition-colors"><Trash2 className="w-3.5 h-3.5" /> Hapus Semua</button> */}
-              
               <button onClick={() => exportTemplateProduk(stores, onShowToast)} className="flex items-center gap-1.5 bg-gray-50 text-gray-700 border px-3 py-2 rounded-xl text-xs font-black shadow-sm"><Download className="w-3.5 h-3.5" /> Template</button>
               <button onClick={() => exportDataProduk(products, stores, onShowToast)} className="flex items-center gap-1.5 bg-purple-50 text-purple-700 border border-purple-200 px-3 py-2 rounded-xl text-xs font-black shadow-sm"><Upload className="w-3.5 h-3.5 rotate-180" /> Export</button>
               <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".xlsx, .xls" className="hidden" />
@@ -766,8 +760,8 @@ const StockOpname = ({ onShowToast }) => {
              </div>
              <div className="flex flex-col md:flex-row gap-3 w-full xl:w-auto">
                 <select value={selectedStoreFilter} onChange={e => { setSelectedStoreFilter(e.target.value); setHistoryPage(1); }} className="bg-gray-50 border border-gray-200 text-gray-800 px-4 py-2.5 rounded-xl font-black text-sm outline-none w-full md:w-auto">
-                  <option value="ALL">🌐 SEMUA CABANG</option><option value="pusat">🏢 PUSAT (Gudang)</option>
-                  {stores.map(s => <option key={s.id} value={s.id}>🏪 {s.name.toUpperCase()}</option>)}
+                  <option value="ALL">倹 SEMUA CABANG</option><option value="pusat">召 PUSAT (Gudang)</option>
+                  {stores.map(s => <option key={s.id} value={s.id}>宵 {s.name.toUpperCase()}</option>)}
                 </select>
                 <div className="flex bg-gray-50 px-4 py-2.5 rounded-xl border border-gray-200 w-full md:w-auto justify-between">
                   <input type="date" className="bg-transparent text-sm font-black outline-none w-full" value={startDate} onChange={e => {setStartDate(e.target.value); setHistoryPage(1);}} />
@@ -972,8 +966,8 @@ const StockOpname = ({ onShowToast }) => {
                 <div className="mb-4">
                   <label className="text-[10px] font-black text-gray-400 uppercase ml-1 block mb-1">Lokasi Barang Rusak</label>
                   <select value={damageStoreId} onChange={e => setDamageStoreId(e.target.value)} required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-red-500 cursor-pointer">
-                    <option value="pusat">🏢 Pusat (Gudang Utama)</option>
-                    {stores.map(s => <option key={s.id} value={s.id}>🏪 {s.name}</option>)}
+                    <option value="pusat">召 Pusat (Gudang Utama)</option>
+                    {stores.map(s => <option key={s.id} value={s.id}>宵 {s.name}</option>)}
                   </select>
                 </div>
               )}

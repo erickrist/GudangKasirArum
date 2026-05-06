@@ -159,9 +159,12 @@ const Dashboard = ({ onShowToast }) => {
         if (typeof realId === 'string' && realId.endsWith('_PCS')) realId = realId.replace('_PCS', '');
         const p = products.find(prod => prod.id === realId);
         
+        // FIX: Self-healing HPP transaksi lama yang terlanjur rusak di Dashboard
         let finalHpp = i.capitalPrice !== undefined ? Number(i.capitalPrice) : (p?.hpp || 0);
-        if (i.capitalPrice === undefined && ['PCS', 'KG'].includes(i.unitType?.toUpperCase()) && p && p.pcsPerCarton > 1) {
-            finalHpp = (p.hpp || 0) / p.pcsPerCarton;
+        if (['PCS', 'KG'].includes(i.unitType?.toUpperCase()) && p && p.pcsPerCarton > 1) {
+            if (i.capitalPrice === undefined || Number(i.capitalPrice) === Number(p.hpp)) {
+                finalHpp = (p.hpp || 0) / p.pcsPerCarton;
+            }
         }
 
         return iSum + (finalHpp * Number(i.qty || 0));
@@ -208,9 +211,12 @@ const Dashboard = ({ onShowToast }) => {
                 if (typeof realId === 'string' && realId.endsWith('_PCS')) realId = realId.replace('_PCS', '');
                 const p = products.find(prod => prod.id === realId);
 
+                // FIX: Self-healing HPP retur
                 let finalHpp = item.capitalPrice !== undefined ? Number(item.capitalPrice) : (item.hpp !== undefined ? Number(item.hpp) : (p?.hpp || 0));
-                if (item.capitalPrice === undefined && item.hpp === undefined && ['PCS', 'KG'].includes(item.unitType?.toUpperCase()) && p && p.pcsPerCarton > 1) {
-                    finalHpp = (p.hpp || 0) / p.pcsPerCarton;
+                if (['PCS', 'KG'].includes(item.unitType?.toUpperCase()) && p && p.pcsPerCarton > 1) {
+                    if ((item.capitalPrice === undefined && item.hpp === undefined) || Number(item.capitalPrice) === Number(p.hpp)) {
+                        finalHpp = (p.hpp || 0) / p.pcsPerCarton;
+                    }
                 }
 
                 return sum + (finalHpp * Number(item.qty || 0));
@@ -391,9 +397,12 @@ const Dashboard = ({ onShowToast }) => {
           salesMap[realId].qtySoldPcs += itemPcs;
           salesMap[realId].totalSalesValue += Number(item.subtotal || ((item.qty || 0) * (item.price || 0) - (item.discount || 0)));
           
+          // FIX: Self-healing HPP transaksi lama
           let finalHpp = item.capitalPrice !== undefined ? Number(item.capitalPrice) : (currentProduct?.hpp || 0);
-          if (item.capitalPrice === undefined && ['PCS', 'KG'].includes(item.unitType?.toUpperCase()) && currentProduct && currentProduct.pcsPerCarton > 1) {
-              finalHpp = (currentProduct.hpp || 0) / currentProduct.pcsPerCarton;
+          if (['PCS', 'KG'].includes(item.unitType?.toUpperCase()) && currentProduct && currentProduct.pcsPerCarton > 1) {
+              if (item.capitalPrice === undefined || Number(item.capitalPrice) === Number(currentProduct.hpp)) {
+                  finalHpp = (currentProduct.hpp || 0) / currentProduct.pcsPerCarton;
+              }
           }
           salesMap[realId].totalGrossHpp += Number(finalHpp) * Number(item.qty || 0); 
         });
@@ -442,10 +451,13 @@ const Dashboard = ({ onShowToast }) => {
           salesMap[realId].qtyReturnedPcs += itemPcs;
           salesMap[realId].totalReturnValue += Number(item.qty * (item.finalPrice || item.price));
 
+          // FIX: Self-healing HPP retur lama
           const p = products.find(prod => prod.id === realId);
           let finalHpp = item.capitalPrice !== undefined ? Number(item.capitalPrice) : (item.hpp !== undefined ? Number(item.hpp) : (p?.hpp || 0));
-          if (item.capitalPrice === undefined && item.hpp === undefined && ['PCS', 'KG'].includes(item.unitType?.toUpperCase()) && p && p.pcsPerCarton > 1) {
-              finalHpp = (p.hpp || 0) / p.pcsPerCarton;
+          if (['PCS', 'KG'].includes(item.unitType?.toUpperCase()) && p && p.pcsPerCarton > 1) {
+              if ((item.capitalPrice === undefined && item.hpp === undefined) || Number(item.capitalPrice) === Number(p.hpp)) {
+                  finalHpp = (p.hpp || 0) / p.pcsPerCarton;
+              }
           }
           salesMap[realId].totalReturnHpp += Number(finalHpp) * Number(item.qty || 0); 
         });
