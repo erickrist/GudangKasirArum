@@ -760,8 +760,8 @@ const StockOpname = ({ onShowToast }) => {
              </div>
              <div className="flex flex-col md:flex-row gap-3 w-full xl:w-auto">
                 <select value={selectedStoreFilter} onChange={e => { setSelectedStoreFilter(e.target.value); setHistoryPage(1); }} className="bg-gray-50 border border-gray-200 text-gray-800 px-4 py-2.5 rounded-xl font-black text-sm outline-none w-full md:w-auto">
-                  <option value="ALL">倹 SEMUA CABANG</option><option value="pusat">召 PUSAT (Gudang)</option>
-                  {stores.map(s => <option key={s.id} value={s.id}>宵 {s.name.toUpperCase()}</option>)}
+                  <option value="ALL">🌐 SEMUA CABANG</option><option value="pusat">🏢 PUSAT (Gudang)</option>
+                  {stores.map(s => <option key={s.id} value={s.id}>🏪 {s.name.toUpperCase()}</option>)}
                 </select>
                 <div className="flex bg-gray-50 px-4 py-2.5 rounded-xl border border-gray-200 w-full md:w-auto justify-between">
                   <input type="date" className="bg-transparent text-sm font-black outline-none w-full" value={startDate} onChange={e => {setStartDate(e.target.value); setHistoryPage(1);}} />
