@@ -178,7 +178,6 @@ const StockOpname = ({ onShowToast }) => {
         if (typeof realId === 'string' && realId.endsWith('_PCS')) realId = realId.replace('_PCS', '');
         const currentProduct = products.find(p => p.id === realId);
         
-        // FIX: Self-healing HPP untuk chart
         let historicalHpp = item.capitalPrice !== undefined ? Number(item.capitalPrice) : (currentProduct?.hpp || 0);
         if (['PCS', 'KG'].includes(item.unitType?.toUpperCase()) && currentProduct && currentProduct.pcsPerCarton > 1) {
             if (item.capitalPrice === undefined || Number(item.capitalPrice) === Number(currentProduct.hpp)) {
@@ -197,10 +196,16 @@ const StockOpname = ({ onShowToast }) => {
     return products.filter(product => product.name.toLowerCase().includes(searchProduct.toLowerCase()) || product.category.toLowerCase().includes(searchProduct.toLowerCase()));
   }, [products, searchProduct]);
 
+  // FIX: MEMFILTER HISTORI BERDASARKAN SEARCH BAR BARU MBK ARUM
   const filteredHistory = useMemo(() => {
     return allStockHistory.filter(log => {
       const date = getSafeDate(log.createdAt);
-      const matchesSearch = (log.productName || log.note || '').toLowerCase().includes(searchHistory.toLowerCase());
+      
+      // Pencarian bisa dari nama barang ATAU isi catatan/note (termasuk nama pembeli)
+      const searchStr = searchHistory.toLowerCase();
+      const matchesSearch = (log.productName || '').toLowerCase().includes(searchStr) || 
+                            (log.note || '').toLowerCase().includes(searchStr);
+                            
       let matchesDate = true;
       if (startDate && endDate) {
         const start = new Date(startDate); start.setHours(0, 0, 0, 0); 
@@ -255,7 +260,6 @@ const StockOpname = ({ onShowToast }) => {
           salesMap[realId].qtySoldPcs += itemPcs;
           salesMap[realId].totalSalesValue += Number(item.subtotal || ((item.qty || 0) * (item.price || 0) - (item.discount || 0)));
           
-          // FIX: Self-healing HPP transaksi lama yang terlanjur rusak
           let finalHpp = item.capitalPrice !== undefined ? Number(item.capitalPrice) : (currentProduct?.hpp || 0);
           if (['PCS', 'KG'].includes(item.unitType?.toUpperCase()) && currentProduct && currentProduct.pcsPerCarton > 1) {
               if (item.capitalPrice === undefined || Number(item.capitalPrice) === Number(currentProduct.hpp)) {
@@ -309,7 +313,6 @@ const StockOpname = ({ onShowToast }) => {
           salesMap[realId].qtyReturnedPcs += itemPcs;
           salesMap[realId].totalReturnValue += Number(item.qty * (item.finalPrice || item.price));
 
-          // FIX: Self-healing HPP retur lama yang terlanjur rusak
           const currentProduct = products.find(p => p.id === realId);
           let finalHpp = item.capitalPrice !== undefined ? Number(item.capitalPrice) : (item.hpp !== undefined ? Number(item.hpp) : (currentProduct?.hpp || 0));
           if (['PCS', 'KG'].includes(item.unitType?.toUpperCase()) && currentProduct && currentProduct.pcsPerCarton > 1) {
@@ -774,7 +777,19 @@ const StockOpname = ({ onShowToast }) => {
           </div>
 
           <div className="bg-white rounded-[32px] border shadow-sm flex flex-col">
-            <div className="p-6 bg-gray-50/50 border-b flex justify-between items-center"><h3 className="text-lg font-black uppercase flex items-center gap-2"><ListFilter className="text-teal-500 w-5 h-5"/> Pergerakan Barang</h3></div>
+            <div className="p-4 md:p-6 bg-gray-50/50 border-b flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+              <h3 className="text-lg font-black uppercase flex items-center gap-2"><ListFilter className="text-teal-500 w-5 h-5"/> Pergerakan Barang</h3>
+              <div className="relative w-full md:w-72">
+                  <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Cari nama barang / nama pembeli..."
+                    value={searchHistory}
+                    onChange={(e) => { setSearchHistory(e.target.value); setHistoryPage(1); }}
+                    className="w-full pl-9 pr-4 py-2 bg-white border border-gray-200 rounded-xl text-xs font-bold outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100 transition-all shadow-sm"
+                  />
+              </div>
+            </div>
             <div className="overflow-x-auto w-full custom-scrollbar">
               <table className="w-full min-w-[700px] text-left text-sm">
                 <thead><tr className="border-b bg-white"><th className="p-5 font-black text-gray-400 uppercase text-[10px]">Tgl & Jam</th><th className="p-5 font-black text-gray-400 uppercase text-[10px]">Cabang</th><th className="p-5 font-black text-gray-400 uppercase text-[10px]">Nama Barang</th><th className="p-5 font-black text-gray-400 uppercase text-[10px]">Status</th><th className="p-5 font-black text-gray-400 uppercase text-[10px] text-center">Jumlah</th><th className="p-5 font-black text-gray-400 uppercase text-[10px] text-right">Aksi</th></tr></thead>
@@ -783,7 +798,10 @@ const StockOpname = ({ onShowToast }) => {
                     <tr key={log.uniqueKey} className="hover:bg-gray-50">
                       <td className="p-5 font-bold text-gray-500 whitespace-nowrap">{formatDisplayDate(log.createdAt)}</td>
                       <td className="p-5 font-black text-gray-600 uppercase text-[10px]">{log.storeName || 'Pusat'}</td>
-                      <td className="p-5 font-black text-gray-800 uppercase">{log.productName}</td>
+                      <td className="p-5 font-black text-gray-800 uppercase">
+                        {log.productName}
+                        <p className="text-[10px] text-gray-400 font-bold mt-1 line-clamp-1" title={log.note}>{log.note}</p>
+                      </td>
                       <td className="p-5">
                         <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase border ${
                             log.type === 'MASUK' ? 'bg-green-50 text-green-700 border-green-200' :
