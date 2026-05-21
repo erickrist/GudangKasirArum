@@ -61,10 +61,15 @@ const Nota = ({ transaction, onClose }) => {
           style={{ fontFamily: 'monospace', fontSize: '14px' }}
         >
           {/* KOP SURAT */}
-          <div className="text-center mb-6 border-b-2 border-gray-800 pb-4">
-            <h1 className="text-2xl font-bold text-teal-600 mb-1">ARSEN FROZEN FOOD</h1>
-            <p className="text-sm text-gray-600 mt-2">Ciampea, Bogor 16620</p>
-            <p className="text-sm text-gray-600">081410503012</p>
+          <div className="text-center mb-6 border-b-2 border-gray-800 pb-4 relative">
+            {transaction.transactionStatus === 'DRAFT' && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none overflow-hidden">
+                <span className="text-4xl md:text-6xl font-black text-gray-200 uppercase tracking-widest -rotate-12 opacity-50">DRAFT</span>
+              </div>
+            )}
+            <h1 className="text-2xl font-bold text-teal-600 mb-1 relative z-10">ARSEN FROZEN FOOD</h1>
+            <p className="text-sm text-gray-600 mt-2 relative z-10">Ciampea, Bogor 16620</p>
+            <p className="text-sm text-gray-600 relative z-10">081410503012</p>
           </div>
 
           <div className="flex justify-between items-start border-b border-gray-800 mb-4 pb-4 text-sm">

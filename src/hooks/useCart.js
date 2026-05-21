@@ -129,6 +129,7 @@ export const useCart = () => {
     updateDiscount,
     removeFromCart,
     calculateSubtotal,
-    clearCart
+    clearCart,
+    setCart
   };
 };

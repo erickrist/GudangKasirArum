@@ -1,6 +1,7 @@
-import { useState } from 'react';
-import { Plus, Trash2, ShoppingCart, User, X, Search, Store, MapPin } from 'lucide-react';
-import { useCollection, addDocument, updateDocument } from '../hooks/useFirestore';
+import { useState, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { Plus, Trash2, ShoppingCart, User, X, Search, Store, MapPin, Save } from 'lucide-react';
+import { useCollection, addDocument, updateDocument, deleteDocument } from '../hooks/useFirestore';
 import { useCart } from '../hooks/useCart'; 
 import { usePricing } from '../hooks/usePricing'; 
 import Loading from '../components/common/Loading';
@@ -18,8 +19,13 @@ const Kasir = ({ onShowToast }) => {
   
   const {
     cart, selectedCustomer, setSelectedCustomer,
-    addToCart, updateQty, updateDiscount, removeFromCart, calculateSubtotal, clearCart
+    addToCart, updateQty, updateDiscount, removeFromCart, calculateSubtotal, clearCart, setCart
   } = useCart();
+
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [draftId, setDraftId] = useState(null);
+  const [redirectAfterNota, setRedirectAfterNota] = useState(false);
 
   const { activeStoreId, handleStoreChange, getProductPrice } = usePricing(stores);
 
@@ -35,9 +41,11 @@ const Kasir = ({ onShowToast }) => {
 
   const executeResetTransaction = () => {
     clearCart(); 
+    setDraftId(null);
     setShowResetModal(false);
     onShowToast('Transaksi berhasil dibatalkan', 'success');
   };
+
 
   const filteredProducts = products.filter(p =>
     p.name.toLowerCase().includes(searchProduct.toLowerCase()) ||
@@ -48,6 +56,24 @@ const Kasir = ({ onShowToast }) => {
     c.name.toLowerCase().includes(searchCustomer.toLowerCase()) ||
     (c.phone && c.phone.includes(searchCustomer))
   );
+
+  useEffect(() => {
+    if (location.state?.editDraft && customers.length > 0) {
+      const draft = location.state.editDraft;
+      setCart(draft.items);
+      const cust = customers.find(c => c.id === draft.customerId);
+      if (cust) {
+        setSelectedCustomer(cust);
+      } else {
+        setSelectedCustomer({ id: draft.customerId, name: draft.customerName, phone: draft.customerPhone, address: draft.customerAddress });
+      }
+      setDraftId(draft.id);
+      
+      // Clear state so it doesn't reload on refresh
+      navigate('.', { replace: true, state: {} });
+      onShowToast('Draft berhasil dimuat ke keranjang', 'success');
+    }
+  }, [location.state, customers, navigate, setCart, setSelectedCustomer, onShowToast]);
 
   const handleCustomerSelect = (customer) => {
     setSelectedCustomer(customer);
@@ -129,7 +155,7 @@ const Kasir = ({ onShowToast }) => {
     setAddingCustomer(false);
   };
 
-  const handlePaymentConfirm = async (paymentData) => {
+  const handlePaymentConfirm = async (paymentData, isDraft = false) => {
     if (!selectedCustomer) return onShowToast('Pilih pembeli terlebih dahulu', 'error');
 
     const stockDeductions = {};
@@ -156,12 +182,14 @@ const Kasir = ({ onShowToast }) => {
     }
 
     const stockUpdates = [];
-    for (const [id, data] of Object.entries(stockDeductions)) {
-        const newStock = data.stockPcs - data.reduceAmount;
-        if (newStock < 0) {
-            return onShowToast(`Stok ${data.name} di pusat tidak mencukupi. (Sisa: ${data.stockPcs}, Diminta: ${data.reduceAmount})`, 'error');
-        }
-        stockUpdates.push({ productId: id, newStock: newStock });
+    if (!isDraft) {
+      for (const [id, data] of Object.entries(stockDeductions)) {
+          const newStock = data.stockPcs - data.reduceAmount;
+          if (newStock < 0) {
+              return onShowToast(`Stok ${data.name} di pusat tidak mencukupi. (Sisa: ${data.stockPcs}, Diminta: ${data.reduceAmount})`, 'error');
+          }
+          stockUpdates.push({ productId: id, newStock: newStock });
+      }
     }
 
     let subtotal = calculateSubtotal();
@@ -227,39 +255,52 @@ const Kasir = ({ onShowToast }) => {
       returnUsed: returnUsed,
       debtPaid: debtPaid,
       paymentStatus: paymentData.status,
+      transactionStatus: isDraft ? 'DRAFT' : 'COMPLETED',
       paymentMethod: paymentData.status === 'LUNAS' ? paymentData.method : null,
       createdAt: new Date()
     };
 
-    const result = await addDocument('transactions', transactionData);
+    let result;
+    if (draftId) {
+       result = await updateDocument('transactions', draftId, transactionData);
+       result.id = draftId;
+    } else {
+       result = await addDocument('transactions', transactionData);
+    }
 
     if (result.success) {
       let allStockUpdated = true;
-      for (const update of stockUpdates) {
-         const updateRes = await updateDocument('products', update.productId, { stockPcs: update.newStock });
-         if (!updateRes.success) allStockUpdated = false;
+      if (!isDraft) {
+        for (const update of stockUpdates) {
+           const updateRes = await updateDocument('products', update.productId, { stockPcs: update.newStock });
+           if (!updateRes.success) allStockUpdated = false;
+        }
       }
 
       if (allStockUpdated) {
         const customerUpdates = {};
-        if (returnUsed > 0) customerUpdates.returnAmount = Math.max(0, selectedCustomer.returnAmount - returnUsed);
-        
-        if (paymentData.status === 'HUTANG') {
-          const debtToAdd = subtotal - returnUsed;
-          customerUpdates.remainingDebt = (selectedCustomer.remainingDebt || 0) + debtToAdd;
-        } else if (paymentData.status === 'LUNAS') {
-          if (paymentData.collectDebt && debtPaid > 0) customerUpdates.remainingDebt = Math.max(0, (selectedCustomer.remainingDebt || 0) - debtPaid);
+        if (!isDraft) {
+          if (returnUsed > 0) customerUpdates.returnAmount = Math.max(0, selectedCustomer.returnAmount - returnUsed);
+          
+          if (paymentData.status === 'HUTANG') {
+            const debtToAdd = subtotal - returnUsed;
+            customerUpdates.remainingDebt = (selectedCustomer.remainingDebt || 0) + debtToAdd;
+          } else if (paymentData.status === 'LUNAS') {
+            if (paymentData.collectDebt && debtPaid > 0) customerUpdates.remainingDebt = Math.max(0, (selectedCustomer.remainingDebt || 0) - debtPaid);
+          }
+
+          if (Object.keys(customerUpdates).length > 0) {
+            await updateDocument('customers', selectedCustomer.id, customerUpdates);
+          }
         }
 
-        if (Object.keys(customerUpdates).length > 0) {
-          await updateDocument('customers', selectedCustomer.id, customerUpdates);
-        }
-
-        setLastTransaction({ id: result.id, ...transactionData });
+        setLastTransaction({ id: result.id || draftId, ...transactionData });
+        if (draftId) setRedirectAfterNota(true);
         setShowNota(true);
         clearCart(); 
+        setDraftId(null);
         setShowPaymentModal(false);
-        onShowToast('Transaksi berhasil!', 'success');
+        onShowToast(isDraft ? 'Pesanan berhasil disimpan sebagai Draft' : 'Transaksi berhasil!', 'success');
       } else {
         onShowToast('Transaksi berhasil, tapi ada stok yang gagal terpotong. Harap cek Gudang!', 'error');
       }
@@ -278,12 +319,32 @@ const Kasir = ({ onShowToast }) => {
     setShowPaymentModal(true);
   };
 
+
+
   if (loadingProducts || loadingCustomers || loadingStores) return <Loading />;
 
   const subtotal = calculateSubtotal();
 
   return (
     <div className="pb-24 lg:pb-10">
+      {draftId && (
+        <div className="bg-orange-50 border border-orange-200 text-orange-700 p-4 md:p-5 rounded-2xl md:rounded-3xl mb-6 flex flex-col md:flex-row justify-between items-start md:items-center shadow-sm gap-3 animate-in fade-in slide-in-from-top-4">
+          <div>
+            <h4 className="font-black text-sm md:text-base uppercase tracking-tight">Sedang Mengedit Draft</h4>
+            <p className="text-[10px] md:text-xs font-bold mt-1 text-orange-600">Perubahan akan menimpa draft yang sedang aktif.</p>
+          </div>
+          <button 
+             onClick={() => {
+                clearCart();
+                setDraftId(null);
+                navigate('/?tab=drafts');
+             }} 
+             className="w-full md:w-auto bg-white border border-orange-200 text-orange-600 px-4 py-2.5 rounded-xl text-[10px] md:text-xs font-black uppercase tracking-widest hover:bg-orange-100 transition-colors shadow-sm active:scale-95 flex items-center justify-center gap-2"
+          >
+            <X className="w-4 h-4"/> Batal Edit
+          </button>
+        </div>
+      )}
       
       {stores.length > 0 && (
          <div className="bg-white p-4 md:p-5 rounded-2xl md:rounded-3xl border flex flex-col md:flex-row items-start md:items-center justify-between mb-6 shadow-sm gap-3">
@@ -358,12 +419,8 @@ const Kasir = ({ onShowToast }) => {
                   return (
                     <div
                       key={product.id}
-                      onClick={() => {
-                        if(product.stockPcs >= 1) handleAddToCartClick(product, 'WHOLESALE')
-                      }}
-                      className={`text-left border rounded-xl md:rounded-2xl overflow-hidden hover:shadow-lg transition-all duration-300 flex flex-col active:scale-95 ${
-                        product.stockPcs < 1 ? 'opacity-50 cursor-not-allowed border-gray-200 grayscale' : 'hover:border-teal-400 border-gray-200 bg-white cursor-pointer'
-                      }`}
+                      onClick={() => handleAddToCartClick(product, 'WHOLESALE')}
+                      className="text-left border border-gray-200 rounded-xl md:rounded-2xl overflow-hidden hover:shadow-lg hover:border-teal-400 bg-white cursor-pointer transition-all duration-300 flex flex-col active:scale-95"
                     >
                       {product.image && (
                         <img src={product.image} alt={product.name} className="w-full h-24 md:h-32 object-cover border-b border-gray-100" />
@@ -383,17 +440,15 @@ const Kasir = ({ onShowToast }) => {
                           
                           <div className="grid grid-cols-2 gap-2 mt-1">
                              <button 
-                               disabled={product.stockPcs < 1} 
                                onClick={(e) => { e.stopPropagation(); handleAddToCartClick(product, 'WHOLESALE'); }} 
-                               className="bg-teal-50 text-teal-700 py-2 rounded-lg text-[9px] md:text-[10px] font-black uppercase hover:bg-teal-100 transition-colors shadow-sm disabled:opacity-50 active:scale-95"
+                               className="bg-teal-50 text-teal-700 py-2 rounded-lg text-[9px] md:text-[10px] font-black uppercase hover:bg-teal-100 transition-colors shadow-sm active:scale-95"
                              >
                                + 1 {product.unitType}
                              </button>
                              {product.pcsPerCarton > 1 && !['PCS', 'KG'].includes(product.unitType) ? (
                                <button 
-                                 disabled={product.stockPcs < 1} 
                                  onClick={(e) => { e.stopPropagation(); handleAddToCartClick(product, 'PCS'); }} 
-                                 className="bg-purple-50 text-purple-700 py-2 rounded-lg text-[9px] md:text-[10px] font-black uppercase hover:bg-purple-100 transition-colors shadow-sm disabled:opacity-50 active:scale-95"
+                                 className="bg-purple-50 text-purple-700 py-2 rounded-lg text-[9px] md:text-[10px] font-black uppercase hover:bg-purple-100 transition-colors shadow-sm active:scale-95"
                                >
                                  + 1 {product.baseUnit || 'PCS'}
                                </button>
@@ -497,7 +552,7 @@ const Kasir = ({ onShowToast }) => {
               <div className="bg-teal-50 border border-teal-100 p-3 md:p-4 rounded-xl md:rounded-2xl">
                 <div className="flex justify-between items-center"><span className="text-xs md:text-sm font-black text-teal-800 uppercase tracking-tight">Total Akhir</span><span className="text-base md:text-xl font-black text-teal-600">Rp {subtotal.toLocaleString('id-ID')}</span></div>
               </div>
-              <button onClick={handleCheckout} disabled={cart.length === 0 || !selectedCustomer} className="w-full bg-teal-600 text-white py-3 md:py-4 rounded-xl md:rounded-2xl font-black uppercase tracking-widest hover:bg-teal-700 transition-all shadow-lg shadow-teal-100 disabled:bg-gray-200 disabled:text-gray-400 disabled:shadow-none disabled:cursor-not-allowed text-[10px] md:text-sm active:scale-95">
+              <button onClick={handleCheckout} disabled={cart.length === 0 || !selectedCustomer} className="w-full bg-teal-600 text-white py-3 md:py-4 rounded-xl md:rounded-2xl font-black uppercase tracking-widest hover:bg-teal-700 transition-all shadow-lg shadow-teal-100 disabled:bg-gray-200 disabled:text-gray-400 disabled:shadow-none disabled:cursor-not-allowed text-[10px] md:text-sm active:scale-95 mt-2">
                 Proses Pembayaran
               </button>
             </div>
@@ -572,11 +627,18 @@ const Kasir = ({ onShowToast }) => {
       <QuickAddCustomer isOpen={showAddCustomerModal} onClose={() => setShowAddCustomerModal(false)} onSubmit={handleAddNewCustomer} isLoading={addingCustomer} />
 
       {showPaymentModal && selectedCustomer && (
-        <PaymentModal transaction={{ total: subtotal, items: cart }} customer={selectedCustomer} onConfirm={handlePaymentConfirm} onCancel={() => setShowPaymentModal(false)} />
+        <PaymentModal transaction={{ total: subtotal, items: cart }} customer={selectedCustomer} onConfirm={(data) => handlePaymentConfirm(data, false)} onDraft={(data) => handlePaymentConfirm(data, true)} onCancel={() => setShowPaymentModal(false)} />
       )}
 
       {showNota && lastTransaction && (
-        <Nota transaction={lastTransaction} onClose={() => { setShowNota(false); setLastTransaction(null); }} />
+        <Nota transaction={lastTransaction} onClose={() => { 
+           setShowNota(false); 
+           setLastTransaction(null); 
+           if (redirectAfterNota) {
+             setRedirectAfterNota(false);
+             navigate('/?tab=drafts');
+           }
+        }} />
       )}
 
       {showResetModal && (

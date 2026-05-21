@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { 
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar
 } from 'recharts';
@@ -12,12 +12,14 @@ import Loading from '../components/common/Loading';
 import Nota from '../components/Nota';
 import FormRetur from '../components/FormRetur';
 import EditTransactionModal from '../components/EditTransactionModal';
+import EditDraftModal from '../components/EditDraftModal';
 
 import { exportMasterExcel, exportNeracaExcel, exportLabaRugiExcel, exportKeuntunganExcel } from '../utils/exportExcel';
 import { exportMasterPDF, exportNeracaPDF, exportLabaRugiPDF, exportKeuntunganPDF } from '../utils/exportPdf';
 
 import TabSales from './Dashboard/TabSales';
 import TabDebt from './Dashboard/TabDebt';
+import TabDrafts from './Dashboard/TabDrafts';
 
 const Dashboard = ({ onShowToast }) => {
   const { data: transactions, loading: loadingTrans } = useCollection('transactions', 'createdAt');
@@ -28,6 +30,7 @@ const Dashboard = ({ onShowToast }) => {
   const { data: stores, loading: loadingStores } = useCollection('stores');
 
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const activeTab = searchParams.get('tab') || 'overview';
 
   const [selectedStoreFilter, setSelectedStoreFilter] = useState('ALL');
@@ -43,10 +46,12 @@ const Dashboard = ({ onShowToast }) => {
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showDownloadModal, setShowDownloadModal] = useState(false);
   const [showEditTransModal, setShowEditTransModal] = useState(false);
+  const [showEditDraftModal, setShowEditDraftModal] = useState(false);
   const [showEditBalanceModal, setShowEditBalanceModal] = useState(false);
   const [showProfitDetailModal, setShowProfitDetailModal] = useState(false);
 
   const [selectedEditTransaction, setSelectedEditTransaction] = useState(null);
+  const [selectedEditDraft, setSelectedEditDraft] = useState(null);
   const [editBalanceType, setEditBalanceType] = useState('debt');
   const [editBalanceAmount, setEditBalanceAmount] = useState('');
   const [selectedItem, setSelectedItem] = useState(null);
@@ -89,8 +94,15 @@ const Dashboard = ({ onShowToast }) => {
   const selectedStoreName = selectedStoreFilter === 'ALL' ? 'Semua Cabang' : selectedStoreFilter === 'pusat' ? 'Pusat' : stores.find(s => s.id === selectedStoreFilter)?.name;
 
   const activeStoreTransactions = useMemo(() => {
-    if (selectedStoreFilter === 'ALL') return transactions;
-    return transactions.filter(t => t.storeId === selectedStoreFilter || (!t.storeId && selectedStoreFilter === 'pusat'));
+    const validTransactions = transactions.filter(t => t.transactionStatus !== 'DRAFT');
+    if (selectedStoreFilter === 'ALL') return validTransactions;
+    return validTransactions.filter(t => t.storeId === selectedStoreFilter || (!t.storeId && selectedStoreFilter === 'pusat'));
+  }, [transactions, selectedStoreFilter]);
+
+  const activeStoreDrafts = useMemo(() => {
+    const draftTransactions = transactions.filter(t => t.transactionStatus === 'DRAFT');
+    if (selectedStoreFilter === 'ALL') return draftTransactions;
+    return draftTransactions.filter(t => t.storeId === selectedStoreFilter || (!t.storeId && selectedStoreFilter === 'pusat'));
   }, [transactions, selectedStoreFilter]);
 
   const activeStoreExpenses = useMemo(() => {
@@ -352,6 +364,7 @@ const Dashboard = ({ onShowToast }) => {
   const filteredDebtHistory = useMemo(() => applyFilters(debtLogs, ['customerName', 'note']), [debtLogs, searchTerm, startDate, endDate]);
   const filteredDepositHistory = useMemo(() => applyFilters(depositLogs, ['customerName', 'note', 'reason']), [depositLogs, searchTerm, startDate, endDate]);
   const filteredNetBalance = useMemo(() => applyFilters(netLogs, ['customerName', 'note', 'title', 'subjName', 'detailNote']), [netLogs, searchTerm, startDate, endDate]);
+  const filteredDrafts = useMemo(() => applyFilters(activeStoreDrafts, ['customerName']), [activeStoreDrafts, searchTerm, startDate, endDate]);
 
   const getProfitData = () => {
     const salesMap = {};
@@ -532,6 +545,7 @@ const Dashboard = ({ onShowToast }) => {
 
   let currentList = [];
   if (activeTab === 'sales') currentList = filteredSales;
+  else if (activeTab === 'drafts') currentList = filteredDrafts;
   else if (activeTab === 'transactions') currentList = filteredTransactions;
   else if (activeTab === 'expenses') currentList = filteredExpenses;
   else if (activeTab === 'debts') currentList = filteredDebtHistory;
@@ -772,7 +786,72 @@ const Dashboard = ({ onShowToast }) => {
     onShowToast(`${count} data dihapus`, 'success');
     setShowBulkDeleteModal(false);
   };
+  const handleApproveDraft = async (draft) => {
+    const stockDeductions = {};
+    for (const item of draft.items) {
+      let realId = item.originalId || item.productId || item.id;
+      if (typeof realId === 'string' && realId.endsWith('_PCS')) realId = realId.replace('_PCS', '');
+      
+      let pcsToReduce = Number(item.qty) || 0;
+      if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType?.toUpperCase())) {
+         pcsToReduce = (Number(item.qty) || 0) * (Number(item.pcsPerCarton) || 1);
+      }   
 
+      if (!stockDeductions[realId]) {
+          const dbProduct = products.find(p => p.id === realId);
+          stockDeductions[realId] = {
+              stockPcs: dbProduct ? Number(dbProduct.stockPcs) : 0,
+              reduceAmount: 0,
+              name: item.name.replace(' (Eceran)', '') 
+          };
+      }
+      stockDeductions[realId].reduceAmount += pcsToReduce;
+    }
+
+    const stockUpdates = [];
+    for (const [id, data] of Object.entries(stockDeductions)) {
+        const newStock = data.stockPcs - data.reduceAmount;
+        if (newStock < 0) {
+            return onShowToast(`Gagal ACC: Stok ${data.name} tidak mencukupi. Sisa stok: ${data.stockPcs}`, 'error');
+        }
+        stockUpdates.push({ productId: id, newStock: newStock, name: data.name, reduceAmount: data.reduceAmount });
+    }
+
+    let allStockUpdated = true;
+    for (const update of stockUpdates) {
+       const updateRes = await updateDocument('products', update.productId, { stockPcs: update.newStock });
+       if (!updateRes.success) allStockUpdated = false;
+       await addDocument('stock_logs', {
+          productId: update.productId, productName: update.name, type: 'out', 
+          amount: update.reduceAmount, unitType: 'PCS', totalPcs: update.reduceAmount,
+          note: `ACC Draft #${draft.id.substring(0,6)}`, createdAt: new Date()
+       });
+    }
+
+    if (allStockUpdated) {
+       const customerUpdates = {};
+       const customer = customers.find(c => c.id === draft.customerId);
+       if (customer) {
+           if (draft.returnUsed > 0) {
+               customerUpdates.returnAmount = Math.max(0, (customer.returnAmount || 0) - draft.returnUsed);
+           }
+           if (draft.paymentStatus === 'HUTANG') {
+               const debtToAdd = Number(draft.subtotal) - Number(draft.returnUsed || 0);
+               customerUpdates.remainingDebt = (customer.remainingDebt || 0) + debtToAdd;
+           } else if (draft.paymentStatus === 'LUNAS') {
+               if (draft.debtPaid > 0) {
+                   customerUpdates.remainingDebt = Math.max(0, (customer.remainingDebt || 0) - draft.debtPaid);
+               }
+           }
+           
+           if (Object.keys(customerUpdates).length > 0) {
+               await updateDocument('customers', customer.id, customerUpdates);
+           }
+       }
+       await updateDocument('transactions', draft.id, { transactionStatus: 'COMPLETED', createdAt: new Date() });
+       onShowToast('Draft berhasil di-ACC!', 'success');
+    }
+  };
   return (
     <div className="pb-10 bg-gray-50 min-h-screen p-2 md:p-6">
       
@@ -805,6 +884,7 @@ const Dashboard = ({ onShowToast }) => {
       <div className="flex gap-2 mb-6 bg-white p-2 rounded-xl shadow-sm border no-print overflow-x-auto custom-scrollbar whitespace-nowrap">
         {[
           { id: 'overview', label: 'Ringkasan', icon: TrendingUp }, 
+          { id: 'drafts', label: 'Pesanan Pending', icon: Clock },
           { id: 'sales', label: 'Transaksi', icon: ShoppingCart },
           { id: 'transactions', label: 'Pemasukan', icon: ArrowUpCircle }, 
           { id: 'expenses', label: 'Pengeluaran', icon: ArrowDownCircle }, 
@@ -989,6 +1069,19 @@ const Dashboard = ({ onShowToast }) => {
           onViewNota={(item) => { setSelectedNotaTransaction(item); setShowNota(true); }}
           onEditTransaction={(item) => { setSelectedEditTransaction(item); setShowEditTransModal(true); }}
           onDeleteTransaction={(item) => { setSelectedItem({...item, isSale: true}); setShowDeleteModal(true); }}
+          paginationComponent={renderPagination()}
+        />
+      )}
+
+      {/* TAB DRAFTS */}
+      {activeTab === 'drafts' && (
+        <TabDrafts 
+          paginatedItems={paginatedItems}
+          formatDisplayDate={formatDisplayDate}
+          onApproveDraft={handleApproveDraft}
+          onViewDraftNota={(item) => { setSelectedNotaTransaction(item); setShowNota(true); }}
+          onEditDraft={(item) => { setSelectedEditDraft(item); setShowEditDraftModal(true); }}
+          onDeleteDraft={(item) => { setSelectedItem({...item, isDraft: true}); setShowDeleteModal(true); }}
           paginationComponent={renderPagination()}
         />
       )}
@@ -1472,6 +1565,10 @@ const Dashboard = ({ onShowToast }) => {
                     await updateDocument('customers', selectedItem.id, { returnAmount: 0 });
                     onShowToast('Deposit pelanggan di-nol-kan', 'success');
 
+                  } else if (selectedItem.isDraft) {
+                    await deleteDocument('transactions', selectedItem.id);
+                    onShowToast('Draft berhasil dihapus', 'success');
+
                   } else {
                     const colName = selectedItem.sourceCollection || (activeTab === 'expenses' ? 'expenses' : activeTab === 'returns' ? 'returns' : 'transactions');
                     if (colName === 'returns') {
@@ -1603,6 +1700,7 @@ const Dashboard = ({ onShowToast }) => {
 
       <FormRetur isOpen={showReturnModal} onClose={() => setShowReturnModal(false)} onShowToast={onShowToast} />
       {showEditTransModal && selectedEditTransaction && (<EditTransactionModal isOpen={showEditTransModal} transaction={selectedEditTransaction} products={products} customers={customers} onClose={() => setShowEditTransModal(false)} onShowToast={onShowToast} />)}
+      {showEditDraftModal && selectedEditDraft && (<EditDraftModal isOpen={showEditDraftModal} transaction={selectedEditDraft} products={products} customers={customers} onClose={() => setShowEditDraftModal(false)} onShowToast={onShowToast} />)}
       {showNota && selectedNotaTransaction && (<Nota transaction={selectedNotaTransaction} onClose={() => setShowNota(false)} />)}
     </div>
   );

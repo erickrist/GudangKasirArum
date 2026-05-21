@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { X, AlertCircle as AlertCircle, CheckCircle as CheckCircle } from 'lucide-react';
+import { X, AlertCircle, CheckCircle, Save } from 'lucide-react';
 
-const PaymentModal = ({ transaction, customer, onConfirm, onCancel }) => {
+const PaymentModal = ({ transaction, customer, onConfirm, onDraft, onCancel }) => {
   const [paymentData, setPaymentData] = useState({
     status: 'LUNAS',
     method: 'TUNAI',
@@ -54,6 +54,19 @@ const PaymentModal = ({ transaction, customer, onConfirm, onCancel }) => {
       debtChange,
       returnUsed,
     });
+  };
+
+  const handleDraft = () => {
+    const debtChange = paymentData.status === 'HUTANG' ? calculateDebtChange() : -(paymentData.collectDebt ? paymentData.debtAmount : 0);
+    const returnUsed = paymentData.useReturn ? paymentData.returnAmount : 0;
+    
+    if (onDraft) {
+      onDraft({
+        ...paymentData,
+        debtChange,
+        returnUsed,
+      });
+    }
   };
 
   const handleUseAllReturn = () => {
@@ -285,16 +298,25 @@ const PaymentModal = ({ transaction, customer, onConfirm, onCancel }) => {
         <div className="flex flex-col sm:flex-row gap-3">
           <button
             onClick={onCancel}
-            className="w-full sm:w-1/3 px-4 py-4 md:py-5 border border-gray-200 rounded-2xl hover:bg-gray-50 transition-colors font-black text-gray-500 uppercase tracking-widest text-xs md:text-sm"
+            className="w-full sm:w-1/4 px-4 py-4 md:py-5 border border-gray-200 rounded-2xl hover:bg-gray-50 transition-colors font-black text-gray-500 uppercase tracking-widest text-xs md:text-sm"
           >
             Batal
           </button>
+          {onDraft && (
+            <button
+              onClick={handleDraft}
+              className="w-full sm:w-1/3 px-4 py-4 md:py-5 bg-orange-100 text-orange-700 rounded-2xl hover:bg-orange-200 transition-colors font-black flex items-center justify-center gap-2 uppercase tracking-widest text-xs md:text-sm shadow-sm active:scale-95"
+            >
+              <Save className="w-5 h-5" />
+              Draft
+            </button>
+          )}
           <button
             onClick={handleConfirm}
             className="w-full sm:flex-1 px-4 py-4 md:py-5 bg-teal-600 text-white rounded-2xl hover:bg-teal-700 transition-colors font-black flex items-center justify-center gap-2 uppercase tracking-widest text-xs md:text-sm shadow-xl shadow-teal-100 active:scale-95"
           >
             <CheckCircle className="w-5 h-5" />
-            Konfirmasi & Cetak Nota
+            Konfirmasi
           </button>
         </div>
       </div>
