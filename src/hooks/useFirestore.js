@@ -9,12 +9,13 @@ import {
   onSnapshot,
   query,
   orderBy,
+  limit,
   serverTimestamp,
   writeBatch
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 
-export const useCollection = (collectionName, orderByField = null) => {
+export const useCollection = (collectionName, orderByField = null, queryLimit = null) => {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -24,7 +25,13 @@ export const useCollection = (collectionName, orderByField = null) => {
     let q = collection(db, collectionName);
 
     if (orderByField) {
-      q = query(q, orderBy(orderByField, 'desc'));
+      if (queryLimit) {
+        q = query(q, orderBy(orderByField, 'desc'), limit(queryLimit));
+      } else {
+        q = query(q, orderBy(orderByField, 'desc'));
+      }
+    } else if (queryLimit) {
+      q = query(q, limit(queryLimit));
     }
 
     const unsubscribe = onSnapshot(q,
@@ -43,7 +50,7 @@ export const useCollection = (collectionName, orderByField = null) => {
     );
 
     return () => unsubscribe();
-  }, [collectionName, orderByField]);
+  }, [collectionName, orderByField, queryLimit]);
 
   return { data, loading, error };
 };
