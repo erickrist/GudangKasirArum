@@ -703,8 +703,10 @@ const Dashboard = ({ onShowToast }) => {
 
   const handleSyncCustomers = async () => {
     try {
+      const validTransactions = transactions.filter(t => t.transactionStatus !== 'DRAFT');
+      
       const globalDebtLogs = [];
-      transactions.forEach(t => {
+      validTransactions.forEach(t => {
         if (t.paymentStatus === 'HUTANG' || t.note === 'Penambahan Hutang Manual' || t.note === 'Koreksi Hutang (Bertambah)') {
           let amount = t.subtotal || t.amount;
           if (t.paymentStatus === 'HUTANG') {
@@ -729,7 +731,7 @@ const Dashboard = ({ onShowToast }) => {
           globalDepositLogs.push({ customerId: r.customerId, depType: 'out', nominal: r.amount });
         }
       });
-      transactions.forEach(t => {
+      validTransactions.forEach(t => {
         if (t.returnUsed > 0) globalDepositLogs.push({ customerId: t.customerId, depType: 'out', nominal: t.returnUsed });
       });
 
