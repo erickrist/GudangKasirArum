@@ -130,11 +130,14 @@ const EditDraftModal = ({ isOpen, onClose, transaction, products = [], customers
     let total = newSubtotal;
     if (paymentData.useReturn && paymentData.returnAmount > 0) total -= paymentData.returnAmount;
     if (paymentData.collectDebt && paymentData.debtAmount > 0) total += paymentData.debtAmount;
-    if (paymentData.status === 'HUTANG') total = Math.max(0, total);
-    return { newSubtotal, newTotal: Math.max(0, total) };
+    
+    let displayTotal = Math.max(0, total);
+    let newTotal = paymentData.status === 'HUTANG' ? 0 : displayTotal;
+    
+    return { newSubtotal, displayTotal, newTotal };
   };
 
-  const { newSubtotal, newTotal } = calculateNewTotals();
+  const { newSubtotal, displayTotal, newTotal } = calculateNewTotals();
 
   const handleSave = async () => {
     if (items.some(i => i.qty === '' || isNaN(parseFloat(i.qty)) || parseFloat(i.qty) <= 0)) {
@@ -337,7 +340,7 @@ const EditDraftModal = ({ isOpen, onClose, transaction, products = [], customers
                )}
                <div className="flex justify-between items-center border-t border-orange-500/50 pt-3 mt-1">
                  <span className="font-black tracking-widest uppercase text-xs text-orange-200">Total Akhir Draft</span> 
-                 <span className="font-black text-2xl md:text-3xl">Rp {newTotal.toLocaleString('id-ID')}</span>
+                 <span className="font-black text-2xl md:text-3xl">Rp {displayTotal.toLocaleString('id-ID')}</span>
                </div>
              </div>
           </div>

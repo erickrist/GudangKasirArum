@@ -39,11 +39,10 @@ const Sidebar = ({ currentPath }) => {
               <Link
                 key={item.id}
                 to={item.path}
-                className={`flex items-center gap-3 px-4 py-3.5 rounded-2xl font-bold transition-all duration-300 ${
-                  isActive 
-                    ? 'bg-teal-600 text-white shadow-lg shadow-teal-100 translate-x-2' 
+                className={`flex items-center gap-3 px-4 py-3.5 rounded-2xl font-bold transition-all duration-300 ${isActive
+                    ? 'bg-teal-600 text-white shadow-lg shadow-teal-100 translate-x-2'
                     : 'text-gray-400 hover:bg-gray-50 hover:text-gray-600'
-                }`}
+                  }`}
               >
                 <Icon className={`w-5 h-5 ${isActive ? 'animate-pulse' : ''}`} />
                 <span className="text-sm tracking-tight">{item.label}</span>
@@ -54,7 +53,7 @@ const Sidebar = ({ currentPath }) => {
 
         <div className="p-6">
           <div className="bg-gray-50 rounded-[24px] p-4 border border-gray-100">
-            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest text-center italic">Version 2.0</p>
+            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest text-center italic">POS System</p>
           </div>
         </div>
       </aside>
@@ -64,17 +63,16 @@ const Sidebar = ({ currentPath }) => {
         {menuItems.map((item) => {
           const Icon = item.icon;
           const isActive = currentPath === item.path;
-          
+
           return (
             <Link
               key={item.id}
               to={item.path}
-              className={`flex flex-col items-center justify-center p-2 rounded-xl transition-all duration-300 w-full ${
-                isActive ? 'text-teal-600' : 'text-gray-400 hover:text-teal-500'
-              }`}
+              className={`flex flex-col items-center justify-center p-2 rounded-xl transition-all duration-300 w-full ${isActive ? 'text-teal-600' : 'text-gray-400 hover:text-teal-500'
+                }`}
             >
               <div className={`p-1.5 rounded-xl mb-1 transition-all ${isActive ? 'bg-teal-50 scale-110' : ''}`}>
-                 <Icon className="w-5 h-5 md:w-6 md:h-6" />
+                <Icon className="w-5 h-5 md:w-6 md:h-6" />
               </div>
               <span className={`text-[10px] font-bold tracking-tighter ${isActive ? 'opacity-100' : 'opacity-60'}`}>
                 {item.label}
