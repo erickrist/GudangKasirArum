@@ -38,7 +38,9 @@ const EditDraftModal = ({ isOpen, onClose, transaction, products = [], customers
         if (!dateVal) return '';
         try {
           const d = dateVal.seconds ? new Date(dateVal.seconds * 1000) : new Date(dateVal);
-          return d.toISOString().split('T')[0];
+          const offset = d.getTimezoneOffset();
+          const dLocal = new Date(d.getTime() - (offset * 60 * 1000));
+          return dLocal.toISOString().split('T')[0];
         } catch { return ''; }
       };
 
@@ -169,6 +171,26 @@ const EditDraftModal = ({ isOpen, onClose, transaction, products = [], customers
 
     setIsSaving(true);
     try {
+      let finalCreatedAt = new Date();
+      if (transactionDates.createdAt) {
+          const [cYear, cMonth, cDay] = transactionDates.createdAt.split('-');
+          finalCreatedAt = new Date(cYear, cMonth - 1, cDay);
+      }
+      if (transaction.createdAt) {
+          const origDate = transaction.createdAt.seconds ? new Date(transaction.createdAt.seconds * 1000) : new Date(transaction.createdAt);
+          finalCreatedAt.setHours(origDate.getHours(), origDate.getMinutes(), origDate.getSeconds(), origDate.getMilliseconds());
+      }
+
+      let finalDeliveryDate = new Date();
+      if (transactionDates.deliveryDate) {
+          const [dYear, dMonth, dDay] = transactionDates.deliveryDate.split('-');
+          finalDeliveryDate = new Date(dYear, dMonth - 1, dDay);
+      }
+      if (transaction.deliveryDate) {
+          const origDDate = transaction.deliveryDate.seconds ? new Date(transaction.deliveryDate.seconds * 1000) : new Date(transaction.deliveryDate);
+          finalDeliveryDate.setHours(origDDate.getHours(), origDDate.getMinutes(), origDDate.getSeconds(), origDDate.getMilliseconds());
+      }
+
       await updateDocument('transactions', transaction.id, {
         items: items.map(i => ({...i, qty: parseFloat(i.qty)})), 
         subtotal: newSubtotal, 
@@ -177,8 +199,8 @@ const EditDraftModal = ({ isOpen, onClose, transaction, products = [], customers
         paymentMethod: paymentData.status === 'LUNAS' ? paymentData.method : null,
         returnUsed: paymentData.useReturn ? paymentData.returnAmount : 0,
         debtPaid: paymentData.collectDebt ? paymentData.debtAmount : 0,
-        createdAt: new Date(transactionDates.createdAt),
-        deliveryDate: new Date(transactionDates.deliveryDate),
+        createdAt: finalCreatedAt,
+        deliveryDate: finalDeliveryDate,
         driverName: driverName
       });
       onShowToast('Draft berhasil direvisi!', 'success');
