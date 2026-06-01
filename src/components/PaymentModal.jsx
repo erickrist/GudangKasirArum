@@ -9,7 +9,6 @@ const PaymentModal = ({ transaction, customer, onConfirm, onDraft, onCancel }) =
     returnAmount: 0,
     collectDebt: false,
     debtAmount: 0,
-    deliveryDate: new Date().toISOString().split('T')[0],
     driverName: ''
   });
 
@@ -110,14 +109,7 @@ const PaymentModal = ({ transaction, customer, onConfirm, onDraft, onCancel }) =
             <p className="text-[10px] md:text-xs font-black text-teal-600 uppercase tracking-widest mb-1">Total</p>
             <p className="text-sm md:text-base font-black text-teal-700 truncate">Rp {transaction.total.toLocaleString('id-ID')}</p>
           </div>
-          <div className="bg-purple-50 p-3 md:p-4 rounded-2xl border border-purple-100 flex flex-col justify-center">
-            <p className="text-[10px] md:text-xs font-black text-purple-600 uppercase tracking-widest mb-1">Tgl Kirim</p>
-            <input 
-              type="date" 
-              value={paymentData.deliveryDate} 
-              onChange={(e) => setPaymentData({ ...paymentData, deliveryDate: e.target.value })}
-              className="bg-transparent border-none p-0 m-0 w-full font-black text-purple-700 text-sm md:text-base outline-none focus:ring-0 cursor-pointer"
-            />
+          <div className="hidden">
           </div>
           <div className="bg-orange-50 p-3 md:p-4 rounded-2xl border border-orange-100 flex flex-col justify-center">
             <p className="text-[10px] md:text-xs font-black text-orange-600 uppercase tracking-widest mb-1">Driver</p>

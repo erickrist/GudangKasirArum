@@ -11,8 +11,7 @@ const EditDraftModal = ({ isOpen, onClose, transaction, products = [], customers
   const searchRef = useRef(null);
 
   const [transactionDates, setTransactionDates] = useState({
-    createdAt: '',
-    deliveryDate: ''
+    createdAt: ''
   });
   const [driverName, setDriverName] = useState('');
 
@@ -45,8 +44,7 @@ const EditDraftModal = ({ isOpen, onClose, transaction, products = [], customers
       };
 
       setTransactionDates({
-        createdAt: formatToYYYYMMDD(transaction.createdAt) || new Date().toISOString().split('T')[0],
-        deliveryDate: formatToYYYYMMDD(transaction.deliveryDate) || formatToYYYYMMDD(transaction.createdAt) || new Date().toISOString().split('T')[0]
+        createdAt: formatToYYYYMMDD(transaction.createdAt) || new Date().toISOString().split('T')[0]
       });
       setDriverName(transaction.driverName || '');
 
@@ -181,16 +179,6 @@ const EditDraftModal = ({ isOpen, onClose, transaction, products = [], customers
           finalCreatedAt.setHours(origDate.getHours(), origDate.getMinutes(), origDate.getSeconds(), origDate.getMilliseconds());
       }
 
-      let finalDeliveryDate = new Date();
-      if (transactionDates.deliveryDate) {
-          const [dYear, dMonth, dDay] = transactionDates.deliveryDate.split('-');
-          finalDeliveryDate = new Date(dYear, dMonth - 1, dDay);
-      }
-      if (transaction.deliveryDate) {
-          const origDDate = transaction.deliveryDate.seconds ? new Date(transaction.deliveryDate.seconds * 1000) : new Date(transaction.deliveryDate);
-          finalDeliveryDate.setHours(origDDate.getHours(), origDDate.getMinutes(), origDDate.getSeconds(), origDDate.getMilliseconds());
-      }
-
       await updateDocument('transactions', transaction.id, {
         items: items.map(i => ({...i, qty: parseFloat(i.qty)})), 
         subtotal: newSubtotal, 
@@ -200,7 +188,6 @@ const EditDraftModal = ({ isOpen, onClose, transaction, products = [], customers
         returnUsed: paymentData.useReturn ? paymentData.returnAmount : 0,
         debtPaid: paymentData.collectDebt ? paymentData.debtAmount : 0,
         createdAt: finalCreatedAt,
-        deliveryDate: finalDeliveryDate,
         driverName: driverName
       });
       onShowToast('Draft berhasil direvisi!', 'success');
@@ -268,15 +255,11 @@ const EditDraftModal = ({ isOpen, onClose, transaction, products = [], customers
 
           {/* EDIT TANGGAL & DRIVER */}
           <div className="bg-white rounded-3xl border border-gray-200 shadow-sm overflow-hidden mb-6 relative z-10 p-4 md:p-5 flex flex-col md:flex-row gap-4 justify-between items-center">
-            <div className="flex flex-col w-full md:w-1/3">
+            <div className="flex flex-col w-full md:w-1/2">
               <label className="text-[10px] md:text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Tgl Transaksi</label>
               <input type="date" value={transactionDates.createdAt} onChange={(e) => setTransactionDates({...transactionDates, createdAt: e.target.value})} className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 font-black text-gray-700 text-sm outline-none focus:ring-2 focus:ring-orange-500" />
             </div>
-            <div className="flex flex-col w-full md:w-1/3">
-              <label className="text-[10px] md:text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Tanggal Kirim</label>
-              <input type="date" value={transactionDates.deliveryDate} onChange={(e) => setTransactionDates({...transactionDates, deliveryDate: e.target.value})} className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 font-black text-gray-700 text-sm outline-none focus:ring-2 focus:ring-orange-500" />
-            </div>
-            <div className="flex flex-col w-full md:w-1/3">
+            <div className="flex flex-col w-full md:w-1/2">
               <label className="text-[10px] md:text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Nama Driver</label>
               <input type="text" placeholder="Boleh Kosong" value={driverName} onChange={(e) => setDriverName(e.target.value)} className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 font-black text-gray-700 text-sm outline-none focus:ring-2 focus:ring-orange-500" />
             </div>

@@ -298,7 +298,7 @@ const Nota = ({ transaction, onClose }) => {
             left: 0 !important;
             width: 100% !important;
             margin: 0 !important;
-            padding: 0.2in !important;
+            padding: 0.2in 0.5in !important;
             box-sizing: border-box !important;
           }
 
