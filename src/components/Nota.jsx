@@ -90,9 +90,9 @@ const Nota = ({ transaction, onClose }) => {
             }}
           >
             <div
-              className="p-6 w-full bg-white text-black"
+              className="p-4 w-full bg-white text-black"
               id="nota-content"
-              style={{ fontFamily: 'Arial, Helvetica, sans-serif', fontSize: '14px' }}
+              style={{ fontFamily: 'Arial, Helvetica, sans-serif', fontSize: '12px' }}
             >
               {transaction.transactionStatus === 'DRAFT' && (
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none overflow-hidden z-0">
@@ -103,24 +103,24 @@ const Nota = ({ transaction, onClose }) => {
               <div className="flex justify-between items-start mb-4">
                 {/* Kiri - Header */}
                 <div className="w-1/2 pr-4">
-                  <h1 className="text-2xl font-bold tracking-wide uppercase text-teal-600 mb-1">ARSEN FROZENFOOD</h1>
-                  <p className="text-sm text-black">Jl. Raya Letnan Sukarna No.11<br/>CIAMPEA, BOGOR 16620<br/>081410503012</p>
+                  <h1 className="text-xl font-bold tracking-wide uppercase text-teal-600 mb-1">ARSEN FROZENFOOD</h1>
+                  <p className="text-xs text-black">Jl. Raya Letnan Sukarna No.11<br/>CIAMPEA, BOGOR 16620<br/>081410503012</p>
                   
                   <div className="mt-4 border-b-2 border-black w-11/12"></div>
                   
-                  <div className="mt-2 text-sm">
+                  <div className="mt-2 text-xs">
                     <p className="mb-1 text-black font-semibold">Kepada :</p>
-                    <p className="font-bold text-sm uppercase text-black">{transaction.customerName}</p>
-                    {transaction.customerAddress && <p className="text-sm uppercase text-black mt-1 leading-snug">{transaction.customerAddress}</p>}
-                    {transaction.customerPhone && <p className="text-sm text-black mt-1">{transaction.customerPhone}</p>}
+                    <p className="font-bold uppercase text-black">{transaction.customerName}</p>
+                    {transaction.customerAddress && <p className="uppercase text-black mt-1 leading-snug">{transaction.customerAddress}</p>}
+                    {transaction.customerPhone && <p className="text-black mt-1">{transaction.customerPhone}</p>}
                   </div>
                 </div>
 
                 {/* Kanan - Header */}
                 <div className="w-1/2 pl-4 flex flex-col items-end">
-                  <h2 className="text-3xl font-extrabold mb-4 text-teal-700 tracking-tight uppercase">Invoice Penjualan</h2>
+                  <h2 className="text-2xl font-extrabold mb-4 text-teal-700 tracking-tight uppercase">Invoice Penjualan</h2>
                   
-                  <table className="w-full max-w-[380px] text-black border-[1.5px] border-black text-sm" style={{ borderCollapse: 'collapse' }}>
+                  <table className="w-full max-w-[340px] text-black border-[1.5px] border-black text-xs" style={{ borderCollapse: 'collapse' }}>
                     <tbody>
                       <tr className="border-b-[1.5px] border-black border-dashed">
                         <td className="p-1.5 w-1/2 border-r-[1.5px] border-black border-dashed align-top">
@@ -154,16 +154,16 @@ const Nota = ({ transaction, onClose }) => {
 
               {/* Tabel Barang */}
               <div className="mb-4 min-h-[300px]">
-                <table className="w-full text-sm border-collapse border border-black text-black">
+                <table className="w-full text-xs border-collapse border border-black text-black">
                   <thead>
                     <tr className="border-b-2 border-black text-center font-bold">
-                      <th className="border border-black p-1.5 w-10">No</th>
-                      <th className="border border-black p-1.5 text-left">Nama Barang</th>
-                      <th className="border border-black p-1.5 w-20">Qty</th>
-                      <th className="border border-black p-1.5 w-16">Isi</th>
-                      <th className="border border-black p-1.5 w-24">@Harga</th>
-                      <th className="border border-black p-1.5 w-20">Disc</th>
-                      <th className="border border-black p-1.5 w-28">Total Harga</th>
+                      <th className="border border-black p-1 w-10">No</th>
+                      <th className="border border-black p-1 text-left">Nama Barang</th>
+                      <th className="border border-black p-1 w-20">Qty</th>
+                      <th className="border border-black p-1 w-16">Isi</th>
+                      <th className="border border-black p-1 w-24">@Harga</th>
+                      <th className="border border-black p-1 w-20">Disc</th>
+                      <th className="border border-black p-1 w-28">Total Harga</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -171,23 +171,23 @@ const Nota = ({ transaction, onClose }) => {
                       const displayBaseUnit = item.baseUnit || 'PCS';
                       return (
                         <tr key={index} className="border-b border-black">
-                          <td className="border-l border-r border-black p-1.5 text-center align-top">{index + 1}</td>
-                          <td className="border-l border-r border-black p-1.5 align-top uppercase text-left">{item.name}</td>
-                          <td className="border-l border-r border-black p-1.5 text-center align-top whitespace-nowrap">
+                          <td className="border-l border-r border-black p-1 text-center align-top">{index + 1}</td>
+                          <td className="border-l border-r border-black p-1 align-top uppercase text-left">{item.name}</td>
+                          <td className="border-l border-r border-black p-1 text-center align-top whitespace-nowrap">
                             {item.qty} {item.unitType}
                           </td>
-                          <td className="border-l border-r border-black p-1.5 text-center align-top">
+                          <td className="border-l border-r border-black p-1 text-center align-top">
                             {['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType?.toUpperCase()) 
                               ? `${item.pcsPerCarton || 1} ${displayBaseUnit}` 
                               : '-'}
                           </td>
-                          <td className="border-l border-r border-black p-1.5 text-right align-top">
+                          <td className="border-l border-r border-black p-1 text-right align-top">
                             {item.price.toLocaleString('id-ID')}
                           </td>
-                          <td className="border-l border-r border-black p-1.5 text-right align-top">
+                          <td className="border-l border-r border-black p-1 text-right align-top">
                             {(item.discount || 0).toLocaleString('id-ID')}
                           </td>
-                          <td className="border-l border-r border-black p-1.5 text-right align-top font-semibold">
+                          <td className="border-l border-r border-black p-1 text-right align-top font-semibold">
                             {item.subtotal.toLocaleString('id-ID')}
                           </td>
                         </tr>
@@ -198,12 +198,12 @@ const Nota = ({ transaction, onClose }) => {
               </div>
 
               {/* Footer */}
-              <div className="flex justify-between items-start text-sm text-black">
+              <div className="flex justify-between items-start text-xs text-black">
                 {/* Kiri - Terbilang, Keterangan, TTD */}
                 <div className="w-[60%] pr-4">
-                  <div className="flex border border-black mb-3 min-h-[36px] items-center">
-                    <div className="p-1.5 px-3 border-r border-black whitespace-nowrap font-semibold">Terbilang :</div>
-                    <div className="p-1.5 px-3 italic font-bold">{formatTerbilang(finalTotal)}</div>
+                  <div className="flex border border-black mb-3 min-h-[32px] items-center">
+                    <div className="p-1 px-2 border-r border-black whitespace-nowrap font-semibold">Terbilang :</div>
+                    <div className="p-1 px-2 italic font-bold">{formatTerbilang(finalTotal)}</div>
                   </div>
                   
                   <div className="flex gap-4">
@@ -220,7 +220,7 @@ const Nota = ({ transaction, onClose }) => {
 
                 {/* Kanan - Rincian Total */}
                 <div className="w-[40%]">
-                  <div className="pt-2 space-y-1 w-full text-base">
+                  <div className="pt-2 space-y-1 w-full text-sm">
                     <div className="flex justify-between border-b border-dashed border-gray-400 pb-1">
                       <span>Subtotal</span>
                       <span className="font-bold">{transaction.subtotal.toLocaleString('id-ID')}</span>
@@ -242,7 +242,7 @@ const Nota = ({ transaction, onClose }) => {
 
                     <div className="pt-2 mt-2 flex justify-between font-bold items-center">
                       <span className="uppercase">Total Bayar</span>
-                      <span className="text-xl">
+                      <span className="text-lg">
                         Rp {finalTotal.toLocaleString('id-ID')}
                       </span>
                     </div>
@@ -298,7 +298,7 @@ const Nota = ({ transaction, onClose }) => {
             left: 0 !important;
             width: 100% !important;
             margin: 0 !important;
-            padding: 0.5in !important;
+            padding: 0.2in !important;
             box-sizing: border-box !important;
           }
 
