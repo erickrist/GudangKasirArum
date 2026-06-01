@@ -10,6 +10,12 @@ const EditDraftModal = ({ isOpen, onClose, transaction, products = [], customers
   const [showDropdown, setShowDropdown] = useState(false);
   const searchRef = useRef(null);
 
+  const [transactionDates, setTransactionDates] = useState({
+    createdAt: '',
+    deliveryDate: ''
+  });
+  const [driverName, setDriverName] = useState('');
+
   const [paymentData, setPaymentData] = useState({
     status: 'LUNAS',
     method: 'TUNAI',
@@ -28,6 +34,20 @@ const EditDraftModal = ({ isOpen, onClose, transaction, products = [], customers
       setSearchQuery('');
       setShowDropdown(false);
       
+      const formatToYYYYMMDD = (dateVal) => {
+        if (!dateVal) return '';
+        try {
+          const d = dateVal.seconds ? new Date(dateVal.seconds * 1000) : new Date(dateVal);
+          return d.toISOString().split('T')[0];
+        } catch { return ''; }
+      };
+
+      setTransactionDates({
+        createdAt: formatToYYYYMMDD(transaction.createdAt) || new Date().toISOString().split('T')[0],
+        deliveryDate: formatToYYYYMMDD(transaction.deliveryDate) || formatToYYYYMMDD(transaction.createdAt) || new Date().toISOString().split('T')[0]
+      });
+      setDriverName(transaction.driverName || '');
+
       setPaymentData({
         status: transaction.paymentStatus || 'LUNAS',
         method: transaction.paymentMethod || 'TUNAI',
@@ -156,7 +176,10 @@ const EditDraftModal = ({ isOpen, onClose, transaction, products = [], customers
         paymentStatus: paymentData.status,
         paymentMethod: paymentData.status === 'LUNAS' ? paymentData.method : null,
         returnUsed: paymentData.useReturn ? paymentData.returnAmount : 0,
-        debtPaid: paymentData.collectDebt ? paymentData.debtAmount : 0
+        debtPaid: paymentData.collectDebt ? paymentData.debtAmount : 0,
+        createdAt: new Date(transactionDates.createdAt),
+        deliveryDate: new Date(transactionDates.deliveryDate),
+        driverName: driverName
       });
       onShowToast('Draft berhasil direvisi!', 'success');
       onClose();
@@ -219,6 +242,22 @@ const EditDraftModal = ({ isOpen, onClose, transaction, products = [], customers
                  ))}
                </div>
             )}
+          </div>
+
+          {/* EDIT TANGGAL & DRIVER */}
+          <div className="bg-white rounded-3xl border border-gray-200 shadow-sm overflow-hidden mb-6 relative z-10 p-4 md:p-5 flex flex-col md:flex-row gap-4 justify-between items-center">
+            <div className="flex flex-col w-full md:w-1/3">
+              <label className="text-[10px] md:text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Tgl Transaksi</label>
+              <input type="date" value={transactionDates.createdAt} onChange={(e) => setTransactionDates({...transactionDates, createdAt: e.target.value})} className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 font-black text-gray-700 text-sm outline-none focus:ring-2 focus:ring-orange-500" />
+            </div>
+            <div className="flex flex-col w-full md:w-1/3">
+              <label className="text-[10px] md:text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Tanggal Kirim</label>
+              <input type="date" value={transactionDates.deliveryDate} onChange={(e) => setTransactionDates({...transactionDates, deliveryDate: e.target.value})} className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 font-black text-gray-700 text-sm outline-none focus:ring-2 focus:ring-orange-500" />
+            </div>
+            <div className="flex flex-col w-full md:w-1/3">
+              <label className="text-[10px] md:text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Nama Driver</label>
+              <input type="text" placeholder="Boleh Kosong" value={driverName} onChange={(e) => setDriverName(e.target.value)} className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 font-black text-gray-700 text-sm outline-none focus:ring-2 focus:ring-orange-500" />
+            </div>
           </div>
 
           <div className="bg-white rounded-3xl border border-gray-200 shadow-sm overflow-hidden mb-6">

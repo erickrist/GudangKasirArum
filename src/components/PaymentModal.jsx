@@ -9,6 +9,8 @@ const PaymentModal = ({ transaction, customer, onConfirm, onDraft, onCancel }) =
     returnAmount: 0,
     collectDebt: false,
     debtAmount: 0,
+    deliveryDate: new Date().toISOString().split('T')[0],
+    driverName: ''
   });
 
   const calculateFinalTotal = () => {
@@ -99,15 +101,33 @@ const PaymentModal = ({ transaction, customer, onConfirm, onDraft, onCancel }) =
           </button>
         </div>
 
-        {/* Di HP 1 kolom, di PC 2 kolom */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4 mb-6">
-          <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-6">
+          <div className="bg-blue-50 p-3 md:p-4 rounded-2xl border border-blue-100 flex flex-col justify-center">
             <p className="text-[10px] md:text-xs font-black text-blue-600 uppercase tracking-widest mb-1">Pembeli</p>
-            <p className="font-black text-gray-800 uppercase">{customer.name}</p>
+            <p className="font-black text-gray-800 uppercase text-sm md:text-base line-clamp-1">{customer.name}</p>
           </div>
-          <div className="bg-teal-50 p-4 rounded-2xl border border-teal-100">
-            <p className="text-[10px] md:text-xs font-black text-teal-600 uppercase tracking-widest mb-1">Total Belanja</p>
-            <p className="text-lg md:text-xl font-black text-teal-700">Rp {transaction.total.toLocaleString('id-ID')}</p>
+          <div className="bg-teal-50 p-3 md:p-4 rounded-2xl border border-teal-100 flex flex-col justify-center">
+            <p className="text-[10px] md:text-xs font-black text-teal-600 uppercase tracking-widest mb-1">Total</p>
+            <p className="text-sm md:text-base font-black text-teal-700 truncate">Rp {transaction.total.toLocaleString('id-ID')}</p>
+          </div>
+          <div className="bg-purple-50 p-3 md:p-4 rounded-2xl border border-purple-100 flex flex-col justify-center">
+            <p className="text-[10px] md:text-xs font-black text-purple-600 uppercase tracking-widest mb-1">Tgl Kirim</p>
+            <input 
+              type="date" 
+              value={paymentData.deliveryDate} 
+              onChange={(e) => setPaymentData({ ...paymentData, deliveryDate: e.target.value })}
+              className="bg-transparent border-none p-0 m-0 w-full font-black text-purple-700 text-sm md:text-base outline-none focus:ring-0 cursor-pointer"
+            />
+          </div>
+          <div className="bg-orange-50 p-3 md:p-4 rounded-2xl border border-orange-100 flex flex-col justify-center">
+            <p className="text-[10px] md:text-xs font-black text-orange-600 uppercase tracking-widest mb-1">Driver</p>
+            <input 
+              type="text" 
+              placeholder="Isi Manual"
+              value={paymentData.driverName} 
+              onChange={(e) => setPaymentData({ ...paymentData, driverName: e.target.value })}
+              className="bg-transparent border-none p-0 m-0 w-full font-black text-orange-700 text-sm md:text-base outline-none focus:ring-0 placeholder:text-orange-300 placeholder:font-normal"
+            />
           </div>
         </div>
 

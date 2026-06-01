@@ -6,10 +6,15 @@ const EditTransactionModal = ({ isOpen, onClose, transaction, products = [], cus
   const [items, setItems] = useState([]);
   const [isSaving, setIsSaving] = useState(false);
   
-  // State untuk fitur pencarian tambah produk
   const [searchQuery, setSearchQuery] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
   const searchRef = useRef(null);
+
+  const [transactionDates, setTransactionDates] = useState({
+    createdAt: '',
+    deliveryDate: ''
+  });
+  const [driverName, setDriverName] = useState('');
 
   // Cari data pelanggan untuk referensi
   const currentCustomer = customers.find(c => c.id === transaction?.customerId);
@@ -21,6 +26,20 @@ const EditTransactionModal = ({ isOpen, onClose, transaction, products = [], cus
       setItems(JSON.parse(JSON.stringify(transaction.items || [])));
       setSearchQuery('');
       setShowDropdown(false);
+
+      const formatToYYYYMMDD = (dateVal) => {
+        if (!dateVal) return '';
+        try {
+          const d = dateVal.seconds ? new Date(dateVal.seconds * 1000) : new Date(dateVal);
+          return d.toISOString().split('T')[0];
+        } catch { return ''; }
+      };
+
+      setTransactionDates({
+        createdAt: formatToYYYYMMDD(transaction.createdAt) || new Date().toISOString().split('T')[0],
+        deliveryDate: formatToYYYYMMDD(transaction.deliveryDate) || formatToYYYYMMDD(transaction.createdAt) || new Date().toISOString().split('T')[0]
+      });
+      setDriverName(transaction.driverName || '');
     }
   }, [transaction, isOpen]);
 
@@ -269,7 +288,10 @@ const EditTransactionModal = ({ isOpen, onClose, transaction, products = [], cus
         items: items.map(i => ({...i, qty: parseFloat(i.qty)})), 
         subtotal: newSubtotal, 
         returnUsed: newReturnUsed,
-        total: newTotal
+        total: newTotal,
+        createdAt: new Date(transactionDates.createdAt),
+        deliveryDate: new Date(transactionDates.deliveryDate),
+        driverName: driverName
       });
 
       onShowToast('Transaksi berhasil direvisi! Stok & Hutang Otomatis Disesuaikan.', 'success');
@@ -377,6 +399,22 @@ const EditTransactionModal = ({ isOpen, onClose, transaction, products = [], cus
                  )}
                </div>
             )}
+          </div>
+
+          {/* EDIT TANGGAL & DRIVER */}
+          <div className="bg-white rounded-3xl border border-gray-200 shadow-sm overflow-hidden mb-6 relative z-10 p-4 md:p-5 flex flex-col md:flex-row gap-4 justify-between items-center">
+            <div className="flex flex-col w-full md:w-1/3">
+              <label className="text-[10px] md:text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Tgl Transaksi</label>
+              <input type="date" value={transactionDates.createdAt} onChange={(e) => setTransactionDates({...transactionDates, createdAt: e.target.value})} className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 font-black text-gray-700 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div className="flex flex-col w-full md:w-1/3">
+              <label className="text-[10px] md:text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Tanggal Kirim</label>
+              <input type="date" value={transactionDates.deliveryDate} onChange={(e) => setTransactionDates({...transactionDates, deliveryDate: e.target.value})} className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 font-black text-gray-700 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div className="flex flex-col w-full md:w-1/3">
+              <label className="text-[10px] md:text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Nama Driver</label>
+              <input type="text" placeholder="Boleh Kosong" value={driverName} onChange={(e) => setDriverName(e.target.value)} className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 font-black text-gray-700 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
           </div>
 
           {/* DAFTAR BARANG YANG MAU DIEDIT */}

@@ -257,7 +257,9 @@ const Kasir = ({ onShowToast }) => {
       paymentStatus: paymentData.status,
       transactionStatus: isDraft ? 'DRAFT' : 'COMPLETED',
       paymentMethod: paymentData.status === 'LUNAS' ? paymentData.method : null,
-      createdAt: new Date()
+      createdAt: new Date(),
+      deliveryDate: paymentData.deliveryDate ? new Date(paymentData.deliveryDate) : new Date(),
+      driverName: paymentData.driverName || ''
     };
 
     let result;
