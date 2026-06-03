@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { X, Printer } from 'lucide-react';
 
 const terbilang = (angka) => {
@@ -33,6 +33,9 @@ const formatTerbilang = (angka) => {
 };
 
 const Nota = ({ transaction, onClose }) => {
+  const [showDetails, setShowDetails] = useState(true);
+  const [showPrices, setShowPrices] = useState(true);
+
   const handlePrint = () => {
     window.print();
   };
@@ -67,6 +70,24 @@ const Nota = ({ transaction, onClose }) => {
         <div className="bg-white border-b border-gray-200 p-4 flex justify-between items-center print:hidden z-20 shrink-0">
           <h3 className="text-xl font-bold text-gray-800">Cetak Struk Transaksi</h3>
           <div className="flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-2 cursor-pointer mr-2">
+              <input 
+                type="checkbox" 
+                checked={showPrices} 
+                onChange={(e) => setShowPrices(e.target.checked)}
+                className="w-4 h-4 text-teal-600 rounded border-gray-300 focus:ring-teal-500"
+              />
+              <span className="text-sm font-medium text-gray-700">Tampilkan Harga</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer mr-2">
+              <input 
+                type="checkbox" 
+                checked={showDetails} 
+                onChange={(e) => setShowDetails(e.target.checked)}
+                className="w-4 h-4 text-teal-600 rounded border-gray-300 focus:ring-teal-500"
+              />
+              <span className="text-sm font-medium text-gray-700">Tampilkan Terbilang & TTD</span>
+            </label>
             <button
               onClick={handlePrint}
               className="flex items-center gap-2 bg-teal-600 text-white px-5 py-2.5 rounded-lg hover:bg-teal-700 transition-colors text-sm font-bold shadow-sm"
@@ -90,7 +111,7 @@ const Nota = ({ transaction, onClose }) => {
             }}
           >
             <div
-              className="p-4 w-full bg-white text-black"
+              className="p-4 w-full bg-white text-black font-medium"
               id="nota-content"
               style={{ fontFamily: 'Arial, Helvetica, sans-serif', fontSize: '12px' }}
             >
@@ -154,16 +175,22 @@ const Nota = ({ transaction, onClose }) => {
 
               {/* Tabel Barang */}
               <div className="mb-4 min-h-[300px]">
-                <table className="w-full text-xs border-collapse border border-black text-black">
+                <table className="w-full text-xs leading-tight border-collapse border border-black text-black">
                   <thead>
                     <tr className="border-b-2 border-black text-center font-bold">
-                      <th className="border border-black p-1 w-10">No</th>
-                      <th className="border border-black p-1 text-left">Nama Barang</th>
-                      <th className="border border-black p-1 w-20">Qty</th>
-                      <th className="border border-black p-1 w-16">Isi</th>
-                      <th className="border border-black p-1 w-24">@Harga</th>
-                      <th className="border border-black p-1 w-20">Disc</th>
-                      <th className="border border-black p-1 w-28">Total Harga</th>
+                      <th className="border border-black px-1 py-0 w-10">No</th>
+                      <th className="border border-black px-1 py-0 text-left">Nama Barang</th>
+                      <th className="border border-black px-1 py-0 w-20">Qty</th>
+                      <th className="border border-black px-1 py-0 w-16">Isi</th>
+                      {showPrices ? (
+                        <>
+                          <th className="border border-black px-1 py-0 w-24">@Harga</th>
+                          <th className="border border-black px-1 py-0 w-20">Disc</th>
+                          <th className="border border-black px-1 py-0 w-28">Total Harga</th>
+                        </>
+                      ) : (
+                        <th className="border border-black px-1 py-0 w-72 text-center">Keterangan</th>
+                      )}
                     </tr>
                   </thead>
                   <tbody>
@@ -171,25 +198,31 @@ const Nota = ({ transaction, onClose }) => {
                       const displayBaseUnit = item.baseUnit || 'PCS';
                       return (
                         <tr key={index} className="border-b border-black">
-                          <td className="border-l border-r border-black p-1 text-center align-top">{index + 1}</td>
-                          <td className="border-l border-r border-black p-1 align-top uppercase text-left">{item.name}</td>
-                          <td className="border-l border-r border-black p-1 text-center align-top whitespace-nowrap">
+                          <td className="border-l border-r border-black px-1 py-0 text-center align-top">{index + 1}</td>
+                          <td className="border-l border-r border-black px-1 py-0 align-top uppercase text-left">{item.name}</td>
+                          <td className="border-l border-r border-black px-1 py-0 text-center align-top whitespace-nowrap">
                             {item.qty} {item.unitType}
                           </td>
-                          <td className="border-l border-r border-black p-1 text-center align-top">
+                          <td className="border-l border-r border-black px-1 py-0 text-center align-top">
                             {['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType?.toUpperCase()) 
                               ? `${item.pcsPerCarton || 1} ${displayBaseUnit}` 
                               : '-'}
                           </td>
-                          <td className="border-l border-r border-black p-1 text-right align-top">
-                            {item.price.toLocaleString('id-ID')}
-                          </td>
-                          <td className="border-l border-r border-black p-1 text-right align-top">
-                            {(item.discount || 0).toLocaleString('id-ID')}
-                          </td>
-                          <td className="border-l border-r border-black p-1 text-right align-top font-semibold">
-                            {item.subtotal.toLocaleString('id-ID')}
-                          </td>
+                          {showPrices ? (
+                            <>
+                              <td className="border-l border-r border-black px-1 py-0 text-right align-top">
+                                {item.price.toLocaleString('id-ID')}
+                              </td>
+                              <td className="border-l border-r border-black px-1 py-0 text-right align-top">
+                                {(item.discount || 0).toLocaleString('id-ID')}
+                              </td>
+                              <td className="border-l border-r border-black px-1 py-0 text-right align-top font-bold">
+                                {item.subtotal.toLocaleString('id-ID')}
+                              </td>
+                            </>
+                          ) : (
+                            <td className="border-l border-r border-black px-1 py-0"></td>
+                          )}
                         </tr>
                       );
                     })}
@@ -201,69 +234,75 @@ const Nota = ({ transaction, onClose }) => {
               <div className="flex justify-between items-start text-xs text-black">
                 {/* Kiri - Terbilang, Keterangan, TTD */}
                 <div className="w-[60%] pr-4">
-                  <div className="flex border border-black mb-3 min-h-[32px] items-center">
-                    <div className="p-1 px-2 border-r border-black whitespace-nowrap font-semibold">Terbilang :</div>
-                    <div className="p-1 px-2 italic font-bold">{formatTerbilang(finalTotal)}</div>
-                  </div>
-                  
-                  <div className="flex gap-4">
-                    <div className="flex-1 border border-black min-h-[100px] p-2 flex flex-col">
-                      <span className="mb-1 font-semibold border-b border-black pb-1 inline-block w-fit">Keterangan :</span>
-                      <span className="font-bold whitespace-pre-wrap">{transaction.note || ''}</span>
-                    </div>
-                    <div className="w-48 text-center flex flex-col justify-between pt-2">
-                      <div className="font-bold">Disetujui Oleh</div>
-                      <div className="mt-16 border-b border-black w-4/5 mx-auto"></div>
-                    </div>
-                  </div>
+                  {showDetails && (
+                    <>
+                      <div className="flex border border-black mb-3 min-h-[32px] items-center">
+                        <div className="p-1 px-2 border-r border-black whitespace-nowrap font-semibold">Terbilang :</div>
+                        <div className="p-1 px-2 italic font-bold">{formatTerbilang(finalTotal)}</div>
+                      </div>
+                      
+                      <div className="flex gap-4">
+                        <div className="flex-1 border border-black min-h-[100px] p-2 flex flex-col">
+                          <span className="mb-1 font-semibold border-b border-black pb-1 inline-block w-fit">Keterangan :</span>
+                          <span className="font-bold whitespace-pre-wrap">{transaction.note || ''}</span>
+                        </div>
+                        <div className="w-48 text-center flex flex-col justify-between pt-2">
+                          <div className="font-bold">Disetujui Oleh</div>
+                          <div className="mt-16 border-b border-black w-4/5 mx-auto"></div>
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 {/* Kanan - Rincian Total */}
                 <div className="w-[40%]">
-                  <div className="pt-2 space-y-1 w-full text-sm">
-                    <div className="flex justify-between border-b border-dashed border-gray-400 pb-1">
-                      <span>Subtotal</span>
-                      <span className="font-bold">{transaction.subtotal.toLocaleString('id-ID')}</span>
-                    </div>
-                    
-                    {transaction.returnUsed > 0 && (
-                      <div className="flex justify-between text-black border-b border-dashed border-gray-400 pb-1">
-                        <span>Retur Digunakan</span>
-                        <span className="font-bold">-{transaction.returnUsed.toLocaleString('id-ID')}</span>
+                  {showPrices && (
+                    <div className="pt-2 space-y-1 w-full text-sm">
+                      <div className="flex justify-between border-b border-dashed border-gray-400 pb-1">
+                        <span>Subtotal</span>
+                        <span className="font-bold">{transaction.subtotal.toLocaleString('id-ID')}</span>
                       </div>
-                    )}
+                      
+                      {transaction.returnUsed > 0 && (
+                        <div className="flex justify-between text-black border-b border-dashed border-gray-400 pb-1">
+                          <span>Retur Digunakan</span>
+                          <span className="font-bold">-{transaction.returnUsed.toLocaleString('id-ID')}</span>
+                        </div>
+                      )}
 
-                    {transaction.debtPaid > 0 && (
-                      <div className="flex justify-between text-blue-600 border-b border-dashed border-gray-400 pb-1">
-                        <span>Hutang Dibayar</span>
-                        <span className="font-bold">+{transaction.debtPaid.toLocaleString('id-ID')}</span>
+                      {transaction.debtPaid > 0 && (
+                        <div className="flex justify-between text-blue-600 border-b border-dashed border-gray-400 pb-1">
+                          <span>Hutang Dibayar</span>
+                          <span className="font-bold">+{transaction.debtPaid.toLocaleString('id-ID')}</span>
+                        </div>
+                      )}
+
+                      <div className="pt-2 mt-2 flex justify-between font-bold items-center">
+                        <span className="uppercase">Total Bayar</span>
+                        <span className="text-lg">
+                          Rp {finalTotal.toLocaleString('id-ID')}
+                        </span>
                       </div>
-                    )}
 
-                    <div className="pt-2 mt-2 flex justify-between font-bold items-center">
-                      <span className="uppercase">Total Bayar</span>
-                      <span className="text-lg">
-                        Rp {finalTotal.toLocaleString('id-ID')}
-                      </span>
+                      <div className="flex justify-between font-bold mt-2 uppercase">
+                        <span className="text-orange-600">Status</span>
+                        <span className={transaction.paymentStatus === 'LUNAS' ? 'text-green-600' : 'text-orange-600'}>
+                          {transaction.paymentStatus}
+                        </span>
+                      </div>
                     </div>
-
-                    <div className="flex justify-between font-bold mt-2 uppercase">
-                      <span className="text-orange-600">Status</span>
-                      <span className={transaction.paymentStatus === 'LUNAS' ? 'text-green-600' : 'text-orange-600'}>
-                        {transaction.paymentStatus}
-                      </span>
-                    </div>
-                  </div>
+                  )}
                 </div>
               </div>
 
-              {/* Thank you note */}
+              {/* Thank you note
               <div className="mt-8 pt-4 border-t border-gray-300 text-center space-y-1 text-xs">
                 <p className="font-bold text-sm">Terima kasih atas pembelian Anda!</p>
                 <p className="text-gray-500">
                   Barang yang sudah dibeli tidak dapat dikembalikan kecuali ada kesalahan dari pihak kami.
                 </p>
-              </div>
+              </div> */}
 
             </div>
           </div>
