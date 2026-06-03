@@ -115,13 +115,12 @@ const Nota = ({ transaction, onClose }) => {
               id="nota-content"
               style={{ fontFamily: 'Arial, Helvetica, sans-serif', fontSize: '12px' }}
             >
-              {transaction.transactionStatus === 'DRAFT' && (
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none overflow-hidden z-0">
-                  <span className="text-6xl font-black text-gray-200 uppercase tracking-widest -rotate-12 opacity-50">DRAFT</span>
-                </div>
-              )}
-              
-              <div className="flex justify-between items-start mb-4">
+              <div className="flex justify-between items-start mb-4 relative">
+                {transaction.transactionStatus === 'DRAFT' && (
+                  <div className="absolute top-2 left-1/2 transform -translate-x-1/2 -rotate-12 pointer-events-none z-10 opacity-80">
+                    <span className="text-5xl font-black text-gray-500 uppercase tracking-widest border-[6px] border-gray-500 px-6 py-2 rounded-xl">DRAFT</span>
+                  </div>
+                )}
                 {/* Kiri - Header */}
                 <div className="w-1/2 pr-4">
                   <h1 className="text-xl font-bold tracking-wide uppercase text-teal-600 mb-1">ARSEN FROZENFOOD</h1>
