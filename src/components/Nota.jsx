@@ -280,32 +280,6 @@ const Nota = ({ transaction, onClose, customers = [] }) => {
                         </div>
                       )}
 
-                      {transaction.paymentStatus === 'HUTANG' && (
-                        <>
-                          <div className="flex justify-between text-black border-b border-dashed border-gray-400 pb-1 mt-1">
-                            <span>Hutang Sebelumnya</span>
-                            <span className="font-bold">
-                              {(() => {
-                                const cust = customers?.find(c => c.id === transaction.customerId);
-                                const currentTotalDebt = cust?.remainingDebt || 0;
-                                let netChange = (transaction.subtotal - (transaction.returnUsed || 0)) - (transaction.debtPaid || 0);
-                                return 'Rp ' + Math.max(0, currentTotalDebt - netChange).toLocaleString('id-ID');
-                              })()}
-                            </span>
-                          </div>
-                          <div className="flex justify-between font-bold mt-2 uppercase">
-                            <span className="text-red-600">Total Sisa Hutang</span>
-                            <span className="text-red-600 text-lg">
-                              {(() => {
-                                const cust = customers?.find(c => c.id === transaction.customerId);
-                                const currentTotalDebt = cust?.remainingDebt || 0;
-                                return 'Rp ' + currentTotalDebt.toLocaleString('id-ID');
-                              })()}
-                            </span>
-                          </div>
-                        </>
-                      )}
-
                       <div className="pt-2 mt-2 flex justify-between font-bold items-center">
                         <span className="uppercase">Total Bayar</span>
                         <span className="text-lg">
