@@ -175,7 +175,7 @@ const Kasir = ({ onShowToast }) => {
           stockDeductions[realId] = {
               stockPcs: dbProduct ? Number(dbProduct.stockPcs) : 0,
               reduceAmount: 0,
-              name: item.name.replace(' (Eceran)', '') 
+              name: (item.name || '').replace(' (Eceran)', '') 
           };
       }
       stockDeductions[realId].reduceAmount += pcsToReduce;

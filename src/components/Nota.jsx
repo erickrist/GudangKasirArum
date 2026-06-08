@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { X, Printer } from 'lucide-react';
 
-const terbilang = (angka) => {
+const terbilang = (angkaInput) => {
+  const angka = Math.floor(Math.abs(Number(angkaInput) || 0));
   if (angka === 0) return "";
   const huruf = ["", "Satu", "Dua", "Tiga", "Empat", "Lima", "Enam", "Tujuh", "Delapan", "Sembilan", "Sepuluh", "Sebelas"];
   let hasil = "";
@@ -24,7 +25,7 @@ const terbilang = (angka) => {
   } else if (angka < 1000000000000) {
     hasil = terbilang(Math.floor(angka / 1000000000)) + " Milyar " + terbilang(angka % 1000000000);
   }
-  return hasil.replace(/\s+/g, ' ').trim();
+  return (hasil || "").replace(/\s+/g, ' ').trim();
 };
 
 const formatTerbilang = (angka) => {
@@ -67,9 +68,9 @@ const Nota = ({ transaction, onClose }) => {
       <div className="bg-white rounded-xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl print:static print:overflow-visible print:max-h-none print:shadow-none">
         
         {/* HEADER MODAL */}
-        <div className="bg-white border-b border-gray-200 p-4 flex justify-between items-center print:hidden z-20 shrink-0">
+        <div className="bg-white border-b border-gray-200 p-4 flex flex-col md:flex-row justify-between items-start md:items-center print:hidden z-20 shrink-0 gap-4">
           <h3 className="text-xl font-bold text-gray-800">Cetak Struk Transaksi</h3>
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
             <label className="flex items-center gap-2 cursor-pointer mr-2">
               <input 
                 type="checkbox" 
@@ -102,7 +103,7 @@ const Nota = ({ transaction, onClose }) => {
         </div>
 
         {/* CONTENT NOTA */}
-        <div className="bg-gray-100 flex-1 relative print:bg-white overflow-y-auto p-6 print:p-0 print:static print:overflow-visible">
+        <div className="bg-gray-100 flex-1 relative print:bg-white overflow-y-auto p-2 md:p-6 print:p-0 print:static print:overflow-visible">
           <div 
             className="bg-white mx-auto shadow-md print:shadow-none transition-all duration-300 print-container print:w-full print:max-w-none print:absolute print:left-0 print:top-0 print:m-0"
             id="nota-container"
@@ -111,11 +112,11 @@ const Nota = ({ transaction, onClose }) => {
             }}
           >
             <div
-              className="p-4 w-full bg-white text-black font-medium"
+              className="p-3 md:p-4 w-full bg-white text-black font-medium overflow-x-auto print:overflow-visible"
               id="nota-content"
               style={{ fontFamily: 'Arial, Helvetica, sans-serif', fontSize: '12px' }}
             >
-              <div className="flex justify-between items-start mb-4 relative">
+              <div className="flex flex-col sm:flex-row print:flex-row justify-between items-start mb-4 relative gap-4 sm:gap-0">
                 {transaction.transactionStatus === 'DRAFT' && (
                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10 opacity-80">
                     <div className="transform -rotate-12">
@@ -124,7 +125,7 @@ const Nota = ({ transaction, onClose }) => {
                   </div>
                 )}
                 {/* Kiri - Header */}
-                <div className="w-1/2 pr-4">
+                <div className="w-full sm:w-1/2 print:w-1/2 sm:pr-4 print:pr-4">
                   <h1 className="text-xl font-bold tracking-wide uppercase text-teal-600 mb-1">ARSEN FROZENFOOD</h1>
                   <p className="text-xs text-black">Jl. Raya Letnan Sukarna No.11<br/>CIAMPEA, BOGOR 16620<br/>081410503012</p>
                   
@@ -139,8 +140,8 @@ const Nota = ({ transaction, onClose }) => {
                 </div>
 
                 {/* Kanan - Header */}
-                <div className="w-1/2 pl-4 flex flex-col items-end">
-                  <h2 className="text-2xl font-extrabold mb-4 text-teal-700 tracking-tight uppercase">Invoice Penjualan</h2>
+                <div className="w-full sm:w-1/2 print:w-1/2 sm:pl-4 print:pl-4 flex flex-col sm:items-end print:items-end items-start mt-4 sm:mt-0 print:mt-0">
+                  <h2 className="text-xl sm:text-2xl print:text-2xl font-extrabold mb-4 text-teal-700 tracking-tight uppercase">Invoice Penjualan</h2>
                   
                   <table className="w-full max-w-[340px] text-black border-[1.5px] border-black text-xs" style={{ borderCollapse: 'collapse' }}>
                     <tbody>
@@ -175,8 +176,8 @@ const Nota = ({ transaction, onClose }) => {
               </div>
 
               {/* Tabel Barang */}
-              <div className="mb-4 min-h-[300px]">
-                <table className="w-full text-xs leading-tight border-collapse border border-black text-black">
+              <div className="mb-4 min-h-[300px] overflow-x-auto print:overflow-visible">
+                <table className="w-full min-w-[500px] print:min-w-0 text-xs leading-tight border-collapse border border-black text-black">
                   <thead>
                     <tr className="border-b-2 border-black text-center font-bold">
                       <th className="border border-black px-1 py-0 w-10">No</th>
@@ -232,9 +233,9 @@ const Nota = ({ transaction, onClose }) => {
               </div>
 
               {/* Footer */}
-              <div className="flex justify-between items-start text-xs text-black">
+              <div className="flex flex-col sm:flex-row print:flex-row justify-between items-start text-xs text-black gap-4 sm:gap-0 print:gap-0">
                 {/* Kiri - Terbilang, Keterangan, TTD */}
-                <div className="w-[60%] pr-4">
+                <div className="w-full sm:w-[60%] print:w-[60%] sm:pr-4 print:pr-4">
                   {showDetails && (
                     <>
                       <div className="flex border border-black mb-3 min-h-[32px] items-center">
@@ -257,7 +258,7 @@ const Nota = ({ transaction, onClose }) => {
                 </div>
 
                 {/* Kanan - Rincian Total */}
-                <div className="w-[40%]">
+                <div className="w-full sm:w-[40%] print:w-[40%]">
                   {showPrices && (
                     <div className="pt-2 space-y-1 w-full text-sm">
                       <div className="flex justify-between border-b border-dashed border-gray-400 pb-1">

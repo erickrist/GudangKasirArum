@@ -115,7 +115,7 @@ const StockOpname = ({ onShowToast }) => {
 
         combinedLogs.push({
           id: t.id, uniqueKey: `${t.id}-${item.productId}-${item.unitType}`, sourceCollection: 'transactions', createdAt: t.createdAt,
-          productId: realId, productName: item.name.replace(' (Eceran)', ''), type: 'TERJUAL', amount: item.qty,
+          productId: realId, productName: (item.name || '').replace(' (Eceran)', ''), type: 'TERJUAL', amount: item.qty,
           unitType: item.unitType, totalPcs: item.qty * (item.pcsPerCarton || 1), 
           note: `Nota: #${t.id?.substring(0,6)} - Pembeli: ${t.customerName}`,
           storeName: t.storeName || 'Pusat' 
@@ -134,7 +134,7 @@ const StockOpname = ({ onShowToast }) => {
 
         combinedLogs.push({
           id: r.id, uniqueKey: `${r.id}-${item.productId}-${item.returnUnit}-RETUR`, sourceCollection: 'returns', createdAt: r.createdAt,
-          productId: realId, productName: item.name.replace(' (Eceran)', ''), type: 'RETUR', amount: item.qty,
+          productId: realId, productName: (item.name || '').replace(' (Eceran)', ''), type: 'RETUR', amount: item.qty,
           unitType: displayUnit, totalPcs: totalPcs, 
           note: `Dari: ${r.customerName} - ${r.reason}`,
           storeName: r.storeName || 'Pusat' 
