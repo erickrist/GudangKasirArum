@@ -1703,7 +1703,7 @@ const Dashboard = ({ onShowToast }) => {
       <FormRetur isOpen={showReturnModal} onClose={() => setShowReturnModal(false)} onShowToast={onShowToast} />
       {showEditTransModal && selectedEditTransaction && (<EditTransactionModal isOpen={showEditTransModal} transaction={selectedEditTransaction} products={products} customers={customers} onClose={() => setShowEditTransModal(false)} onShowToast={onShowToast} />)}
       {showEditDraftModal && selectedEditDraft && (<EditDraftModal isOpen={showEditDraftModal} transaction={selectedEditDraft} products={products} customers={customers} onClose={() => setShowEditDraftModal(false)} onShowToast={onShowToast} />)}
-      {showNota && selectedNotaTransaction && (<Nota transaction={selectedNotaTransaction} onClose={() => setShowNota(false)} />)}
+      {showNota && selectedNotaTransaction && (<Nota transaction={selectedNotaTransaction} customers={customers} onClose={() => setShowNota(false)} />)}
     </div>
   );
 };
