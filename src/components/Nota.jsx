@@ -112,18 +112,16 @@ const Nota = ({ transaction, onClose, customers = [] }) => {
             }}
           >
             <div
-              className="p-3 md:p-4 w-full bg-white text-black font-medium overflow-x-auto print:overflow-visible"
+              className="p-3 md:p-4 w-full bg-white text-black font-medium overflow-x-auto print:overflow-visible relative"
               id="nota-content"
               style={{ fontFamily: 'Arial, Helvetica, sans-serif', fontSize: '12px' }}
             >
+              {transaction.transactionStatus === 'DRAFT' && (
+                <div className="absolute top-2 left-[46%] transform -translate-x-1/2 flex items-center justify-center pointer-events-none z-0 opacity-40">
+                  <span className="text-2xl sm:text-3xl font-black text-gray-500 uppercase tracking-widest border-[3px] border-gray-500 px-3 py-1.5 rounded-lg bg-transparent">DRAFT</span>
+                </div>
+              )}
               <div className="flex flex-col sm:flex-row print:flex-row justify-between items-start mb-4 relative gap-4 sm:gap-0">
-                {transaction.transactionStatus === 'DRAFT' && (
-                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10 opacity-80">
-                    <div className="transform -rotate-12">
-                      <span className="text-5xl font-black text-gray-500 uppercase tracking-widest border-[6px] border-gray-500 px-6 py-2 rounded-xl bg-white bg-opacity-50">DRAFT</span>
-                    </div>
-                  </div>
-                )}
                 {/* Kiri - Header */}
                 <div className="w-full sm:w-1/2 print:w-1/2 sm:pr-4 print:pr-4">
                   <h1 className="text-xl font-bold tracking-wide uppercase text-teal-600 mb-1">ARSEN FROZENFOOD</h1>
@@ -233,9 +231,9 @@ const Nota = ({ transaction, onClose, customers = [] }) => {
               </div>
 
               {/* Footer */}
-              <div className="flex flex-col sm:flex-row print:flex-row justify-between items-start text-xs text-black gap-4 sm:gap-0 print:gap-0">
+              <div className="print:block flex flex-col sm:flex-row justify-between items-start text-xs text-black gap-4 sm:gap-0 print:gap-0">
                 {/* Kiri - Terbilang, Keterangan, TTD */}
-                <div className="w-full sm:w-[60%] print:w-[60%] sm:pr-4 print:pr-4">
+                <div className="w-full sm:w-[60%] print:w-[60%] sm:pr-4 print:pr-4 print:float-left" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
                   {showDetails && (
                     <>
                       <div className="flex border border-black mb-3 min-h-[32px] items-center">
@@ -258,7 +256,7 @@ const Nota = ({ transaction, onClose, customers = [] }) => {
                 </div>
 
                 {/* Kanan - Rincian Total */}
-                <div className="w-full sm:w-[40%] print:w-[40%]">
+                <div className="w-full sm:w-[40%] print:w-[40%] print:float-right" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
                   {showPrices && (
                     <div className="pt-2 space-y-1 w-full text-sm">
                       <div className="flex justify-between border-b border-dashed border-gray-400 pb-1">
@@ -274,8 +272,8 @@ const Nota = ({ transaction, onClose, customers = [] }) => {
                       )}
 
                       {transaction.debtPaid > 0 && (
-                        <div className="flex justify-between text-blue-600 border-b border-dashed border-gray-400 pb-1">
-                          <span>Hutang Dibayar</span>
+                        <div className="flex justify-between text-black border-b border-dashed border-gray-400 pb-1">
+                          <span className="font-semibold">Hutang Dibayar</span>
                           <span className="font-bold">+{transaction.debtPaid.toLocaleString('id-ID')}</span>
                         </div>
                       )}
@@ -296,6 +294,7 @@ const Nota = ({ transaction, onClose, customers = [] }) => {
                     </div>
                   )}
                 </div>
+                <div className="print:clear-both"></div>
               </div>
 
               {/* Thank you note
@@ -321,6 +320,8 @@ const Nota = ({ transaction, onClose, customers = [] }) => {
             background-color: white !important;
             margin: 0 !important;
             padding: 0 !important;
+            height: auto !important;
+            overflow: visible !important;
             -webkit-print-color-adjust: exact;
             color-adjust: exact;
           }
@@ -338,9 +339,11 @@ const Nota = ({ transaction, onClose, customers = [] }) => {
             top: 0 !important;
             left: 0 !important;
             width: 100% !important;
+            height: auto !important;
             margin: 0 !important;
             padding: 0.2in 0.5in !important;
             box-sizing: border-box !important;
+            overflow: visible !important;
           }
 
           #nota-content * {
