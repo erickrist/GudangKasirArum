@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Plus, Trash2, ShoppingCart, User, X, Search, Store, MapPin, Save } from 'lucide-react';
 import { useCollection, addDocument, updateDocument, deleteDocument } from '../hooks/useFirestore';
+import { writeBatch, doc, collection } from 'firebase/firestore';
+import { db } from '../config/firebase';
 import { useCart } from '../hooks/useCart'; 
 import { usePricing } from '../hooks/usePricing'; 
 import Loading from '../components/common/Loading';
@@ -261,52 +263,47 @@ const Kasir = ({ onShowToast }) => {
       driverName: paymentData.driverName || ''
     };
 
-    let result;
-    if (draftId) {
-       result = await updateDocument('transactions', draftId, transactionData);
-       result.id = draftId;
-    } else {
-       result = await addDocument('transactions', transactionData);
-    }
+    try {
+      const batch = writeBatch(db);
+      const txRef = draftId ? doc(db, 'transactions', draftId) : doc(collection(db, 'transactions'));
+      
+      batch.set(txRef, transactionData, { merge: true });
 
-    if (result.success) {
-      let allStockUpdated = true;
       if (!isDraft) {
         for (const update of stockUpdates) {
-           const updateRes = await updateDocument('products', update.productId, { stockPcs: update.newStock });
-           if (!updateRes.success) allStockUpdated = false;
+           const prodRef = doc(db, 'products', update.productId);
+           batch.update(prodRef, { stockPcs: update.newStock });
         }
-      }
 
-      if (allStockUpdated) {
         const customerUpdates = {};
-        if (!isDraft) {
-          if (returnUsed > 0) customerUpdates.returnAmount = Math.max(0, selectedCustomer.returnAmount - returnUsed);
-          
-          if (paymentData.status === 'HUTANG') {
-            const debtToAdd = subtotal - returnUsed;
-            customerUpdates.remainingDebt = (selectedCustomer.remainingDebt || 0) + debtToAdd;
-          } else if (paymentData.status === 'LUNAS') {
-            if (paymentData.collectDebt && debtPaid > 0) customerUpdates.remainingDebt = Math.max(0, (selectedCustomer.remainingDebt || 0) - debtPaid);
-          }
-
-          if (Object.keys(customerUpdates).length > 0) {
-            await updateDocument('customers', selectedCustomer.id, customerUpdates);
-          }
+        if (returnUsed > 0) customerUpdates.returnAmount = Math.max(0, selectedCustomer.returnAmount - returnUsed);
+        
+        if (paymentData.status === 'HUTANG') {
+          const debtToAdd = subtotal - returnUsed;
+          customerUpdates.remainingDebt = (selectedCustomer.remainingDebt || 0) + debtToAdd;
+        } else if (paymentData.status === 'LUNAS') {
+          if (paymentData.collectDebt && debtPaid > 0) customerUpdates.remainingDebt = Math.max(0, (selectedCustomer.remainingDebt || 0) - debtPaid);
         }
 
-        setLastTransaction({ id: result.id || draftId, ...transactionData });
-        if (draftId) setRedirectAfterNota(true);
-        setShowNota(true);
-        clearCart(); 
-        setDraftId(null);
-        setShowPaymentModal(false);
-        onShowToast(isDraft ? 'Pesanan berhasil disimpan sebagai Draft' : 'Transaksi berhasil!', 'success');
-      } else {
-        onShowToast('Transaksi berhasil, tapi ada stok yang gagal terpotong. Harap cek Gudang!', 'error');
+        if (Object.keys(customerUpdates).length > 0) {
+          const custRef = doc(db, 'customers', selectedCustomer.id);
+          batch.update(custRef, customerUpdates);
+        }
       }
-    } else {
-      onShowToast('Gagal memproses transaksi', 'error');
+
+      await batch.commit();
+
+      setLastTransaction({ id: txRef.id, ...transactionData });
+      if (draftId) setRedirectAfterNota(true);
+      setShowNota(true);
+      clearCart(); 
+      setDraftId(null);
+      setShowPaymentModal(false);
+      onShowToast(isDraft ? 'Pesanan berhasil disimpan sebagai Draft' : 'Transaksi berhasil!', 'success');
+
+    } catch (error) {
+      console.error(error);
+      onShowToast('Gagal memproses transaksi: ' + error.message, 'error');
     }
   };
 

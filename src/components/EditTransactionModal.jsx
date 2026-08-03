@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Save, AlertTriangle, Minus, Plus, Trash2, ArrowLeft, Search, PlusCircle, Store } from 'lucide-react';
 import { updateDocument, addDocument } from '../hooks/useFirestore';
-
+import { writeBatch, doc, collection } from 'firebase/firestore';
+import { db } from '../config/firebase';
 const EditTransactionModal = ({ isOpen, onClose, transaction, products = [], customers = [], onShowToast }) => {
   const [items, setItems] = useState([]);
   const [isSaving, setIsSaving] = useState(false);
@@ -191,70 +192,70 @@ const EditTransactionModal = ({ isOpen, onClose, transaction, products = [], cus
     const oldItemsMap = {};
     transaction.items.forEach(i => oldItemsMap[i.productId] = i);
 
+    // 1. Aggregation of stock changes to prevent race conditions and handle mixed units (bal & pcs)
+    const stockChanges = {}; // { [cleanProductId]: pcsDiff (positive means we need more stock, negative means we return stock) }
+
+    // Calculate changes for new items (or updated items)
     for (const newItem of items) {
       const oldItem = oldItemsMap[newItem.productId] || { qty: 0 };
       const qtyDiff = parseFloat(newItem.qty) - parseFloat(oldItem.qty); 
 
-      if (qtyDiff > 0) { 
+      if (qtyDiff !== 0) {
         let cleanId = newItem.productId;
-        if (typeof cleanId === 'string' && cleanId.endsWith('_PCS')) {
-            cleanId = cleanId.replace('_PCS', '');
-        }
+        if (typeof cleanId === 'string' && cleanId.endsWith('_PCS')) cleanId = cleanId.replace('_PCS', '');
 
+        const isWholesale = ['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(newItem.unitType?.toUpperCase());
+        const multiplier = isWholesale ? (newItem.pcsPerCarton || 1) : 1;
+        const pcsDiff = qtyDiff * multiplier;
+
+        if (!stockChanges[cleanId]) stockChanges[cleanId] = 0;
+        stockChanges[cleanId] += pcsDiff;
+      }
+    }
+
+    // Calculate changes for deleted items (items in oldItemsMap that are no longer in items)
+    const newItemIds = new Set(items.map(i => i.productId));
+    for (const [oldProductId, oldItem] of Object.entries(oldItemsMap)) {
+      if (!newItemIds.has(oldProductId)) {
+        let cleanId = oldProductId;
+        if (typeof cleanId === 'string' && cleanId.endsWith('_PCS')) cleanId = cleanId.replace('_PCS', '');
+        
+        const isWholesale = ['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(oldItem.unitType?.toUpperCase());
+        const multiplier = isWholesale ? (oldItem.pcsPerCarton || 1) : 1;
+        const pcsDiff = -parseFloat(oldItem.qty) * multiplier; // negative because it returns to stock
+
+        if (!stockChanges[cleanId]) stockChanges[cleanId] = 0;
+        stockChanges[cleanId] += pcsDiff;
+      }
+    }
+
+    // 2. Validation
+    for (const [cleanId, totalPcsDiff] of Object.entries(stockChanges)) {
+      if (totalPcsDiff > 0) {
         const product = products.find(p => p.id === cleanId);
-        if (product) {
-          const isWholesale = ['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(newItem.unitType?.toUpperCase());
-          const multiplier = isWholesale ? (newItem.pcsPerCarton || 1) : 1;
-          const pcsDiff = qtyDiff * multiplier;
-          
-          if (product.stockPcs < pcsDiff) {
-             setIsSaving(false);
-             return onShowToast(`Gagal! Stok Gudang [${product.name}] tidak cukup. Sisa: ${product.stockPcs}, Butuh Tambahan: ${pcsDiff}`, 'error');
-          }
+        if (product && product.stockPcs < totalPcsDiff) {
+           setIsSaving(false);
+           return onShowToast(`Gagal! Stok Gudang [${product.name}] tidak cukup. Sisa: ${product.stockPcs}, Butuh Tambahan: ${totalPcsDiff}`, 'error');
         }
       }
     }
 
+    // 3. Execution
     try {
-      for (const newItem of items) {
-        const oldItem = oldItemsMap[newItem.productId] || { qty: 0 };
-        const qtyDiff = parseFloat(newItem.qty) - parseFloat(oldItem.qty); 
+      const batch = writeBatch(db);
 
-        if (qtyDiff !== 0) {
-          let cleanId = newItem.productId;
-          if (typeof cleanId === 'string' && cleanId.endsWith('_PCS')) cleanId = cleanId.replace('_PCS', '');
-
-          const product = products.find(p => p.id === cleanId);
-          if (product) {
-            const isWholesale = ['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(newItem.unitType?.toUpperCase());
-            const multiplier = isWholesale ? (newItem.pcsPerCarton || 1) : 1;
-            const pcsDiff = qtyDiff * multiplier;
-            
-            await updateDocument('products', product.id, { stockPcs: product.stockPcs - pcsDiff });
-            await addDocument('stock_logs', {
-              productId: product.id, productName: product.name, type: qtyDiff > 0 ? 'out' : 'in', 
-              amount: Math.abs(qtyDiff), unitType: newItem.unitType, totalPcs: Math.abs(pcsDiff),
-              note: `Revisi Edit Nota #${transaction.id.substring(0,6)}`, createdAt: new Date()
-            });
-          }
-        }
-        delete oldItemsMap[newItem.productId]; 
-      }
-
-      for (const oldItem of Object.values(oldItemsMap)) {
-        let cleanId = oldItem.productId;
-        if (typeof cleanId === 'string' && cleanId.endsWith('_PCS')) cleanId = cleanId.replace('_PCS', '');
-
+      for (const [cleanId, totalPcsDiff] of Object.entries(stockChanges)) {
+        if (totalPcsDiff === 0) continue;
         const product = products.find(p => p.id === cleanId);
         if (product) {
-          const isWholesale = ['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(oldItem.unitType?.toUpperCase());
-          const multiplier = isWholesale ? (oldItem.pcsPerCarton || 1) : 1;
+          const prodRef = doc(db, 'products', product.id);
+          batch.update(prodRef, { stockPcs: product.stockPcs - totalPcsDiff });
           
-          await updateDocument('products', product.id, { stockPcs: product.stockPcs + (parseFloat(oldItem.qty) * multiplier) });
-          await addDocument('stock_logs', {
-            productId: product.id, productName: product.name, type: 'in', 
-            amount: parseFloat(oldItem.qty), unitType: oldItem.unitType, totalPcs: parseFloat(oldItem.qty) * multiplier,
-            note: `Hapus item dr Nota #${transaction.id.substring(0,6)}`, createdAt: new Date()
+          const logRef = doc(collection(db, 'stock_logs'));
+          batch.set(logRef, {
+            productId: product.id, productName: product.name, type: totalPcsDiff > 0 ? 'out' : 'in', 
+            amount: Math.abs(totalPcsDiff), unitType: 'PCS', totalPcs: Math.abs(totalPcsDiff),
+            note: `Revisi Edit Nota #${transaction.id.substring(0,6)}`, createdAt: new Date()
           });
         }
       }
@@ -279,7 +280,8 @@ const EditTransactionModal = ({ isOpen, onClose, transaction, products = [], cus
           }
 
           if (Object.keys(customerUpdates).length > 0) {
-            await updateDocument('customers', customer.id, customerUpdates);
+            const custRef = doc(db, 'customers', customer.id);
+            batch.update(custRef, customerUpdates);
           }
         }
       }
@@ -294,7 +296,8 @@ const EditTransactionModal = ({ isOpen, onClose, transaction, products = [], cus
           finalCreatedAt.setHours(origDate.getHours(), origDate.getMinutes(), origDate.getSeconds(), origDate.getMilliseconds());
       }
 
-      await updateDocument('transactions', transaction.id, {
+      const txRef = doc(db, 'transactions', transaction.id);
+      batch.update(txRef, {
         items: items.map(i => ({...i, qty: parseFloat(i.qty)})), 
         subtotal: newSubtotal, 
         returnUsed: newReturnUsed,
@@ -302,6 +305,8 @@ const EditTransactionModal = ({ isOpen, onClose, transaction, products = [], cus
         createdAt: finalCreatedAt,
         driverName: driverName
       });
+
+      await batch.commit();
 
       onShowToast('Transaksi berhasil direvisi! Stok & Hutang Otomatis Disesuaikan.', 'success');
       onClose();

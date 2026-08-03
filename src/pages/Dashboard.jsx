@@ -8,6 +8,8 @@ import {
   CreditCard, ArrowDownCircle, ArrowUpCircle, History, Clock, ListFilter, X, RotateCcw, PackagePlus, ChevronDown, ChevronLeft, ChevronRight, AlertTriangle, Edit3, Download, ShoppingCart, Landmark, Store, Info, ShieldAlert
 } from 'lucide-react';
 import { useCollection, deleteDocument, addDocument, updateDocument } from '../hooks/useFirestore';
+import { writeBatch, doc, collection } from 'firebase/firestore';
+import { db } from '../config/firebase';
 import Loading from '../components/common/Loading';
 import Nota from '../components/Nota';
 import FormRetur from '../components/FormRetur';
@@ -820,38 +822,50 @@ const Dashboard = ({ onShowToast }) => {
     }
 
     let allStockUpdated = true;
-    for (const update of stockUpdates) {
-       const updateRes = await updateDocument('products', update.productId, { stockPcs: update.newStock });
-       if (!updateRes.success) allStockUpdated = false;
-       await addDocument('stock_logs', {
-          productId: update.productId, productName: update.name, type: 'out', 
-          amount: update.reduceAmount, unitType: 'PCS', totalPcs: update.reduceAmount,
-          note: `ACC Draft #${draft.id.substring(0,6)}`, createdAt: new Date()
-       });
-    }
+    try {
+      const batch = writeBatch(db);
 
-    if (allStockUpdated) {
-       const customerUpdates = {};
-       const customer = customers.find(c => c.id === draft.customerId);
-       if (customer) {
-           if (draft.returnUsed > 0) {
-               customerUpdates.returnAmount = Math.max(0, (customer.returnAmount || 0) - draft.returnUsed);
-           }
-           if (draft.paymentStatus === 'HUTANG') {
-               const debtToAdd = Number(draft.subtotal) - Number(draft.returnUsed || 0);
-               customerUpdates.remainingDebt = (customer.remainingDebt || 0) + debtToAdd;
-           } else if (draft.paymentStatus === 'LUNAS') {
-               if (draft.debtPaid > 0) {
-                   customerUpdates.remainingDebt = Math.max(0, (customer.remainingDebt || 0) - draft.debtPaid);
-               }
-           }
-           
-           if (Object.keys(customerUpdates).length > 0) {
-               await updateDocument('customers', customer.id, customerUpdates);
-           }
-       }
-       await updateDocument('transactions', draft.id, { transactionStatus: 'COMPLETED', createdAt: new Date() });
-       onShowToast('Draft berhasil di-ACC!', 'success');
+      for (const update of stockUpdates) {
+         const prodRef = doc(db, 'products', update.productId);
+         batch.update(prodRef, { stockPcs: update.newStock });
+         
+         const logRef = doc(collection(db, 'stock_logs'));
+         batch.set(logRef, {
+            productId: update.productId, productName: update.name, type: 'out', 
+            amount: update.reduceAmount, unitType: 'PCS', totalPcs: update.reduceAmount,
+            note: `ACC Draft #${draft.id.substring(0,6)}`, createdAt: new Date()
+         });
+      }
+
+      const customerUpdates = {};
+      const customer = customers.find(c => c.id === draft.customerId);
+      if (customer) {
+          if (draft.returnUsed > 0) {
+              customerUpdates.returnAmount = Math.max(0, (customer.returnAmount || 0) - draft.returnUsed);
+          }
+          if (draft.paymentStatus === 'HUTANG') {
+              const debtToAdd = Number(draft.subtotal) - Number(draft.returnUsed || 0);
+              customerUpdates.remainingDebt = (customer.remainingDebt || 0) + debtToAdd;
+          } else if (draft.paymentStatus === 'LUNAS') {
+              if (draft.debtPaid > 0) {
+                  customerUpdates.remainingDebt = Math.max(0, (customer.remainingDebt || 0) - draft.debtPaid);
+              }
+          }
+          
+          if (Object.keys(customerUpdates).length > 0) {
+              const custRef = doc(db, 'customers', customer.id);
+              batch.update(custRef, customerUpdates);
+          }
+      }
+      
+      const txRef = doc(db, 'transactions', draft.id);
+      batch.update(txRef, { transactionStatus: 'COMPLETED', createdAt: new Date() });
+      
+      await batch.commit();
+      onShowToast('Draft berhasil di-ACC!', 'success');
+    } catch (err) {
+      console.error(err);
+      onShowToast('Gagal ACC Draft: ' + err.message, 'error');
     }
   };
   return (
@@ -1522,6 +1536,8 @@ const Dashboard = ({ onShowToast }) => {
               <button onClick={() => setShowDeleteModal(false)} className="flex-1 py-3 font-black text-gray-400 bg-gray-100 rounded-2xl">Batal</button>
               <button onClick={async () => { 
                 try {
+                  const batch = writeBatch(db);
+
                   if (selectedItem.isSale) {
                     if (selectedItem.items) {
                       const stockToRestore = {};
@@ -1538,7 +1554,14 @@ const Dashboard = ({ onShowToast }) => {
                       }
                       for (const [id, pcsToRestore] of Object.entries(stockToRestore)) {
                         const product = products.find(p => p.id === id);
-                        if (product) await updateDocument('products', id, { stockPcs: Number(product.stockPcs) + pcsToRestore });
+                        if (product) {
+                           batch.update(doc(db, 'products', id), { stockPcs: Number(product.stockPcs) + pcsToRestore });
+                           batch.set(doc(collection(db, 'stock_logs')), {
+                              productId: id, productName: product.name, type: 'in', 
+                              amount: pcsToRestore, unitType: 'PCS', totalPcs: pcsToRestore,
+                              note: `Batal Nota #${selectedItem.id.substring(0,6)}`, createdAt: new Date()
+                           });
+                        }
                       }
                     }
 
@@ -1553,22 +1576,27 @@ const Dashboard = ({ onShowToast }) => {
                         }
                         if (Number(selectedItem.returnUsed) > 0) newDeposit += Number(selectedItem.returnUsed);
                         if (Number(selectedItem.debtPaid) > 0) newDebt += Number(selectedItem.debtPaid);
-                        await updateDocument('customers', customer.id, { remainingDebt: newDebt, returnAmount: newDeposit });
+                        
+                        batch.update(doc(db, 'customers', customer.id), { remainingDebt: newDebt, returnAmount: newDeposit });
                       }
                     }
-                    await deleteDocument('transactions', selectedItem.id); 
+                    batch.delete(doc(db, 'transactions', selectedItem.id)); 
+                    await batch.commit();
                     onShowToast('Transaksi dibatalkan & Stok dikembalikan', 'success');
 
                   } else if (selectedItem.isCustomerDebt) {
-                    await updateDocument('customers', selectedItem.id, { remainingDebt: 0 });
+                    batch.update(doc(db, 'customers', selectedItem.id), { remainingDebt: 0 });
+                    await batch.commit();
                     onShowToast('Hutang pelanggan di-nol-kan', 'success');
 
                   } else if (selectedItem.isCustomerDeposit) {
-                    await updateDocument('customers', selectedItem.id, { returnAmount: 0 });
+                    batch.update(doc(db, 'customers', selectedItem.id), { returnAmount: 0 });
+                    await batch.commit();
                     onShowToast('Deposit pelanggan di-nol-kan', 'success');
 
                   } else if (selectedItem.isDraft) {
-                    await deleteDocument('transactions', selectedItem.id);
+                    batch.delete(doc(db, 'transactions', selectedItem.id));
+                    await batch.commit();
                     onShowToast('Draft berhasil dihapus', 'success');
 
                   } else {
@@ -1580,16 +1608,17 @@ const Dashboard = ({ onShowToast }) => {
                             let newDeposit = Number(customer.returnAmount) || 0;
                             if (selectedItem.depType === 'in') newDeposit = Math.max(0, newDeposit - Number(selectedItem.nominal));
                             else if (selectedItem.depType === 'out') newDeposit += Number(selectedItem.nominal);
-                            await updateDocument('customers', customer.id, { returnAmount: newDeposit });
+                            batch.update(doc(db, 'customers', customer.id), { returnAmount: newDeposit });
                           }
                        }
-                       const relatedExpense = expenses.find(e =>
+                       const relatedExpense = expenses?.find(e =>
                           ['Barang Rusak', 'Retur', 'Retur Tukar Pabrik'].includes(e.category) &&
                           Math.abs(getSafeDate(e.createdAt).getTime() - getSafeDate(selectedItem.createdAt).getTime()) <= 5000
                        );
-                       if (relatedExpense) await deleteDocument('expenses', relatedExpense.id);
+                       if (relatedExpense) batch.delete(doc(db, 'expenses', relatedExpense.id));
                     }
-                    await deleteDocument(colName, selectedItem.id); 
+                    batch.delete(doc(db, colName, selectedItem.id));
+                    await batch.commit();
                     onShowToast('Data dihapus dan dikembalikan', 'success');
                   }
                 } catch (err) {
