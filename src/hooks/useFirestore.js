@@ -24,14 +24,20 @@ export const useCollection = (collectionName, orderByField = null, queryLimit = 
     setLoading(true);
     let q = collection(db, collectionName);
 
+    // TEMPORARY FIX: Membatasi pengambilan data untuk koleksi besar agar tidak lemot / over quota Spark plan
+    let currentLimit = queryLimit;
+    if (!currentLimit && ['transactions', 'stock_logs', 'expenses', 'returns'].includes(collectionName)) {
+      currentLimit = 50; // Limit ke 50 data terbaru saja untuk sementara waktu
+    }
+
     if (orderByField) {
-      if (queryLimit) {
-        q = query(q, orderBy(orderByField, 'desc'), limit(queryLimit));
+      if (currentLimit) {
+        q = query(q, orderBy(orderByField, 'desc'), limit(currentLimit));
       } else {
         q = query(q, orderBy(orderByField, 'desc'));
       }
-    } else if (queryLimit) {
-      q = query(q, limit(queryLimit));
+    } else if (currentLimit) {
+      q = query(q, limit(currentLimit));
     }
 
     const unsubscribe = onSnapshot(q,

@@ -1,7 +1,7 @@
 import { Search, History, Eye, Trash2, Edit3, ChevronDown } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 
-const CustomerSearchSelect = ({ customers, value, onChange, placeholder }) => {
+export const CustomerSearchSelect = ({ customers, value, onChange, placeholder }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState('');
   const wrapperRef = useRef(null);

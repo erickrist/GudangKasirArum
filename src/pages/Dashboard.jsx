@@ -20,7 +20,7 @@ import { exportMasterExcel, exportNeracaExcel, exportLabaRugiExcel, exportKeuntu
 import { exportMasterPDF, exportNeracaPDF, exportLabaRugiPDF, exportKeuntunganPDF } from '../utils/exportPdf';
 
 import TabSales from './Dashboard/TabSales';
-import TabDebt from './Dashboard/TabDebt';
+import TabDebt, { CustomerSearchSelect } from './Dashboard/TabDebt';
 import TabDrafts from './Dashboard/TabDrafts';
 
 const Dashboard = ({ onShowToast }) => {
@@ -77,6 +77,7 @@ const Dashboard = ({ onShowToast }) => {
   const [newManualIncome, setNewManualIncome] = useState({ note: '', amount: '', method: 'TUNAI', storeId: '' });
   const [newExpense, setNewExpense] = useState({ title: '', amount: '', category: 'Operasional', storeId: 'ALL' });
   const [newManualDebt, setNewManualDebt] = useState({ customerId: '', amount: '', note: '', storeId: '' });
+  const [newManualDeposit, setNewManualDeposit] = useState({ customerId: '', amount: '', note: '', storeId: '' });
 
   const getSafeDate = (dateSource) => {
     if (!dateSource) return new Date();
@@ -286,33 +287,24 @@ const Dashboard = ({ onShowToast }) => {
   }, [activeStoreReturns, activeStoreTransactions]);
 
   const { activeStoreCustomersDebt, activeStoreCustomersDeposit } = useMemo(() => {
-    const debtMap = {};
-    debtLogs.forEach(log => {
-      if (!log.customerId) return;
-      if (!debtMap[log.customerId]) debtMap[log.customerId] = 0;
-      debtMap[log.customerId] += log.debtType === 'in' ? Number(log.nominal) : -Number(log.nominal);
-    });
-
-    const depMap = {};
-    depositLogs.forEach(log => {
-      if (!log.customerId) return;
-      if (!depMap[log.customerId]) depMap[log.customerId] = 0;
-      depMap[log.customerId] += log.depType === 'in' ? Number(log.nominal) : -Number(log.nominal);
-    });
-
+    // Dengan limit 300 transaksi, kita tidak bisa lagi menghitung total hutang dari log historis secara akurat.
+    // Untungnya saldo aktual selalu tersimpan di dalam data customers (remainingDebt & returnAmount).
     const debtArr = [];
-    Object.keys(debtMap).forEach(cid => {
-      if (debtMap[cid] > 0) {
-        const c = customers.find(x => x.id === cid);
-        if (c) debtArr.push({...c, displayDebt: debtMap[cid]});
-      }
-    });
-
     const depArr = [];
-    Object.keys(depMap).forEach(cid => {
-      if (depMap[cid] > 0) {
-        const c = customers.find(x => x.id === cid);
-        if (c) depArr.push({...c, displayDeposit: depMap[cid]});
+
+    customers.forEach(c => {
+      const debt = Number(c.remainingDebt) || 0;
+      const deposit = Number(c.returnAmount) || 0;
+      
+      // Jika filter store aktif, periksa apakah pelanggan ini relevan dengan store tersebut
+      const isRelevantStore = selectedStoreFilter === 'ALL' || c.storeId === selectedStoreFilter || (!c.storeId && selectedStoreFilter === 'pusat');
+      
+      if (debt > 0 && isRelevantStore) {
+        debtArr.push({...c, displayDebt: debt});
+      }
+      
+      if (deposit > 0 && isRelevantStore) {
+        depArr.push({...c, displayDeposit: deposit});
       }
     });
 
@@ -646,6 +638,24 @@ const Dashboard = ({ onShowToast }) => {
       await addDocument('transactions', { customerName: cust.name, customerId: cust.id, subtotal: amount, total: 0, note: newManualDebt.note || 'Penambahan Hutang Manual', paymentStatus: 'HUTANG', storeId: newManualDebt.storeId, storeName: storeName, createdAt: new Date() });
       onShowToast('Hutang manual berhasil ditambahkan', 'success');
       setNewManualDebt({ customerId: '', amount: '', note: '', storeId: '' });
+    }
+  };
+
+  const handleAddManualDeposit = async (e) => {
+    e.preventDefault();
+    if (!newManualDeposit.customerId || !newManualDeposit.amount || !newManualDeposit.storeId) return onShowToast('Pilih pelanggan, cabang, dan isi nominal!', 'error');
+    const cust = customers.find(c => c.id === newManualDeposit.customerId);
+    if (!cust) return;
+    const amount = Number(newManualDeposit.amount);
+    
+    const storeObj = stores.find(s => s.id === newManualDeposit.storeId);
+    const storeName = storeObj ? storeObj.name : 'Pusat';
+
+    const updateRes = await updateDocument('customers', cust.id, { returnAmount: (Number(cust.returnAmount) || 0) + amount });
+    if (updateRes.success) {
+      await addDocument('returns', { customerName: cust.name, customerId: cust.id, amount: amount, type: 'manual_deposit_in', note: newManualDeposit.note || 'Penambahan Deposit Manual', storeId: newManualDeposit.storeId, storeName: storeName, createdAt: new Date() });
+      onShowToast('Deposit manual berhasil ditambahkan', 'success');
+      setNewManualDeposit({ customerId: '', amount: '', note: '', storeId: '' });
     }
   };
 
@@ -1260,6 +1270,40 @@ const Dashboard = ({ onShowToast }) => {
           <div className="bg-white p-4 md:p-6 rounded-3xl border shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center bg-gradient-to-r from-purple-50 to-white gap-4">
             <div><h4 className="text-base md:text-lg font-black text-purple-800 tracking-tight flex items-center gap-2"><PackagePlus className="w-4 h-4 md:w-5 md:h-5"/> Retur ke Deposit</h4><p className="text-[10px] md:text-xs text-purple-600 font-bold mt-1">Gunakan tombol ini untuk meretur barang jadi saldo.</p></div>
             <button onClick={() => setShowReturnModal(true)} className="w-full sm:w-auto bg-purple-600 text-white px-6 py-3 rounded-xl font-black shadow-lg uppercase flex items-center justify-center gap-2"><RotateCcw className="w-4 h-4" /> Proses Retur</button>
+          </div>
+
+          <div className="bg-white p-4 md:p-6 rounded-3xl border shadow-sm relative z-10">
+            <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3 md:mb-4">Penambahan Deposit Manual</h4>
+            <form onSubmit={handleAddManualDeposit} className="flex flex-col md:flex-row gap-3">
+              <select 
+                value={newManualDeposit.storeId} 
+                onChange={e => setNewManualDeposit({...newManualDeposit, storeId: e.target.value})} 
+                className="w-full md:w-48 bg-gray-50 rounded-xl px-4 py-3 text-sm font-bold border-none outline-none focus:ring-2 focus:ring-purple-500 transition-all" 
+                required
+              >
+                <option value="" disabled>-- Pilih Cabang --</option>
+                <option value="pusat">🏢 Cabang Pusat</option>
+                {stores && stores.map(s => <option key={s.id} value={s.id}>🏪 {s.name}</option>)}
+              </select>
+
+              <CustomerSearchSelect 
+                customers={customers} 
+                value={newManualDeposit.customerId} 
+                onChange={(id) => {
+                  const cust = customers.find(c => c.id === id);
+                  let autoStoreId = newManualDeposit.storeId;
+                  if (cust && cust.storeId && cust.storeId !== 'ALL') {
+                     autoStoreId = cust.storeId;
+                  }
+                  setNewManualDeposit({...newManualDeposit, customerId: id, storeId: autoStoreId});
+                }} 
+                placeholder="-- Cari Pembeli --" 
+              />
+              
+              <input type="text" placeholder="Keterangan" required className="w-full md:flex-1 bg-gray-50 rounded-xl px-4 py-3 text-sm font-bold border-none outline-none focus:ring-2 focus:ring-purple-500" value={newManualDeposit.note} onChange={e => setNewManualDeposit({...newManualDeposit, note: e.target.value})} />
+              <input type="number" placeholder="Rp" required className="w-full md:w-44 bg-gray-50 rounded-xl px-4 py-3 text-sm font-black border-none outline-none focus:ring-2 focus:ring-purple-500" value={newManualDeposit.amount} onChange={e => setNewManualDeposit({...newManualDeposit, amount: e.target.value})} />
+              <button className="w-full md:w-auto px-8 py-3 rounded-xl font-black text-sm text-white bg-purple-600 shadow-md hover:bg-purple-700 transition-colors">Simpan</button>
+            </form>
           </div>
 
           <div className="bg-white rounded-3xl border shadow-sm mb-6 flex flex-col">
