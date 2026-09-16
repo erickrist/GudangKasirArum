@@ -64,7 +64,7 @@ const StockOpname = ({ onShowToast }) => {
   const [stockUnit, setStockUnit] = useState('PCS'); 
   const [damageStoreId, setDamageStoreId] = useState('pusat'); 
 
-  const WHOLESALE_TYPES = ['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'];
+  const WHOLESALE_TYPES = ['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX', 'PACK'];
 
   const getSafeDate = (dateSource) => {
     if (!dateSource) return new Date();
@@ -914,6 +914,7 @@ const StockOpname = ({ onShowToast }) => {
                     <option value="BOX">BOX</option>
                     <option value="IKAT">IKAT</option>
                     <option value="RENCENG">RENCENG</option>
+                    <option value="PACK">PACK</option>
                   </select>
                 </div>
               </div>
@@ -925,6 +926,9 @@ const StockOpname = ({ onShowToast }) => {
                      <select value={formData.baseUnit} onChange={(e) => setFormData({ ...formData, baseUnit: e.target.value })} className="w-full p-3 bg-gray-50 rounded-xl font-bold mt-1">
                        <option value="PCS">PCS</option>
                        <option value="KG">KG</option>
+                       <option value="BOX">BOX</option>
+                       <option value="PACK">PACK</option>
+                       <option value="RENCENG">RENCENG</option>
                      </select>
                    </div>
                    <div>
