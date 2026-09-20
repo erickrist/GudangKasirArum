@@ -168,7 +168,7 @@ const Kasir = ({ onShowToast }) => {
       }
       
       let pcsToReduce = Number(item.qty) || 0;
-      if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType?.toUpperCase())) {
+      if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX', 'PACK'].includes(item.unitType?.toUpperCase())) {
          pcsToReduce = (Number(item.qty) || 0) * (Number(item.pcsPerCarton) || 1);
       }   
 
@@ -228,9 +228,9 @@ const Kasir = ({ onShowToast }) => {
         const dbProduct = products.find(p => p.id === cleanId);
         const trueBaseUnit = dbProduct?.baseUnit || 'PCS';
         
-        const isEceranCart = (item.id && item.id.includes('_PCS')) || (item.productId && item.productId.includes('_PCS')) || ['PCS', 'KG'].includes(item.unitType?.toUpperCase());
+        const isEceranCart = (item.id && item.id.includes('_PCS')) || (item.productId && item.productId.includes('_PCS')) || ['PCS', 'KG'].includes(item.unitType?.toUpperCase()) || (item.name || '').includes('(Eceran)');
         const trueUnitType = isEceranCart ? trueBaseUnit : (dbProduct?.unitType || item.unitType);
-        const truePcsPerCarton = dbProduct?.pcsPerCarton || item.pcsPerCarton;
+        const truePcsPerCarton = isEceranCart ? 1 : (dbProduct?.pcsPerCarton || item.pcsPerCarton);
 
         // --- PERBAIKAN BUG HPP: Hitung paksa HPP Eceran yang benar ---
         let correctHpp = Number(dbProduct?.hpp) || 0;

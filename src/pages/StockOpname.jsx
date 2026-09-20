@@ -113,10 +113,13 @@ const StockOpname = ({ onShowToast }) => {
         let realId = item.productId || item.id;
         if (typeof realId === 'string' && realId.endsWith('_PCS')) realId = realId.replace('_PCS', '');
 
+        const isEceranItem = (item.name || '').includes('(Eceran)');
+        const effectivePcsPerCarton = isEceranItem ? 1 : (item.pcsPerCarton || 1);
+
         combinedLogs.push({
           id: t.id, uniqueKey: `${t.id}-${item.productId}-${item.unitType}`, sourceCollection: 'transactions', createdAt: t.createdAt,
           productId: realId, productName: (item.name || '').replace(' (Eceran)', ''), type: 'TERJUAL', amount: item.qty,
-          unitType: item.unitType, totalPcs: item.qty * (item.pcsPerCarton || 1), 
+          unitType: item.unitType, totalPcs: item.qty * effectivePcsPerCarton, 
           note: `Nota: #${t.id?.substring(0,6)} - Pembeli: ${t.customerName}`,
           storeName: t.storeName || 'Pusat' 
         });
@@ -253,7 +256,7 @@ const StockOpname = ({ onShowToast }) => {
           }
 
           let itemPcs = Number(item.qty) || 0;
-          if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType?.toUpperCase())) {
+          if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX', 'PACK'].includes(item.unitType?.toUpperCase()) && !(item.name || '').includes('(Eceran)')) {
              itemPcs = itemPcs * pcsPerCarton;
           }
 
@@ -306,7 +309,7 @@ const StockOpname = ({ onShowToast }) => {
 
           const pcsPerCarton = salesMap[realId].pcsPerCarton;
           let itemPcs = Number(item.qty) || 0;
-          if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType?.toUpperCase()) && item.returnUnit !== 'pcs') {
+          if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX', 'PACK'].includes(item.unitType?.toUpperCase()) && item.returnUnit !== 'pcs') {
              itemPcs = itemPcs * pcsPerCarton;
           }
 

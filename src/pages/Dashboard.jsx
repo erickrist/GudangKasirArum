@@ -397,7 +397,7 @@ const Dashboard = ({ onShowToast }) => {
           }
 
           let itemPcs = Number(item.qty) || 0;
-          if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType?.toUpperCase())) {
+          if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX', 'PACK'].includes(item.unitType?.toUpperCase()) && !(item.name || '').includes('(Eceran)')) {
              itemPcs = itemPcs * pcsPerCarton;
           }
 
@@ -451,7 +451,7 @@ const Dashboard = ({ onShowToast }) => {
 
           const pcsPerCarton = salesMap[realId].pcsPerCarton;
           let itemPcs = Number(item.qty) || 0;
-          if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType?.toUpperCase()) && item.returnUnit !== 'pcs') {
+          if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX', 'PACK'].includes(item.unitType?.toUpperCase()) && item.returnUnit !== 'pcs') {
              itemPcs = itemPcs * pcsPerCarton;
           }
 
@@ -807,7 +807,7 @@ const Dashboard = ({ onShowToast }) => {
       if (typeof realId === 'string' && realId.endsWith('_PCS')) realId = realId.replace('_PCS', '');
       
       let pcsToReduce = Number(item.qty) || 0;
-      if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType?.toUpperCase())) {
+      if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX', 'PACK'].includes(item.unitType?.toUpperCase())) {
          pcsToReduce = (Number(item.qty) || 0) * (Number(item.pcsPerCarton) || 1);
       }   
 
@@ -1590,7 +1590,7 @@ const Dashboard = ({ onShowToast }) => {
                         if (typeof realId === 'string' && realId.endsWith('_PCS')) realId = realId.replace('_PCS', '');
                         
                         let pcs = Number(item.qty);
-                        if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType?.toUpperCase()) && item.returnUnit !== 'pcs') {
+                        if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX', 'PACK'].includes(item.unitType?.toUpperCase()) && item.returnUnit !== 'pcs') {
                           pcs = pcs * (Number(item.pcsPerCarton) || 1);
                         }
                         if (!stockToRestore[realId]) stockToRestore[realId] = 0;

@@ -204,7 +204,7 @@ const Nota = ({ transaction, onClose, customers = [] }) => {
                             {item.qty} {item.unitType}
                           </td>
                           <td className="border-l border-r border-black px-1 py-0 text-center align-top">
-                            {['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(item.unitType?.toUpperCase()) 
+                            {['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX', 'PACK'].includes(item.unitType?.toUpperCase()) && !(item.name || '').includes('(Eceran)')
                               ? `${item.pcsPerCarton || 1} ${displayBaseUnit}` 
                               : '-'}
                           </td>

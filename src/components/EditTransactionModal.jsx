@@ -204,7 +204,7 @@ const EditTransactionModal = ({ isOpen, onClose, transaction, products = [], cus
         let cleanId = newItem.productId;
         if (typeof cleanId === 'string' && cleanId.endsWith('_PCS')) cleanId = cleanId.replace('_PCS', '');
 
-        const isWholesale = ['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(newItem.unitType?.toUpperCase());
+        const isWholesale = ['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX', 'PACK'].includes(newItem.unitType?.toUpperCase()) && !(newItem.name || '').includes('(Eceran)');
         const multiplier = isWholesale ? (newItem.pcsPerCarton || 1) : 1;
         const pcsDiff = qtyDiff * multiplier;
 
@@ -220,7 +220,7 @@ const EditTransactionModal = ({ isOpen, onClose, transaction, products = [], cus
         let cleanId = oldProductId;
         if (typeof cleanId === 'string' && cleanId.endsWith('_PCS')) cleanId = cleanId.replace('_PCS', '');
         
-        const isWholesale = ['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX'].includes(oldItem.unitType?.toUpperCase());
+        const isWholesale = ['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX', 'PACK'].includes(oldItem.unitType?.toUpperCase()) && !(oldItem.name || '').includes('(Eceran)');
         const multiplier = isWholesale ? (oldItem.pcsPerCarton || 1) : 1;
         const pcsDiff = -parseFloat(oldItem.qty) * multiplier; // negative because it returns to stock
 
