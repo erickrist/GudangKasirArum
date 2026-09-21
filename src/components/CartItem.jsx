@@ -57,8 +57,11 @@ const CartItem = ({ item, onUpdateQty, onRemove, onUpdateDiscount }) => {
         <div className="flex-1">
           <h4 className="font-semibold text-sm text-gray-800">{item.name}</h4>
           <p className="text-xs text-gray-500 font-bold uppercase tracking-widest mt-0.5">
-            {['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX', 'PACK'].includes(item.unitType?.toUpperCase()) && 
-              `(${item.pcsPerCarton} ${displayBaseUnit} / ${item.unitType})`
+            {['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX', 'PACK', 'LUSIN'].includes(item.unitType?.toUpperCase()) && !(item.name || '').includes('(Eceran)') && 
+              ((item.hasMidUnit && !(item.name || '').includes('(Tengah)')) 
+                ? `(${item.midPerCarton} ${item.midUnitType} / ${item.unitType})` 
+                : `(${item.pcsPerCarton} ${displayBaseUnit} / ${item.unitType})`
+              )
             }
           </p>
         </div>

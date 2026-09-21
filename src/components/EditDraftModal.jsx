@@ -81,7 +81,11 @@ const EditDraftModal = ({ isOpen, onClose, transaction, products = [], customers
   const handleAddProduct = (product, type = 'WHOLESALE') => {
     const baseUnitStr = product.baseUnit || 'PCS';
     const isEceran = type === 'PCS' && product.pcsPerCarton > 1;
-    const targetId = isEceran ? `${product.id}_PCS` : product.id;
+    const isMid = type === 'MID' && product.hasMidUnit;
+    
+    let targetId = product.id;
+    if (isEceran) targetId = `${product.id}_PCS`;
+    else if (isMid) targetId = `${product.id}_MID`;
 
     const existingIndex = items.findIndex(i => i.productId === targetId);
     if (existingIndex >= 0) {
@@ -91,12 +95,20 @@ const EditDraftModal = ({ isOpen, onClose, transaction, products = [], customers
       let finalHpp = Number(product.hpp || 0);
       let finalUnitType = product.unit || product.unitType || 'PCS';
       let finalName = product.name;
+      let finalPcsPerCarton = product.pcsPerCarton || 1;
 
       if (isEceran) {
           finalPrice = finalPrice / product.pcsPerCarton;
           finalHpp = finalHpp / product.pcsPerCarton;
           finalUnitType = baseUnitStr;
           finalName = `${product.name} (Eceran)`;
+          finalPcsPerCarton = 1;
+      } else if (isMid) {
+          finalPrice = finalPrice / product.midPerCarton;
+          finalHpp = finalHpp / product.midPerCarton;
+          finalUnitType = product.midUnitType;
+          finalName = `${product.name} (Tengah)`;
+          finalPcsPerCarton = product.pcsPerMid;
       }
 
       setItems([...items, {
@@ -108,7 +120,11 @@ const EditDraftModal = ({ isOpen, onClose, transaction, products = [], customers
         qty: 1,
         unitType: finalUnitType,
         baseUnit: baseUnitStr,
-        pcsPerCarton: isEceran ? 1 : (product.pcsPerCarton || 1),
+        pcsPerCarton: finalPcsPerCarton,
+        hasMidUnit: product.hasMidUnit || false,
+        midUnitType: product.midUnitType || '',
+        midPerCarton: product.midPerCarton || 1,
+        pcsPerMid: product.pcsPerMid || 1,
         discount: 0,
         subtotal: finalPrice
       }]);
@@ -243,6 +259,9 @@ const EditDraftModal = ({ isOpen, onClose, transaction, products = [], customers
                      </div>
                      <div className="flex gap-2">
                         <button onClick={(e) => { e.stopPropagation(); handleAddProduct(p, 'WHOLESALE'); }} className="bg-orange-600 text-white py-2 px-3 rounded-xl text-[10px] font-black uppercase hover:bg-orange-700">+ 1 {p.unitType}</button>
+                        {p.hasMidUnit && (
+                           <button onClick={(e) => { e.stopPropagation(); handleAddProduct(p, 'MID'); }} className="bg-teal-100 text-teal-700 py-2 px-3 rounded-xl text-[10px] font-black uppercase hover:bg-teal-200">+ 1 {p.midUnitType}</button>
+                        )}
                         {p.pcsPerCarton > 1 && !['PCS', 'KG'].includes(p.unitType) && (
                            <button onClick={(e) => { e.stopPropagation(); handleAddProduct(p, 'PCS'); }} className="bg-blue-100 text-blue-700 py-2 px-3 rounded-xl text-[10px] font-black uppercase hover:bg-blue-200">+ 1 {p.baseUnit || 'PCS'}</button>
                         )}

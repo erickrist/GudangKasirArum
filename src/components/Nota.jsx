@@ -203,9 +203,11 @@ const Nota = ({ transaction, onClose, customers = [] }) => {
                           <td className="border-l border-r border-black px-1 py-0 text-center align-top whitespace-nowrap">
                             {item.qty} {item.unitType}
                           </td>
-                          <td className="border-l border-r border-black px-1 py-0 text-center align-top">
-                            {['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX', 'PACK'].includes(item.unitType?.toUpperCase()) && !(item.name || '').includes('(Eceran)')
-                              ? `${item.pcsPerCarton || 1} ${displayBaseUnit}` 
+                          <td className="border-l border-r border-black px-1 py-0 text-center align-top whitespace-nowrap">
+                            {['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX', 'PACK', 'LUSIN'].includes(item.unitType?.toUpperCase()) && !(item.name || '').includes('(Eceran)')
+                              ? ((item.hasMidUnit && !(item.name || '').includes('(Tengah)'))
+                                   ? `${item.midPerCarton || 1} ${item.midUnitType} (${item.pcsPerCarton || 1} ${displayBaseUnit})`
+                                   : `${item.pcsPerCarton || 1} ${displayBaseUnit}`)
                               : '-'}
                           </td>
                           {showPrices ? (

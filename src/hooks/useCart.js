@@ -36,15 +36,10 @@ export const useCart = () => {
       ));
     } else {
       setCart([...cart, {
+        ...product,
         productId: product.id,
-        name: product.name,
-        unitType: product.unitType,
-        pcsPerCarton: product.pcsPerCarton || 1,
-        price: product.price,
-        capitalPrice: product.hpp || 0, 
         qty: 1,
         discount: 0,
-        stockPcs: product.stockPcs,
       }]);
     }
 

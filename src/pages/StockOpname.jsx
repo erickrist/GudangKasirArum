@@ -58,13 +58,14 @@ const StockOpname = ({ onShowToast }) => {
   const [formData, setFormData] = useState({
     name: '', category: '', unitType: 'PCS', baseUnit: 'PCS', hpp: '', 
     defaultPrice: '', storePrices: {}, pcsPerCarton: '', stockPcs: '', image: '',
+    hasMidUnit: false, midUnitType: 'BOX', midPerCarton: '', pcsPerMid: ''
   });
   
   const [stockAmount, setStockAmount] = useState('');
   const [stockUnit, setStockUnit] = useState('PCS'); 
   const [damageStoreId, setDamageStoreId] = useState('pusat'); 
 
-  const WHOLESALE_TYPES = ['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX', 'PACK'];
+  const WHOLESALE_TYPES = ['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX', 'PACK', 'LUSIN'];
 
   const getSafeDate = (dateSource) => {
     if (!dateSource) return new Date();
@@ -256,7 +257,7 @@ const StockOpname = ({ onShowToast }) => {
           }
 
           let itemPcs = Number(item.qty) || 0;
-          if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX', 'PACK'].includes(item.unitType?.toUpperCase()) && !(item.name || '').includes('(Eceran)')) {
+          if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX', 'PACK', 'LUSIN'].includes(item.unitType?.toUpperCase()) && !(item.name || '').includes('(Eceran)')) {
              itemPcs = itemPcs * pcsPerCarton;
           }
 
@@ -309,7 +310,7 @@ const StockOpname = ({ onShowToast }) => {
 
           const pcsPerCarton = salesMap[realId].pcsPerCarton;
           let itemPcs = Number(item.qty) || 0;
-          if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX', 'PACK'].includes(item.unitType?.toUpperCase()) && item.returnUnit !== 'pcs') {
+          if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX', 'PACK', 'LUSIN'].includes(item.unitType?.toUpperCase()) && item.returnUnit !== 'pcs') {
              itemPcs = itemPcs * pcsPerCarton;
           }
 
@@ -372,7 +373,8 @@ const StockOpname = ({ onShowToast }) => {
     setFormData({ 
       name: '', category: '', unitType: 'PCS', baseUnit: 'PCS', hpp: '', 
       defaultPrice: '', storePrices: initialStorePrices, 
-      pcsPerCarton: '', stockPcs: '', image: '' 
+      pcsPerCarton: '', stockPcs: '', image: '',
+      hasMidUnit: false, midUnitType: 'BOX', midPerCarton: '', pcsPerMid: ''
     });
   };
 
@@ -387,6 +389,12 @@ const StockOpname = ({ onShowToast }) => {
       stores.forEach(store => { newStorePrices[store.id] = currentStorePrices[store.id] || ''; });
       productData.storePrices = newStorePrices;
       productData.baseUnit = productData.baseUnit || 'PCS'; 
+      
+      // FIX: Restore 3-level fields with proper defaults
+      productData.hasMidUnit = !!productData.hasMidUnit;
+      productData.midUnitType = productData.midUnitType || 'BOX';
+      productData.midPerCarton = productData.hasMidUnit ? (productData.midPerCarton || '') : '';
+      productData.pcsPerMid = productData.hasMidUnit ? (productData.pcsPerMid || '') : '';
       
       setFormData(productData); 
       setSelectedProduct(productData); 
@@ -414,8 +422,12 @@ const StockOpname = ({ onShowToast }) => {
       defaultPrice: parseFloat(formData.defaultPrice) || 0, 
       storePrices: cleanedStorePrices,
       stockPcs: Number(formData.stockPcs) || 0, 
-      pcsPerCarton: isWholesale ? parseFloat(formData.pcsPerCarton) || 1 : 1,
-      image: formData.image || ''
+      pcsPerCarton: isWholesale ? (formData.hasMidUnit ? (parseFloat(formData.midPerCarton) || 1) * (parseFloat(formData.pcsPerMid) || 1) : parseFloat(formData.pcsPerCarton) || 1) : 1,
+      image: formData.image || '',
+      hasMidUnit: isWholesale ? !!formData.hasMidUnit : false,
+      midUnitType: isWholesale && formData.hasMidUnit ? formData.midUnitType : '',
+      midPerCarton: isWholesale && formData.hasMidUnit ? parseFloat(formData.midPerCarton) || 1 : 1,
+      pcsPerMid: isWholesale && formData.hasMidUnit ? parseFloat(formData.pcsPerMid) || 1 : 1
     };
 
     let result;
@@ -502,9 +514,20 @@ const StockOpname = ({ onShowToast }) => {
     const amount = Number(stockAmount);
     const baseUnitStr = selectedProduct.baseUnit || 'PCS';
     const isEceranMode = stockUnit === baseUnitStr;
+    const isMidMode = selectedProduct.hasMidUnit && stockUnit === selectedProduct.midUnitType;
     const pcsPerCarton = WHOLESALE_TYPES.includes(selectedProduct.unitType) ? (selectedProduct.pcsPerCarton || 1) : 1;
+    const pcsPerMid = selectedProduct.pcsPerMid || 1;
     
-    const totalPcs = isEceranMode ? amount : amount * pcsPerCarton;
+    // FIX: Hitung totalPcs berdasarkan 3 level satuan
+    let totalPcs;
+    if (isEceranMode) {
+      totalPcs = amount; // Sudah dalam satuan terkecil
+    } else if (isMidMode) {
+      totalPcs = amount * pcsPerMid; // Satuan tengah × isi per tengah
+    } else {
+      totalPcs = amount * pcsPerCarton; // Satuan utama × total isi per utama
+    }
+    
     let newStockPcs = selectedProduct.stockPcs;
 
     if (stockMode === 'rusak') {
@@ -923,21 +946,56 @@ const StockOpname = ({ onShowToast }) => {
               </div>
 
               {WHOLESALE_TYPES.includes(formData.unitType) && (
-                 <div className="grid grid-cols-2 gap-3 mt-3">
-                   <div>
-                     <label className="text-[10px] font-black uppercase text-gray-500 ml-1">Satuan Eceran Dasar</label>
-                     <select value={formData.baseUnit} onChange={(e) => setFormData({ ...formData, baseUnit: e.target.value })} className="w-full p-3 bg-gray-50 rounded-xl font-bold mt-1">
-                       <option value="PCS">PCS</option>
-                       <option value="KG">KG</option>
-                       <option value="BOX">BOX</option>
-                       <option value="PACK">PACK</option>
-                       <option value="RENCENG">RENCENG</option>
-                     </select>
-                   </div>
-                   <div>
-                     <label className="text-[10px] font-black uppercase text-gray-500 ml-1">Isi per {formData.unitType} ({formData.baseUnit})</label>
-                     <input type="number" required min="0.01" step="any" value={formData.pcsPerCarton} onChange={(e) => setFormData({ ...formData, pcsPerCarton: e.target.value })} className="w-full p-3 bg-gray-50 rounded-xl font-bold mt-1" />
-                   </div>
+                 <div className="bg-gray-50 p-4 rounded-xl border mt-3 space-y-4">
+                   <label className="flex items-center gap-2 cursor-pointer">
+                     <input type="checkbox" checked={formData.hasMidUnit} onChange={(e) => setFormData({ ...formData, hasMidUnit: e.target.checked })} className="w-4 h-4 text-teal-600 rounded border-gray-300 focus:ring-teal-500" />
+                     <span className="text-[10px] font-black uppercase text-gray-700 tracking-wide">Aktifkan 3 Level Satuan (Contoh: Karton -{'>'} Box -{'>'} Pcs)</span>
+                   </label>
+                   
+                   {!formData.hasMidUnit ? (
+                     <div className="grid grid-cols-2 gap-3">
+                       <div>
+                         <label className="text-[10px] font-black uppercase text-gray-500 ml-1">Satuan Eceran Dasar</label>
+                         <select value={formData.baseUnit} onChange={(e) => setFormData({ ...formData, baseUnit: e.target.value })} className="w-full p-3 bg-white border border-gray-200 rounded-xl font-bold mt-1">
+                           <option value="PCS">PCS</option><option value="KG">KG</option><option value="BOX">BOX</option><option value="PACK">PACK</option><option value="RENCENG">RENCENG</option>
+                         </select>
+                       </div>
+                       <div>
+                         <label className="text-[10px] font-black uppercase text-gray-500 ml-1">Isi per {formData.unitType} ({formData.baseUnit})</label>
+                         <input type="number" required min="0.01" step="any" value={formData.pcsPerCarton} onChange={(e) => setFormData({ ...formData, pcsPerCarton: e.target.value })} className="w-full p-3 bg-white border border-gray-200 rounded-xl font-bold mt-1" />
+                       </div>
+                     </div>
+                   ) : (
+                     <div className="space-y-3 border-t pt-3">
+                       <div className="grid grid-cols-2 gap-3">
+                         <div>
+                           <label className="text-[10px] font-black uppercase text-gray-500 ml-1">Satuan Tengah</label>
+                           <select value={formData.midUnitType} onChange={(e) => setFormData({ ...formData, midUnitType: e.target.value })} className="w-full p-3 bg-white border border-gray-200 rounded-xl font-bold mt-1">
+                             <option value="BOX">BOX</option><option value="PACK">PACK</option><option value="RENCENG">RENCENG</option><option value="IKAT">IKAT</option><option value="LUSIN">LUSIN</option>
+                           </select>
+                         </div>
+                         <div>
+                           <label className="text-[10px] font-black uppercase text-gray-500 ml-1">Isi per {formData.unitType} ({formData.midUnitType})</label>
+                           <input type="number" required min="1" step="any" value={formData.midPerCarton} onChange={(e) => setFormData({ ...formData, midPerCarton: e.target.value })} className="w-full p-3 bg-white border border-gray-200 rounded-xl font-bold mt-1" />
+                         </div>
+                       </div>
+                       <div className="grid grid-cols-2 gap-3">
+                         <div>
+                           <label className="text-[10px] font-black uppercase text-gray-500 ml-1">Satuan Eceran (Terkecil)</label>
+                           <select value={formData.baseUnit} onChange={(e) => setFormData({ ...formData, baseUnit: e.target.value })} className="w-full p-3 bg-white border border-gray-200 rounded-xl font-bold mt-1">
+                             <option value="PCS">PCS</option><option value="KG">KG</option>
+                           </select>
+                         </div>
+                         <div>
+                           <label className="text-[10px] font-black uppercase text-gray-500 ml-1">Isi per {formData.midUnitType || 'Tengah'} ({formData.baseUnit})</label>
+                           <input type="number" required min="1" step="any" value={formData.pcsPerMid} onChange={(e) => setFormData({ ...formData, pcsPerMid: e.target.value })} className="w-full p-3 bg-white border border-gray-200 rounded-xl font-bold mt-1" />
+                         </div>
+                       </div>
+                       <div className="p-3 bg-teal-50 border border-teal-100 rounded-xl text-[10px] text-teal-800 font-bold uppercase tracking-wide">
+                          Total Isi: 1 {formData.unitType} = {parseFloat(formData.midPerCarton) || 0} {formData.midUnitType} x {parseFloat(formData.pcsPerMid) || 0} {formData.baseUnit} = {(parseFloat(formData.midPerCarton) || 0) * (parseFloat(formData.pcsPerMid) || 0)} {formData.baseUnit}
+                       </div>
+                     </div>
+                   )}
                  </div>
               )}
 
@@ -961,12 +1019,18 @@ const StockOpname = ({ onShowToast }) => {
               {!WHOLESALE_TYPES.includes(formData.unitType) && (
                  <div className="pt-2"><label className="text-[10px] font-black uppercase text-green-600 ml-1">stock Gudang Pusat ({formData.unitType})</label><input type="number" step="any" required min="0" value={formData.stockPcs} onChange={(e) => setFormData({ ...formData, stockPcs: e.target.value === '' ? '' : Number(e.target.value) || 0 })} className="w-full p-3 bg-green-50 border border-green-200 text-green-800 rounded-xl font-black mt-1" /></div>
               )}
-              {WHOLESALE_TYPES.includes(formData.unitType) && (
-                 <div className="grid grid-cols-2 gap-3 pt-2">
-                   <div><label className="text-[10px] font-black uppercase text-purple-600 ml-1">stock Pusat ({formData.unitType})</label><input type="number" min="0" step="any" value={formData.stockPcs === '' ? '' : (formData.stockPcs / (formData.pcsPerCarton || 1))} onChange={(e) => { if (e.target.value === '') setFormData({ ...formData, stockPcs: '' }); else setFormData({ ...formData, stockPcs: Number(parseFloat(e.target.value) * (formData.pcsPerCarton || 1)) || 0 }); }} className="w-full p-3 bg-purple-50 border border-purple-200 text-purple-800 rounded-xl font-black mt-1" /></div>
-                   <div><label className="text-[10px] font-black uppercase text-green-600 ml-1">Total {formData.baseUnit || 'PCS'}</label><input type="number" step="any" required min="0" value={formData.stockPcs} onChange={(e) => setFormData({ ...formData, stockPcs: e.target.value === '' ? '' : Number(e.target.value) || 0 })} className="w-full p-3 bg-green-50 border border-green-200 text-green-800 rounded-xl font-black mt-1" /></div>
-                 </div>
-              )}
+              {WHOLESALE_TYPES.includes(formData.unitType) && (() => {
+                 // FIX: Hitung pcsPerCarton secara dinamis untuk 3-level
+                 const effectivePpc = formData.hasMidUnit 
+                   ? (parseFloat(formData.midPerCarton) || 1) * (parseFloat(formData.pcsPerMid) || 1) 
+                   : (parseFloat(formData.pcsPerCarton) || 1);
+                 return (
+                   <div className="grid grid-cols-2 gap-3 pt-2">
+                     <div><label className="text-[10px] font-black uppercase text-purple-600 ml-1">stock Pusat ({formData.unitType})</label><input type="number" min="0" step="any" value={formData.stockPcs === '' ? '' : (formData.stockPcs / (effectivePpc || 1))} onChange={(e) => { if (e.target.value === '') setFormData({ ...formData, stockPcs: '' }); else setFormData({ ...formData, stockPcs: Number(parseFloat(e.target.value) * (effectivePpc || 1)) || 0 }); }} className="w-full p-3 bg-purple-50 border border-purple-200 text-purple-800 rounded-xl font-black mt-1" /></div>
+                     <div><label className="text-[10px] font-black uppercase text-green-600 ml-1">Total {formData.baseUnit || 'PCS'}</label><input type="number" step="any" required min="0" value={formData.stockPcs} onChange={(e) => setFormData({ ...formData, stockPcs: e.target.value === '' ? '' : Number(e.target.value) || 0 })} className="w-full p-3 bg-green-50 border border-green-200 text-green-800 rounded-xl font-black mt-1" /></div>
+                   </div>
+                 );
+              })()}
 
               <div className="pt-4 mt-4 border-t border-gray-100 flex gap-2 shrink-0">
                 <button type="button" onClick={() => setShowModal(false)} className="flex-1 p-3.5 bg-gray-100 text-gray-600 rounded-xl font-black uppercase text-xs hover:bg-gray-200">Batal</button>
@@ -1010,7 +1074,7 @@ const StockOpname = ({ onShowToast }) => {
                 />
                 
                 {WHOLESALE_TYPES.includes(selectedProduct.unitType) && (
-                  <div className="flex bg-gray-100 p-1.5 rounded-xl border border-gray-200">
+                  <div className={`flex bg-gray-100 p-1.5 rounded-xl border border-gray-200 ${selectedProduct.hasMidUnit ? 'gap-1' : ''}`}>
                     <button 
                       type="button" 
                       onClick={() => setStockUnit(selectedProduct.unitType)} 
@@ -1018,6 +1082,15 @@ const StockOpname = ({ onShowToast }) => {
                     >
                       {selectedProduct.unitType} (Utuh)
                     </button>
+                    {selectedProduct.hasMidUnit && (
+                      <button 
+                        type="button" 
+                        onClick={() => setStockUnit(selectedProduct.midUnitType)} 
+                        className={`flex-1 py-2.5 rounded-lg text-[10px] font-black uppercase transition-all ${stockUnit === selectedProduct.midUnitType ? (stockMode === 'rusak' ? 'bg-white shadow-sm text-red-600' : 'bg-white shadow-sm text-teal-600') : 'text-gray-400 hover:text-gray-600'}`}
+                      >
+                        {selectedProduct.midUnitType} (Tengah)
+                      </button>
+                    )}
                     <button 
                       type="button" 
                       onClick={() => setStockUnit(selectedProduct.baseUnit || 'PCS')} 

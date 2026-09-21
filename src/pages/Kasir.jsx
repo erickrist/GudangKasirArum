@@ -123,7 +123,23 @@ const Kasir = ({ onShowToast }) => {
           capitalPrice: pcsHpp, // <-- MENGUNCI HPP ECERAN
           pcsPerCarton: 1, 
        });
-    } 
+    } else if (type === 'MID' && product.hasMidUnit) {
+       const midPrice = resolvedPrice / product.midPerCarton;
+       const midHpp = hppPrice / product.midPerCarton;
+       
+       addToCart({
+          ...product,
+          id: `${product.id}_MID`, 
+          productId: `${product.id}_MID`, 
+          originalId: product.id, 
+          name: `${product.name} (Tengah)`,
+          unitType: product.midUnitType, 
+          baseUnit: baseUnitStr, 
+          price: midPrice,
+          capitalPrice: midHpp,
+          pcsPerCarton: product.pcsPerMid, 
+       });
+    }
     else {
        addToCart({
           ...product,
@@ -163,12 +179,13 @@ const Kasir = ({ onShowToast }) => {
     const stockDeductions = {};
     for (const item of cart) {
       let realId = item.originalId || item.productId || item.id;
-      if (typeof realId === 'string' && realId.endsWith('_PCS')) {
-          realId = realId.replace('_PCS', '');
+      if (typeof realId === 'string') {
+          if (realId.endsWith('_PCS')) realId = realId.replace('_PCS', '');
+          else if (realId.endsWith('_MID')) realId = realId.replace('_MID', '');
       }
       
       let pcsToReduce = Number(item.qty) || 0;
-      if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX', 'PACK'].includes(item.unitType?.toUpperCase())) {
+      if (['KARTON', 'BALL', 'IKAT', 'RENCENG', 'BOX', 'PACK', 'LUSIN'].includes(item.unitType?.toUpperCase())) {
          pcsToReduce = (Number(item.qty) || 0) * (Number(item.pcsPerCarton) || 1);
       }   
 
@@ -221,21 +238,26 @@ const Kasir = ({ onShowToast }) => {
       customerAddress: selectedCustomer.address || '',
       items: cart.map(item => {
         let cleanId = item.originalId || item.productId || item.id;
-        if (typeof cleanId === 'string' && cleanId.endsWith('_PCS')) {
-            cleanId = cleanId.replace('_PCS', '');
+        if (typeof cleanId === 'string') {
+            if (cleanId.endsWith('_PCS')) cleanId = cleanId.replace('_PCS', '');
+            else if (cleanId.endsWith('_MID')) cleanId = cleanId.replace('_MID', '');
         }
 
         const dbProduct = products.find(p => p.id === cleanId);
         const trueBaseUnit = dbProduct?.baseUnit || 'PCS';
         
         const isEceranCart = (item.id && item.id.includes('_PCS')) || (item.productId && item.productId.includes('_PCS')) || ['PCS', 'KG'].includes(item.unitType?.toUpperCase()) || (item.name || '').includes('(Eceran)');
-        const trueUnitType = isEceranCart ? trueBaseUnit : (dbProduct?.unitType || item.unitType);
-        const truePcsPerCarton = isEceranCart ? 1 : (dbProduct?.pcsPerCarton || item.pcsPerCarton);
+        const isMidCart = (item.id && item.id.includes('_MID')) || (item.productId && item.productId.includes('_MID')) || (item.name || '').includes('(Tengah)');
+
+        const trueUnitType = isEceranCart ? trueBaseUnit : (isMidCart ? (dbProduct?.midUnitType || item.unitType) : (dbProduct?.unitType || item.unitType));
+        const truePcsPerCarton = isEceranCart ? 1 : (isMidCart ? (dbProduct?.pcsPerMid || item.pcsPerCarton) : (dbProduct?.pcsPerCarton || item.pcsPerCarton));
 
         // --- PERBAIKAN BUG HPP: Hitung paksa HPP Eceran yang benar ---
         let correctHpp = Number(dbProduct?.hpp) || 0;
         if (isEceranCart && dbProduct && dbProduct.pcsPerCarton > 1) {
             correctHpp = correctHpp / dbProduct.pcsPerCarton;
+        } else if (isMidCart && dbProduct && dbProduct.hasMidUnit) {
+            correctHpp = correctHpp / dbProduct.midPerCarton;
         }
 
         return {
@@ -245,6 +267,10 @@ const Kasir = ({ onShowToast }) => {
           unitType: trueUnitType, 
           baseUnit: trueBaseUnit, 
           pcsPerCarton: truePcsPerCarton, 
+          hasMidUnit: dbProduct?.hasMidUnit || false,
+          midUnitType: dbProduct?.midUnitType || '',
+          midPerCarton: dbProduct?.midPerCarton || 1,
+          pcsPerMid: dbProduct?.pcsPerMid || 1,
           price: Number(item.price), 
           // FIX: Gunakan correctHpp yang sudah dihitung akurat ke database
           capitalPrice: correctHpp, 
@@ -436,21 +462,30 @@ const Kasir = ({ onShowToast }) => {
                               </div>
                           </div>
                           
-                          <div className="grid grid-cols-2 gap-2 mt-1">
+                          <div className={`grid ${product.hasMidUnit ? 'grid-cols-3' : 'grid-cols-2'} gap-2 mt-1`}>
                              <button 
                                onClick={(e) => { e.stopPropagation(); handleAddToCartClick(product, 'WHOLESALE'); }} 
                                className="bg-teal-50 text-teal-700 py-2 rounded-lg text-[9px] md:text-[10px] font-black uppercase hover:bg-teal-100 transition-colors shadow-sm active:scale-95"
                              >
                                + 1 {product.unitType}
                              </button>
-                             {product.pcsPerCarton > 1 && !['PCS', 'KG'].includes(product.unitType) ? (
+                             {product.hasMidUnit && (
+                               <button 
+                                 onClick={(e) => { e.stopPropagation(); handleAddToCartClick(product, 'MID'); }} 
+                                 className="bg-blue-50 text-blue-700 py-2 rounded-lg text-[9px] md:text-[10px] font-black uppercase hover:bg-blue-100 transition-colors shadow-sm active:scale-95"
+                               >
+                                 + 1 {product.midUnitType}
+                               </button>
+                             )}
+                             {product.pcsPerCarton > 1 && !['PCS', 'KG'].includes(product.unitType) && (
                                <button 
                                  onClick={(e) => { e.stopPropagation(); handleAddToCartClick(product, 'PCS'); }} 
                                  className="bg-purple-50 text-purple-700 py-2 rounded-lg text-[9px] md:text-[10px] font-black uppercase hover:bg-purple-100 transition-colors shadow-sm active:scale-95"
                                >
                                  + 1 {product.baseUnit || 'PCS'}
                                </button>
-                             ) : (
+                             )}
+                             {!product.hasMidUnit && !(product.pcsPerCarton > 1 && !['PCS', 'KG'].includes(product.unitType)) && (
                                <div className="col-span-1"></div>
                              )}
                           </div>
@@ -524,8 +559,9 @@ const Kasir = ({ onShowToast }) => {
               ) : (
                 cart.map((item) => {
                   let cleanId = item.originalId || item.productId || item.id;
-                  if (typeof cleanId === 'string' && cleanId.endsWith('_PCS')) {
-                      cleanId = cleanId.replace('_PCS', '');
+                  if (typeof cleanId === 'string') {
+                      if (cleanId.endsWith('_PCS')) cleanId = cleanId.replace('_PCS', '');
+                      else if (cleanId.endsWith('_MID')) cleanId = cleanId.replace('_MID', '');
                   }
                   const liveProduct = products.find(p => p.id === cleanId);
                   
