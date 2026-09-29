@@ -151,7 +151,7 @@ const Dashboard = ({ onShowToast }) => {
   const totalCashIn = useMemo(() => dateFilteredTransactions.reduce((sum, t) => sum + (Number(t.total) || 0), 0), [dateFilteredTransactions]);
   
   const totalOmset = useMemo(() => dateFilteredTransactions.reduce((sum, t) => {
-    const systemNotes = ['Pelunasan Hutang Manual', 'Penambahan Hutang Manual', 'Koreksi Hutang (Bertambah)', 'Koreksi Hutang (Berkurang)'];
+    const systemNotes = ['Pelunasan Hutang Manual', 'Penambahan Hutang Manual', 'Koreksi Hutang (Bertambah)', 'Koreksi Hutang (Berkurang)', 'Penambahan Deposit Manual', 'Koreksi Deposit (Bertambah)', 'Koreksi Deposit (Berkurang)'];
     if (systemNotes.includes(t.note)) return sum;
     
     if (t.items && t.items.length > 0) {
@@ -264,8 +264,10 @@ const Dashboard = ({ onShowToast }) => {
         const outNote = t.paymentStatus === 'HUTANG' ? 'Penutupan Hutang Lama (Digabung ke Nota Baru)' : `Bayar Hutang di Kasir ${t.note ? '- '+t.note : ''}`;
         logs.push({ ...t, sourceCollection: 'transactions', debtType: 'out', nominal: t.debtPaid, note: outNote });
       }
-      if (t.note === 'Cicilan/Pelunasan Hutang' || t.note === 'Pelunasan Hutang Manual' || t.note === 'Nol-kan Hutang Manual' || t.note === 'Koreksi Hutang (Berkurang)') {
-         logs.push({ ...t, sourceCollection: 'transactions', debtType: 'out', nominal: t.subtotal, note: t.note });
+      if (t.note === 'Cicilan/Pelunasan Hutang' || t.note === 'Pelunasan Hutang Manual' || t.note === 'Nol-kan Hutang Manual' || t.note === 'Koreksi Hutang (Berkurang)' || t.note === 'Penambahan Deposit Manual' || t.note === 'Koreksi Deposit (Bertambah)' || t.note === 'Koreksi Deposit (Berkurang)') {
+         if (t.note.includes('Hutang')) {
+            logs.push({ ...t, sourceCollection: 'transactions', debtType: 'out', nominal: t.subtotal, note: t.note });
+         }
       }
     });
     return logs.sort((a, b) => getSafeDate(b.createdAt) - getSafeDate(a.createdAt));
@@ -318,7 +320,8 @@ const Dashboard = ({ onShowToast }) => {
     let logs = [];
     activeStoreTransactions.forEach(t => {
       if (Number(t.total) > 0) {
-        logs.push({ ...t, sourceCollection: 'transactions', netType: 'in', nominal: t.total, subjName: t.customerName || 'Pemasukan Kas', detailNote: t.note || (t.items ? t.items.map(i => i.name).join(', ') : `Transaksi Lunas`), paymentMethod: t.paymentMethod || 'TUNAI' });
+        let isDepositIn = t.note === 'Penambahan Deposit Manual' || t.note === 'Koreksi Deposit (Bertambah)';
+        logs.push({ ...t, sourceCollection: 'transactions', netType: 'in', nominal: t.total, subjName: isDepositIn ? (t.customerName || 'Kas Deposit') : (t.customerName || 'Pemasukan Kas'), detailNote: t.note || (t.items ? t.items.map(i => i.name).join(', ') : `Transaksi Lunas`), paymentMethod: t.paymentMethod || 'TUNAI' });
       }
     });
     activeStoreExpenses.forEach(e => {
@@ -653,7 +656,12 @@ const Dashboard = ({ onShowToast }) => {
 
     const updateRes = await updateDocument('customers', cust.id, { returnAmount: (Number(cust.returnAmount) || 0) + amount });
     if (updateRes.success) {
-      await addDocument('returns', { customerName: cust.name, customerId: cust.id, amount: amount, type: 'manual_deposit_in', note: newManualDeposit.note || 'Penambahan Deposit Manual', storeId: newManualDeposit.storeId, storeName: storeName, createdAt: new Date() });
+      const depositNote = newManualDeposit.note || 'Penambahan Deposit Manual';
+      await addDocument('returns', { customerName: cust.name, customerId: cust.id, amount: amount, type: 'manual_deposit_in', note: depositNote, storeId: newManualDeposit.storeId, storeName: storeName, createdAt: new Date() });
+      
+      // FIX: Menambahkan deposit manual ke transactions agar tercatat di Kas Laci (Total Kas Masuk)
+      await addDocument('transactions', { customerName: cust.name, customerId: cust.id, subtotal: amount, total: amount, note: 'Penambahan Deposit Manual', detailNote: depositNote, paymentStatus: 'LUNAS', storeId: newManualDeposit.storeId, storeName: storeName, createdAt: new Date() });
+
       onShowToast('Deposit manual berhasil ditambahkan', 'success');
       setNewManualDeposit({ customerId: '', amount: '', note: '', storeId: '' });
     }
@@ -688,8 +696,12 @@ const Dashboard = ({ onShowToast }) => {
       await updateDocument('customers', selectedCustomer.id, { returnAmount: (selectedCustomer.returnAmount || 0) + diff });
       if (diff > 0) {
         await addDocument('returns', { customerName: selectedCustomer.name, customerId: selectedCustomer.id, amount: diff, type: 'manual_deposit_in', note: 'Koreksi Deposit (Bertambah)', storeId: editBalanceStoreId, storeName: finalStoreName, createdAt: new Date() });
+        // Tambahkan ke transactions untuk kas laci
+        await addDocument('transactions', { customerName: selectedCustomer.name, customerId: selectedCustomer.id, subtotal: diff, total: diff, note: 'Koreksi Deposit (Bertambah)', paymentStatus: 'LUNAS', storeId: editBalanceStoreId, storeName: finalStoreName, createdAt: new Date() });
       } else {
         await addDocument('returns', { customerName: selectedCustomer.name, customerId: selectedCustomer.id, amount: Math.abs(diff), type: 'manual_deposit_out', note: 'Koreksi Deposit (Berkurang)', storeId: editBalanceStoreId, storeName: finalStoreName, createdAt: new Date() });
+        // Jika koreksi kurang, kurangi dari kas laci dengan memasukkannya sebagai expense pengeluaran
+        await addDocument('expenses', { title: `Koreksi Deposit (Berkurang) - ${selectedCustomer.name}`, amount: Math.abs(diff), category: 'Retur', storeId: editBalanceStoreId, storeName: finalStoreName, createdAt: new Date() });
       }
       onShowToast('Deposit berhasil diubah', 'success');
     }

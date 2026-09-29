@@ -128,7 +128,7 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
   // =========================================================================================
   // FIX AKUNTANSI: MENCARI HARGA SEJARAH DARI NOTA LAMA PEMBELI SEBELUM MERETUR
   // =========================================================================================
-  const addToCartAuto = (product, isEceran = false) => {
+  const addToCartAuto = (product, returnLevel = 'WHOLESALE') => {
     if (!selectedCustomer) {
         return onShowToast('Pilih pembeli terlebih dahulu agar sistem bisa melacak riwayat harga belinya!', 'error');
     }
@@ -146,7 +146,10 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
       for (const t of pastPurchases) {
           const boughtItem = t.items?.find(i => {
               let cid = i.originalId || i.productId || i.id;
-              if(typeof cid === 'string' && cid.endsWith('_PCS')) cid = cid.replace('_PCS','');
+              if(typeof cid === 'string') {
+                if(cid.endsWith('_PCS')) cid = cid.replace('_PCS','');
+                else if(cid.endsWith('_MID')) cid = cid.replace('_MID','');
+              }
               return cid === product.id;
           });
           
@@ -155,11 +158,16 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
                                      (boughtItem.productId && boughtItem.productId.includes('_PCS')) || 
                                      boughtItem.unitType === (product.baseUnit || 'PCS') || 
                                      boughtItem.unitType === 'KG';
+              const isBoughtMid = (boughtItem.id && boughtItem.id.includes('_MID')) || 
+                                  (boughtItem.productId && boughtItem.productId.includes('_MID')) || 
+                                  boughtItem.unitType === product.midUnitType;
               
-              const multiplier = boughtItem.pcsPerCarton || product.pcsPerCarton || 1;
+              let multiplier = 1;
+              if (isBoughtEceran) multiplier = boughtItem.pcsPerCarton || product.pcsPerCarton || 1;
+              else if (isBoughtMid) multiplier = boughtItem.midPerCarton || product.midPerCarton || 1;
 
               // Tarik harga murni dari nota lamanya
-              if (isBoughtEceran) {
+              if (isBoughtEceran || isBoughtMid) {
                   resolvedWholesalePrice = boughtItem.price * multiplier;
                   resolvedWholesaleHpp = (boughtItem.capitalPrice || boughtItem.hpp || 0) * multiplier;
               } else {
@@ -172,10 +180,15 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
       }
     }
 
-    const cartItemId = isEceran ? `${product.id}_PCS` : product.id;
+    const cartItemId = returnLevel === 'PCS' ? `${product.id}_PCS` : returnLevel === 'MID' ? `${product.id}_MID` : product.id;
     const existing = cart.find(item => item.cartItemId === cartItemId);
     const baseUnitStr = product.baseUnit || 'PCS'; 
+    const midUnitStr = product.midUnitType || '';
     
+    let displayUnitType = product.unitType;
+    if (returnLevel === 'PCS') displayUnitType = baseUnitStr;
+    if (returnLevel === 'MID') displayUnitType = midUnitStr;
+
     if (existing) {
       setCart(cart.map(item => item.cartItemId === cartItemId ? { ...item, qty: Number(item.qty) + 1 } : item));
     } else {
@@ -183,13 +196,14 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
         cartItemId: cartItemId,     
         productId: product.id,      
         name: product.name,
-        unitType: product.unitType,
+        unitType: displayUnitType,
         baseUnit: baseUnitStr, 
         pcsPerCarton: product.pcsPerCarton || 1,
-        price: resolvedWholesalePrice, // Terkunci
-        hpp: resolvedWholesaleHpp,     // Terkunci
+        midPerCarton: product.midPerCarton || 1,
+        price: resolvedWholesalePrice, // Terkunci harga grosir
+        hpp: resolvedWholesaleHpp,     // Terkunci hpp grosir
         qty: 1,
-        returnUnit: isEceran ? 'pcs' : 'pack', 
+        returnUnit: returnLevel === 'PCS' ? 'pcs' : returnLevel === 'MID' ? 'mid' : 'pack', 
         isManual: false
       }]);
 
@@ -243,12 +257,18 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
     if (item.returnUnit === 'pcs' && item.pcsPerCarton > 1) {
       return item.price / item.pcsPerCarton;
     }
+    if (item.returnUnit === 'mid' && item.midPerCarton > 1) {
+      return item.price / item.midPerCarton;
+    }
     return item.price;
   };
 
   const getItemHpp = (item) => {
     if (item.returnUnit === 'pcs' && item.pcsPerCarton > 1) {
       return item.hpp / item.pcsPerCarton;
+    }
+    if (item.returnUnit === 'mid' && item.midPerCarton > 1) {
+      return item.hpp / item.midPerCarton;
     }
     return item.hpp;
   };
@@ -349,6 +369,7 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
             unitType: i.unitType,
             baseUnit: i.baseUnit || 'PCS', 
             pcsPerCarton: i.pcsPerCarton,
+            midPerCarton: i.midPerCarton,
             price: getItemPrice(i),
             hpp: getItemHpp(i), // HPP Terkunci masuk database!
             capitalPrice: getItemHpp(i), // Duplikat aman untuk jaga-jaga
@@ -416,14 +437,22 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
                             <span className="bg-purple-100 text-purple-700 text-[9px] md:text-[10px] font-black px-2 py-1 rounded-lg">{p.unitType}</span>
                           </div>
                           
-                          <div className="flex gap-2 border-t border-dashed border-gray-100 pt-2 mt-auto">
-                            <button onClick={() => addToCartAuto(p, false)} className="flex-1 bg-purple-50 text-purple-700 py-2 rounded-lg text-[9px] md:text-[10px] font-black uppercase hover:bg-purple-100 transition-colors shadow-sm active:scale-95">
+                          <div className={`grid ${p.hasMidUnit ? 'grid-cols-3' : 'grid-cols-2'} gap-2 border-t border-dashed border-gray-100 pt-2 mt-auto`}>
+                            <button onClick={() => addToCartAuto(p, 'WHOLESALE')} className="bg-purple-50 text-purple-700 py-2 rounded-lg text-[9px] md:text-[10px] font-black uppercase hover:bg-purple-100 transition-colors shadow-sm active:scale-95">
                               + 1 {p.unitType}
                             </button>
+                            {p.hasMidUnit && (
+                              <button onClick={() => addToCartAuto(p, 'MID')} className="bg-blue-50 text-blue-700 py-2 rounded-lg text-[9px] md:text-[10px] font-black uppercase hover:bg-blue-100 transition-colors shadow-sm active:scale-95">
+                                + 1 {p.midUnitType}
+                              </button>
+                            )}
                             {p.pcsPerCarton > 1 && !['PCS', 'KG'].includes(p.unitType) && (
-                              <button onClick={() => addToCartAuto(p, true)} className="flex-1 bg-orange-50 text-orange-700 py-2 rounded-lg text-[9px] md:text-[10px] font-black uppercase hover:bg-orange-100 transition-colors shadow-sm active:scale-95">
+                              <button onClick={() => addToCartAuto(p, 'PCS')} className="bg-orange-50 text-orange-700 py-2 rounded-lg text-[9px] md:text-[10px] font-black uppercase hover:bg-orange-100 transition-colors shadow-sm active:scale-95">
                                 + 1 {baseUnitStr}
                               </button>
+                            )}
+                            {!p.hasMidUnit && !(p.pcsPerCarton > 1 && !['PCS', 'KG'].includes(p.unitType)) && (
+                               <div className="col-span-1"></div>
                             )}
                           </div>
                         </div>
@@ -476,9 +505,9 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
                       const displayBase = item.baseUnit || 'PCS';
 
                       return (
-                        <div key={item.cartItemId} className={`flex flex-col gap-2.5 p-3 md:p-4 bg-white border-2 rounded-xl transition-colors ${isPcsMode ? 'border-orange-200 bg-orange-50/50' : 'border-gray-100'}`}>
+                        <div key={item.cartItemId} className={`flex flex-col gap-2.5 p-3 md:p-4 bg-white border-2 rounded-xl transition-colors ${item.returnUnit === 'pcs' ? 'border-orange-200 bg-orange-50/50' : item.returnUnit === 'mid' ? 'border-blue-200 bg-blue-50/50' : 'border-gray-100'}`}>
                           <div className="flex justify-between items-start">
-                            <div className="pr-2 flex-1"><p className="font-black text-xs md:text-sm text-gray-800 uppercase line-clamp-1">{item.name} {item.isManual && <span className="text-[8px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded ml-1">Manual</span>}</p><p className="text-[9px] md:text-[10px] text-gray-500 font-bold mt-0.5 whitespace-nowrap">{isPcsMode ? `Eceran (${displayBase})` : `Utuh (${item.unitType})`}: Rp {finalPrice.toLocaleString()} / {isPcsMode ? displayBase : item.unitType}</p></div>
+                            <div className="pr-2 flex-1"><p className="font-black text-xs md:text-sm text-gray-800 uppercase line-clamp-1">{item.name} {item.isManual && <span className="text-[8px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded ml-1">Manual</span>}</p><p className="text-[9px] md:text-[10px] text-gray-500 font-bold mt-0.5 whitespace-nowrap">{item.returnUnit === 'pcs' ? `Eceran (${displayBase})` : item.returnUnit === 'mid' ? `Tengah (${item.unitType})` : `Utuh (${item.unitType})`}: Rp {finalPrice.toLocaleString()} / {item.unitType}</p></div>
                             <button type="button" onClick={() => updateQty(item.cartItemId, 0)} className="text-gray-400 p-1 hover:bg-red-50 hover:text-red-500 rounded-lg"><Trash2 className="w-4 h-4"/></button>
                           </div>
                           
