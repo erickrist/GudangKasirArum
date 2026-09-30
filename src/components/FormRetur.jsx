@@ -130,14 +130,17 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
   // =========================================================================================
   const addToCartAuto = (product, returnLevel = 'WHOLESALE') => {
     if (!selectedCustomer) {
-        return onShowToast('Pilih pembeli terlebih dahulu agar sistem bisa melacak riwayat harga belinya!', 'error');
+        return onShowToast('Pilih pembeli terlebih dahulu!', 'error');
     }
 
     let resolvedWholesalePrice = getProductPrice(product);
     let resolvedWholesaleHpp = product.hpp || 0;
     let isHistoryFound = false;
 
-    // RADAR SEJARAH: Cari di histori transaksi pembeli ini
+    // --- FITUR RADAR SEJARAH DIMATIKAN ---
+    // (Jika ingin menggunakan harga dari nota lama, silakan hapus komentar pada blok di bawah ini)
+    
+    /*
     if (transactions && transactions.length > 0) {
       const pastPurchases = transactions
         .filter(t => t.customerId === selectedCustomer)
@@ -179,6 +182,7 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
           }
       }
     }
+    */
 
     const cartItemId = returnLevel === 'PCS' ? `${product.id}_PCS` : returnLevel === 'MID' ? `${product.id}_MID` : product.id;
     const existing = cart.find(item => item.cartItemId === cartItemId);
@@ -200,18 +204,14 @@ const FormRetur = ({ isOpen, onClose, onShowToast }) => {
         baseUnit: baseUnitStr, 
         pcsPerCarton: product.pcsPerCarton || 1,
         midPerCarton: product.midPerCarton || 1,
-        price: resolvedWholesalePrice, // Terkunci harga grosir
-        hpp: resolvedWholesaleHpp,     // Terkunci hpp grosir
+        price: resolvedWholesalePrice, // Menggunakan harga saat ini (getProductPrice)
+        hpp: resolvedWholesaleHpp,     // Menggunakan hpp saat ini
         qty: 1,
         returnUnit: returnLevel === 'PCS' ? 'pcs' : returnLevel === 'MID' ? 'mid' : 'pack', 
         isManual: false
       }]);
 
-      if (isHistoryFound) {
-          onShowToast('Harga Histori (Lama) berhasil ditarik dari riwayat belanja!', 'success');
-      } else {
-          onShowToast('Riwayat tidak ditemukan, menggunakan harga gudang saat ini.', 'warning');
-      }
+      onShowToast('Menggunakan harga gudang/toko saat ini.', 'success');
     }
   };
 
