@@ -9,7 +9,7 @@ import {
   Zap, Database, CheckCircle2, RefreshCw, Filter, Layers
 } from 'lucide-react';
 import { useCollection, deleteDocument, addDocument, updateDocument } from '../hooks/useFirestore';
-import { writeBatch, doc, collection } from 'firebase/firestore';
+import { writeBatch, doc, collection, getDocs } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import Loading from '../components/common/Loading';
 import Nota from '../components/Nota';
@@ -55,6 +55,7 @@ const Dashboard = ({ onShowToast }) => {
   const [showReturnModal, setShowReturnModal] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
   const [showSyncModal, setShowSyncModal] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showDownloadModal, setShowDownloadModal] = useState(false);
   const [showEditTransModal, setShowEditTransModal] = useState(false);
@@ -797,67 +798,110 @@ const Dashboard = ({ onShowToast }) => {
 
   const handleSyncCustomers = async () => {
     try {
-      const validTransactions = transactions.filter(t => t.transactionStatus !== 'DRAFT');
+      setIsSyncing(true);
 
+      // 1. Ambil seluruh transaksi dari database (tanpa batasan limit 50 agar akurat 100%)
+      const transSnap = await getDocs(collection(db, 'transactions'));
+      const allTransactions = transSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const validTransactions = allTransactions.filter(t => t.transactionStatus !== 'DRAFT');
+
+      // 2. Ambil seluruh data retur dari database
+      const returnsSnap = await getDocs(collection(db, 'returns'));
+      const allReturns = returnsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+      // 3. Rekonstruksi histori hutang
       const globalDebtLogs = [];
       validTransactions.forEach(t => {
+        if (!t.customerId) return;
         if (t.paymentStatus === 'HUTANG' || t.note === 'Penambahan Hutang Manual' || t.note === 'Koreksi Hutang (Bertambah)') {
-          let amount = t.subtotal || t.amount;
+          let amount = 0;
           if (t.paymentStatus === 'HUTANG') {
-            amount = t.subtotal - (t.returnUsed || 0);
-            if (t.debtPaid > 0) amount += t.debtPaid;
+            amount = (Number(t.subtotal) || 0) - (Number(t.returnUsed) || 0);
+            if (Number(t.debtPaid) > 0) amount += Number(t.debtPaid);
+          } else {
+            amount = Number(t.subtotal) || Number(t.amount) || 0;
           }
           globalDebtLogs.push({ customerId: t.customerId, debtType: 'in', nominal: amount });
         }
-        if (t.debtPaid > 0) {
-          globalDebtLogs.push({ customerId: t.customerId, debtType: 'out', nominal: t.debtPaid });
+        if (Number(t.debtPaid) > 0) {
+          globalDebtLogs.push({ customerId: t.customerId, debtType: 'out', nominal: Number(t.debtPaid) });
         }
         if (t.note === 'Cicilan/Pelunasan Hutang' || t.note === 'Pelunasan Hutang Manual' || t.note === 'Nol-kan Hutang Manual' || t.note === 'Koreksi Hutang (Berkurang)') {
-          globalDebtLogs.push({ customerId: t.customerId, debtType: 'out', nominal: t.subtotal });
+          const outAmount = Number(t.subtotal) || Number(t.amount) || Number(t.total) || 0;
+          globalDebtLogs.push({ customerId: t.customerId, debtType: 'out', nominal: outAmount });
         }
       });
 
+      // 4. Rekonstruksi histori deposit / retur
       const globalDepositLogs = [];
-      returnsData.forEach(r => {
+      allReturns.forEach(r => {
+        if (!r.customerId) return;
         if (r.refundType === 'deposit' || r.type === 'manual_deposit_in') {
-          globalDepositLogs.push({ customerId: r.customerId, depType: 'in', nominal: r.amount });
+          globalDepositLogs.push({ customerId: r.customerId, depType: 'in', nominal: Number(r.amount) || 0 });
         } else if (r.type === 'manual_deposit_out') {
-          globalDepositLogs.push({ customerId: r.customerId, depType: 'out', nominal: r.amount });
+          globalDepositLogs.push({ customerId: r.customerId, depType: 'out', nominal: Number(r.amount) || 0 });
         }
       });
       validTransactions.forEach(t => {
-        if (t.returnUsed > 0) globalDepositLogs.push({ customerId: t.customerId, depType: 'out', nominal: t.returnUsed });
+        if (!t.customerId) return;
+        if (Number(t.returnUsed) > 0) {
+          globalDepositLogs.push({ customerId: t.customerId, depType: 'out', nominal: Number(t.returnUsed) });
+        }
       });
 
+      // 5. Hitung saldo riil per customer
       const trueDebtMap = {};
       globalDebtLogs.forEach(log => {
-        if (!log.customerId) return;
         if (!trueDebtMap[log.customerId]) trueDebtMap[log.customerId] = 0;
         trueDebtMap[log.customerId] += log.debtType === 'in' ? Number(log.nominal) : -Number(log.nominal);
       });
 
       const trueDepMap = {};
       globalDepositLogs.forEach(log => {
-        if (!log.customerId) return;
         if (!trueDepMap[log.customerId]) trueDepMap[log.customerId] = 0;
         trueDepMap[log.customerId] += log.depType === 'in' ? Number(log.nominal) : -Number(log.nominal);
       });
 
+      // 6. Ambil data customers terbaru langsung dari Firestore
+      const custSnap = await getDocs(collection(db, 'customers'));
+      const allCustomers = custSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
       let syncCount = 0;
-      for (const c of customers) {
+      const batches = [];
+      let currentBatch = writeBatch(db);
+      let batchOpCount = 0;
+
+      for (const c of allCustomers) {
         const correctDebt = trueDebtMap[c.id] && trueDebtMap[c.id] > 0 ? trueDebtMap[c.id] : 0;
         const correctDep = trueDepMap[c.id] && trueDepMap[c.id] > 0 ? trueDepMap[c.id] : 0;
 
         if (Number(c.remainingDebt || 0) !== correctDebt || Number(c.returnAmount || 0) !== correctDep) {
-          await updateDocument('customers', c.id, { remainingDebt: correctDebt, returnAmount: correctDep });
+          const custRef = doc(db, 'customers', c.id);
+          currentBatch.update(custRef, { remainingDebt: correctDebt, returnAmount: correctDep });
+          batchOpCount++;
           syncCount++;
+
+          if (batchOpCount >= 450) {
+            batches.push(currentBatch.commit());
+            currentBatch = writeBatch(db);
+            batchOpCount = 0;
+          }
         }
       }
 
-      onShowToast(`Berhasil! ${syncCount} data profil pelanggan disinkronkan.`, 'success');
+      if (batchOpCount > 0) {
+        batches.push(currentBatch.commit());
+      }
+
+      await Promise.all(batches);
+
+      onShowToast(`Berhasil! ${syncCount} data saldo pelanggan berhasil disinkronkan & dipulihkan.`, 'success');
       setShowSyncModal(false);
     } catch (error) {
-      onShowToast('Gagal sinkronisasi data', 'error');
+      console.error('Error saat sinkronisasi:', error);
+      onShowToast('Gagal sinkronisasi data: ' + error.message, 'error');
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -1036,8 +1080,8 @@ const Dashboard = ({ onShowToast }) => {
                     key={preset.id}
                     onClick={() => setPresetFilter(preset.id)}
                     className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all ${isActive
-                        ? 'bg-teal-600 text-white shadow-sm scale-102'
-                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200 hover:text-gray-900'
+                      ? 'bg-teal-600 text-white shadow-sm scale-102'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200 hover:text-gray-900'
                       }`}
                   >
                     {preset.label}
@@ -1077,8 +1121,8 @@ const Dashboard = ({ onShowToast }) => {
 
         {/* ROW 2: KONTROL KUOTA & MODE PEMBACAAN DATABASE (SOLUSI B & C) */}
         <div className={`p-4 rounded-2xl border transition-all flex flex-col md:flex-row items-start md:items-center justify-between gap-4 ${limitTransactions === null
-            ? 'bg-emerald-50/60 border-emerald-200 text-emerald-950'
-            : 'bg-amber-50/70 border-amber-200 text-amber-950'
+          ? 'bg-emerald-50/60 border-emerald-200 text-emerald-950'
+          : 'bg-amber-50/70 border-amber-200 text-amber-950'
           }`}>
           <div className="flex items-start md:items-center gap-3">
             <div className={`p-2.5 rounded-xl flex-shrink-0 shadow-sm mt-0.5 md:mt-0 ${limitTransactions === null ? 'bg-emerald-600 text-white' : 'bg-amber-500 text-white'
@@ -1112,8 +1156,8 @@ const Dashboard = ({ onShowToast }) => {
                   onClick={() => handleSetQuickLimit(num)}
                   disabled={loadingTrans}
                   className={`px-2.5 py-1 text-[10px] font-black rounded-lg transition-all ${limitTransactions === num
-                      ? 'bg-gray-800 text-white shadow-sm'
-                      : 'text-gray-600 hover:bg-gray-100'
+                    ? 'bg-gray-800 text-white shadow-sm'
+                    : 'text-gray-600 hover:bg-gray-100'
                     }`}
                 >
                   {num}
@@ -1123,8 +1167,8 @@ const Dashboard = ({ onShowToast }) => {
                 onClick={() => handleSetQuickLimit(null)}
                 disabled={loadingTrans}
                 className={`px-2.5 py-1 text-[10px] font-black rounded-lg transition-all ${limitTransactions === null
-                    ? 'bg-emerald-600 text-white shadow-sm'
-                    : 'text-gray-600 hover:bg-gray-100'
+                  ? 'bg-emerald-600 text-white shadow-sm'
+                  : 'text-gray-600 hover:bg-gray-100'
                   }`}
               >
                 Semua
@@ -1267,7 +1311,7 @@ const Dashboard = ({ onShowToast }) => {
               </div>
               <div className="flex gap-2 w-full md:w-auto">
                 <button onClick={() => setShowDownloadModal(true)} className="flex-1 justify-center p-3 bg-blue-50 text-blue-700 rounded-xl border border-blue-200 hover:bg-blue-100 flex items-center gap-2 text-xs font-black shadow-sm"><Download className="w-4 h-4" /> Download</button>
-                <button onClick={() => setShowSyncModal(true)} className="flex-1 justify-center p-3 bg-purple-50 text-purple-700 rounded-xl border border-purple-200 hover:bg-purple-100 flex items-center gap-2 text-xs font-black shadow-sm"><RotateCcw className="w-4 h-4" /> Sinkron</button>
+                {/* <button onClick={() => setShowSyncModal(true)} className="flex-1 justify-center p-3 bg-purple-50 text-purple-700 rounded-xl border border-purple-200 hover:bg-purple-100 flex items-center gap-2 text-xs font-black shadow-sm"><RotateCcw className="w-4 h-4" /> Sinkron</button> */}
                 {/* <button onClick={() => setShowResetModal(true)} className="flex-1 justify-center p-3 bg-red-50 text-red-700 rounded-xl border border-red-200 hover:bg-red-100 flex items-center gap-2 text-xs font-black shadow-sm"><AlertTriangle className="w-4 h-4" /> Reset</button> */}
               </div>
             </div>
@@ -1522,6 +1566,7 @@ const Dashboard = ({ onShowToast }) => {
           onViewHistoryDetail={(item) => { setSelectedDetailItem(item); setShowDetailModal(true); }}
           onDeleteHistory={(item) => { setSelectedItem(item); setShowDeleteModal(true); }}
           paginationComponent={renderPagination()}
+          onSync={() => setShowSyncModal(true)}
         />
       )}
 
@@ -1777,10 +1822,31 @@ const Dashboard = ({ onShowToast }) => {
       {showSyncModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
           <div className="bg-white rounded-[32px] p-6 max-w-sm w-full shadow-2xl text-center border-t-8 border-purple-600">
-            <h3 className="text-xl font-black text-gray-800 mb-2">Sinkron Data?</h3>
-            <p className="text-xs text-gray-500 mb-6 font-bold">Menyamakan ulang saldo hutang pelanggan ke nilai aslinya.</p>
-            <button onClick={handleSyncCustomers} className="w-full bg-purple-600 text-white py-3 rounded-2xl font-black shadow-md mb-2">Ya, Sinkronkan</button>
-            <button onClick={() => setShowSyncModal(false)} className="w-full py-3 font-black text-gray-400 bg-gray-100 rounded-2xl">Batal</button>
+            <h3 className="text-xl font-black text-gray-800 mb-2">Sinkron & Pulihkan Saldo?</h3>
+            <p className="text-xs text-gray-500 mb-6 font-bold">
+              Sistem akan membaca seluruh nota riwayat transaksi dan retur dari database tanpa batas limit, lalu menyelaraskan dan memulihkan saldo hutang serta deposit pelanggan ke nilai riil.
+            </p>
+            <button
+              onClick={handleSyncCustomers}
+              disabled={isSyncing}
+              className={`w-full ${isSyncing ? 'bg-purple-400 cursor-not-allowed' : 'bg-purple-600 hover:bg-purple-700'} text-white py-3 rounded-2xl font-black shadow-md mb-2 flex items-center justify-center gap-2 transition-colors`}
+            >
+              {isSyncing ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  Memulihkan Data...
+                </>
+              ) : (
+                'Ya, Sinkronkan & Pulihkan'
+              )}
+            </button>
+            <button
+              onClick={() => setShowSyncModal(false)}
+              disabled={isSyncing}
+              className="w-full py-3 font-black text-gray-400 bg-gray-100 rounded-2xl hover:bg-gray-200 transition-colors disabled:opacity-50"
+            >
+              Batal
+            </button>
           </div>
         </div>
       )}
@@ -2022,7 +2088,7 @@ const Dashboard = ({ onShowToast }) => {
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Status</span>
                   <span className={`px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-tight ${selectedDetailItem.depType === 'in' || selectedDetailItem.debtType === 'in' || selectedDetailItem.netType === 'in'
-                      ? 'bg-teal-100 text-teal-700' : 'bg-red-100 text-red-700'
+                    ? 'bg-teal-100 text-teal-700' : 'bg-red-100 text-red-700'
                     }`}>
                     {selectedDetailItem.depType === 'in' ? 'DEPOSIT MASUK' :
                       selectedDetailItem.depType === 'out' ? 'DEPOSIT TERPAKAI' :
@@ -2035,7 +2101,7 @@ const Dashboard = ({ onShowToast }) => {
                 <div className="flex justify-between items-center border-t border-gray-200 pt-2 mt-2">
                   <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Nominal</span>
                   <span className={`text-base font-black ${selectedDetailItem.depType === 'in' || selectedDetailItem.debtType === 'in' || selectedDetailItem.netType === 'in'
-                      ? 'text-teal-600' : 'text-red-600'
+                    ? 'text-teal-600' : 'text-red-600'
                     }`}>
                     Rp {(Number(selectedDetailItem.nominal || selectedDetailItem.amount || selectedDetailItem.total || 0)).toLocaleString('id-ID')}
                   </span>

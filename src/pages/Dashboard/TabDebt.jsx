@@ -1,4 +1,4 @@
-import { Search, History, Eye, Trash2, Edit3, ChevronDown } from 'lucide-react';
+import { Search, History, Eye, Trash2, Edit3, ChevronDown, RotateCcw } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 
 export const CustomerSearchSelect = ({ customers, value, onChange, placeholder }) => {
@@ -75,7 +75,8 @@ const TabDebt = ({
   onDeleteCustomerDebt,
   onViewHistoryDetail,
   onDeleteHistory,
-  paginationComponent
+  paginationComponent,
+  onSync
 }) => {
   return (
     <div className="space-y-6">
@@ -117,7 +118,18 @@ const TabDebt = ({
       <div className="bg-white rounded-3xl border shadow-sm mb-6 flex flex-col">
         <div className="p-4 md:p-6 bg-gray-50/50 border-b flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
            <h3 className="text-base md:text-lg font-black text-gray-800 uppercase tracking-tighter">Daftar Piutang {isGlobal ? 'Global' : 'Cabang'}</h3>
-           <div className="px-4 py-1.5 rounded-xl font-black text-xs uppercase bg-orange-100 text-orange-600">Total: Rp {totalUnpaidDebtDisplay.toLocaleString('id-ID')}</div>
+           <div className="flex items-center gap-2">
+             <div className="px-4 py-1.5 rounded-xl font-black text-xs uppercase bg-orange-100 text-orange-600">Total: Rp {totalUnpaidDebtDisplay.toLocaleString('id-ID')}</div>
+             {onSync && (
+               <button 
+                 onClick={onSync} 
+                 className="px-3 py-1.5 rounded-xl font-black text-xs uppercase bg-purple-50 text-purple-700 border border-purple-200 hover:bg-purple-100 flex items-center gap-1.5 shadow-sm transition-colors"
+                 title="Sinkronkan & pulihkan saldo hutang dari seluruh histori nota"
+               >
+                 <RotateCcw className="w-3.5 h-3.5" /> Sinkron Saldo
+               </button>
+             )}
+           </div>
         </div>
         <div className="overflow-x-auto w-full custom-scrollbar">
            <table className="w-full min-w-[500px] text-left text-xs md:text-sm">
